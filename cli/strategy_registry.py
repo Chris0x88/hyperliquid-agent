@@ -36,8 +36,8 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "claude_agent": {
         "path": "strategies.claude_agent:ClaudeStrategy",
-        "description": "Claude-powered LLM trading agent (requires ANTHROPIC_API_KEY)",
-        "params": {"model": "claude-haiku-4-5-20251001", "base_size": 0.5},
+        "description": "LLM trading agent — Gemini (default) or Claude",
+        "params": {"model": "gemini-2.0-flash", "base_size": 0.5},
     },
 }
 
