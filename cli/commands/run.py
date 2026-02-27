@@ -102,9 +102,16 @@ def run_cmd(
     is_yex = cfg.instrument.startswith("yex:") or cfg.instrument.endswith("-USDYP")
     protection_enabled = is_yex and cfg.protection.get("enabled", is_yex)
 
+    markout_tracker = None
+
     if protection_enabled:
         try:
-            from anomaly_protection import AnomalyStateStore, AnomalyToxicityScorer, ProtectionConfig
+            # Ensure anomaly-protection is importable
+            anomaly_prot_root = Path.home() / "anomaly-protection"
+            if str(anomaly_prot_root) not in sys.path and anomaly_prot_root.exists():
+                sys.path.insert(0, str(anomaly_prot_root))
+
+            from anomaly_protection import AnomalyStateStore, AnomalyToxicityScorer, ProtectionConfig, MarkoutTracker
             from anomaly_protection.config import load_protection_config
 
             store = AnomalyStateStore()
@@ -127,6 +134,11 @@ def run_cmd(
 
             scorer = AnomalyToxicityScorer(store, prot_config)
             params["toxicity_scorer"] = scorer
+
+            # Create markout tracker for thesis validation
+            markout_path = f"{cfg.data_dir}/markouts.jsonl"
+            markout_tracker = MarkoutTracker(output_path=markout_path, scorer=scorer)
+            typer.echo(f"Markout tracker: logging to {markout_path}")
 
             # Start anomaly detector in background thread
             from anomaly_protection.sink import ProtectionSink
@@ -211,6 +223,10 @@ def run_cmd(
         data_dir=cfg.data_dir,
         risk_limits=cfg.to_risk_limits(),
     )
+
+    # Attach markout tracker if protection is enabled
+    if markout_tracker is not None:
+        engine.markout_tracker = markout_tracker
 
     # Attach DSL guard if configured
     if cfg.dsl and cfg.dsl.get("enabled"):
