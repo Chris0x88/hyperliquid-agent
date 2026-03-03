@@ -25,10 +25,12 @@ class OrderManager:
         hl,  # DirectHLProxy | DirectMockProxy
         instrument: str = "ETH-PERP",
         dry_run: bool = False,
+        builder: dict = None,
     ):
         self.hl = hl
         self.instrument = instrument
         self.dry_run = dry_run
+        self._builder = builder
         self._total_placed = 0
         self._total_filled = 0
 
@@ -61,6 +63,7 @@ class OrderManager:
                 size=d.size,
                 price=d.limit_price,
                 tif="Ioc",
+                builder=self._builder,
             )
             self._total_placed += 1
             if fill is not None:

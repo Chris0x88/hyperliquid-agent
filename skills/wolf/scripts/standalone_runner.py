@@ -39,12 +39,14 @@ class WolfRunner:
         tick_interval: float = 60.0,
         json_output: bool = False,
         data_dir: str = "data/wolf",
+        builder: Optional[dict] = None,
     ):
         self.hl = hl
         self.config = config or WolfConfig()
         self.tick_interval = tick_interval
         self.json_output = json_output
         self.data_dir = data_dir
+        self.builder = builder
 
         # Core engine (pure, zero I/O)
         self.engine = WolfEngine(self.config)
@@ -306,6 +308,7 @@ class WolfRunner:
                 size=round(size, 4),
                 price=mid,
                 tif="Ioc",
+                builder=self.builder,
             )
 
             if fill:
@@ -357,6 +360,7 @@ class WolfRunner:
                 size=slot.entry_size,
                 price=mid if mid > 0 else slot.current_price,
                 tif="Ioc",
+                builder=self.builder,
             )
 
             exit_price = fill.price if fill else mid

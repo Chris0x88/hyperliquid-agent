@@ -44,6 +44,9 @@ class TradingConfig:
     # Persistence
     data_dir: str = "data/cli"
 
+    # Builder fee
+    builder: Dict[str, Any] = field(default_factory=dict)
+
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -68,11 +71,26 @@ class TradingConfig:
             tvl=Decimal(str(self.tvl)),
         )
 
+    def get_builder_config(self):
+        from cli.builder_fee import BuilderFeeConfig
+        if self.builder:
+            return BuilderFeeConfig.from_dict(self.builder)
+        return BuilderFeeConfig.from_env()
+
     def get_private_key(self) -> str:
+        # 1. Try encrypted keystore first
+        from cli.keystore import get_keystore_key
+        key = get_keystore_key()
+        if key:
+            return key
+
+        # 2. Fall back to environment variable
         key = os.environ.get("HL_PRIVATE_KEY", "")
         if not key:
             raise RuntimeError(
-                "HL_PRIVATE_KEY environment variable not set. "
-                "Export it before running: export HL_PRIVATE_KEY=0x..."
+                "No private key available. Either:\n"
+                "  1. Import a key: hl wallet import\n"
+                "  2. Set HL_KEYSTORE_PASSWORD env var\n"
+                "  3. Set HL_PRIVATE_KEY env var"
             )
         return key

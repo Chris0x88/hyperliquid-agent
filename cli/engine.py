@@ -33,17 +33,19 @@ class TradingEngine:
         dry_run: bool = False,
         data_dir: str = "data/cli",
         risk_limits: Optional[RiskLimits] = None,
+        builder: Optional[dict] = None,
     ):
         self.hl = hl
         self.strategy = strategy
         self.instrument = instrument
         self.tick_interval = tick_interval
         self.dry_run = dry_run
+        self.builder = builder
 
         # Reuse existing components (no modifications to core)
         self.position_tracker = PositionTracker()
         self.risk_manager = RiskManager(limits=risk_limits)
-        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run)
+        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run, builder=builder)
 
         # Persistence
         self.state_db = StateDB(path=f"{data_dir}/state.db")
@@ -175,6 +177,8 @@ class TradingEngine:
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
+                "fee": str(fill.fee),
+                "strategy": self.strategy.strategy_id,
             })
 
             # Record fill for markout tracking
@@ -265,6 +269,7 @@ class TradingEngine:
             size=size,
             price=price,
             tif="Ioc",
+            builder=self.builder,
         )
         if fill:
             self.position_tracker.apply_fill(
@@ -279,6 +284,8 @@ class TradingEngine:
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
+                "fee": str(fill.fee),
+                "strategy": self.strategy.strategy_id,
                 "meta": "dsl_close",
             })
             log.info("DSL closed position: %s %s @ %s", fill.side, fill.quantity, fill.price)

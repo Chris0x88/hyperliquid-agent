@@ -127,6 +127,7 @@ class DirectHLProxy:
         size: float,
         price: float,
         tif: str = "Ioc",
+        builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
         """Place a single order directly on HL. Returns HLFill if filled."""
         coin = _to_hl_coin(instrument)
@@ -152,6 +153,7 @@ class DirectHLProxy:
             result = self._exchange.order(
                 coin, is_buy, size, price,
                 {"limit": {"tif": tif}},
+                builder=builder,
             )
 
             if result.get("status") == "err":
@@ -258,6 +260,7 @@ class DirectMockProxy:
         size: float,
         price: float,
         tif: str = "Ioc",
+        builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
         fill = HLFill(
             oid=f"mock-{int(time.time()*1000)}",

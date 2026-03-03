@@ -59,6 +59,21 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Liquidation flow MM — provides liquidity during cascade events",
         "params": {"oi_drop_threshold_pct": 5.0, "cascade_spread_mult": 2.5},
     },
+    "momentum_breakout": {
+        "path": "strategies.momentum_breakout:MomentumBreakoutStrategy",
+        "description": "Momentum breakout — enter on volume + price breakout above/below N-period range",
+        "params": {"lookback": 20, "breakout_threshold_bps": 50.0, "size": 1.0},
+    },
+    "grid_mm": {
+        "path": "strategies.grid_mm:GridMMStrategy",
+        "description": "Grid market maker — fixed-interval levels above and below mid",
+        "params": {"grid_spacing_bps": 10.0, "num_levels": 5, "size_per_level": 0.5},
+    },
+    "basis_arb": {
+        "path": "strategies.basis_arb:BasisArbStrategy",
+        "description": "Basis arbitrage — trades implied basis from funding rate",
+        "params": {"basis_threshold_bps": 5.0, "size": 1.0},
+    },
 }
 
 # YEX market definitions — Nunchi HIP-3 yield perpetuals

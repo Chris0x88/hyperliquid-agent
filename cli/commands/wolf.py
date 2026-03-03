@@ -149,10 +149,19 @@ def _run_wolf(tick, preset, config, mock, mainnet, json_output,
     typer.echo(f"Budget: ${cfg.total_budget:,.0f}  |  Slots: {cfg.max_slots}  |  "
                f"Leverage: {cfg.leverage}x  |  Margin/slot: ${cfg.margin_per_slot:,.0f}")
 
+    # Builder fee
+    from cli.config import TradingConfig as _TC
+    _tcfg = _TC()
+    _bcfg = _tcfg.get_builder_config()
+    _builder_info = _bcfg.to_builder_info()
+    if _builder_info:
+        typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
+
     from skills.wolf.scripts.standalone_runner import WolfRunner
 
     runner = WolfRunner(hl=hl, config=cfg, tick_interval=tick,
-                        json_output=json_output, data_dir=data_dir)
+                        json_output=json_output, data_dir=data_dir,
+                        builder=_builder_info)
 
     if single:
         runner.run_once()
