@@ -15,8 +15,8 @@ from typing import Any, Dict, Optional
 class BuilderFeeConfig:
     """Builder fee settings. Loaded from env vars or YAML config."""
 
-    builder_address: str = "0xF8C75F891cb011E2097308b856bEC74f5ea10F20"
-    fee_rate_tenths_bps: int = 100  # 100 = 10 bps = 0.1%
+    builder_address: str = ""  # Set BUILDER_ADDRESS env var to enable
+    fee_rate_tenths_bps: int = 0  # Set BUILDER_FEE_TENTHS_BPS env var (e.g. 100 = 10 bps)
 
     @property
     def enabled(self) -> bool:

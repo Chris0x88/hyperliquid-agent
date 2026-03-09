@@ -13,6 +13,7 @@ builder_app = typer.Typer(no_args_is_help=True)
 @builder_app.command("approve")
 def builder_approve(
     mainnet: bool = typer.Option(False, "--mainnet"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Approve builder fee for your account (required before fees can be collected)."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -33,9 +34,13 @@ def builder_approve(
     typer.echo(f"Fee rate: {builder_cfg.fee_bps} bps ({builder_cfg.max_fee_rate_str})")
     typer.echo("")
 
-    confirm = typer.confirm("Approve this builder fee on your HL account?")
-    if not confirm:
-        raise typer.Exit()
+    if not yes:
+        if sys.stdin.isatty():
+            confirm = typer.confirm("Approve this builder fee on your HL account?")
+            if not confirm:
+                raise typer.Exit()
+        else:
+            typer.echo("Auto-confirming (non-interactive mode)")
 
     from parent.hl_proxy import HLProxy
 
