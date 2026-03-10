@@ -46,6 +46,9 @@ class GuardConfig:
     phase1_retrace: float = 0.03        # 3% retrace from high water
     phase1_max_breaches: int = 3        # Consecutive breaches before close
     phase1_absolute_floor: float = 0.0  # Hard price floor (0 = disabled)
+    phase1_max_duration_ms: int = 5_400_000   # 90 min max in Phase 1 (0 = disabled)
+    phase1_weak_peak_ms: int = 2_700_000      # 45 min weak-peak check (0 = disabled)
+    phase1_weak_peak_min_roe: float = 3.0     # Min peak ROE% to survive weak-peak check
 
     # Phase 2: "Lock the bag"
     phase2_retrace: float = 0.015       # 1.5% default retrace
@@ -69,6 +72,9 @@ class GuardConfig:
             "phase1_retrace": self.phase1_retrace,
             "phase1_max_breaches": self.phase1_max_breaches,
             "phase1_absolute_floor": self.phase1_absolute_floor,
+            "phase1_max_duration_ms": self.phase1_max_duration_ms,
+            "phase1_weak_peak_ms": self.phase1_weak_peak_ms,
+            "phase1_weak_peak_min_roe": self.phase1_weak_peak_min_roe,
             "phase2_retrace": self.phase2_retrace,
             "phase2_max_breaches": self.phase2_max_breaches,
             "breach_decay_mode": self.breach_decay_mode,
@@ -87,6 +93,9 @@ class GuardConfig:
             phase1_retrace=float(data.get("phase1_retrace", 0.03)),
             phase1_max_breaches=int(data.get("phase1_max_breaches", 3)),
             phase1_absolute_floor=float(data.get("phase1_absolute_floor", 0.0)),
+            phase1_max_duration_ms=int(data.get("phase1_max_duration_ms", 5_400_000)),
+            phase1_weak_peak_ms=int(data.get("phase1_weak_peak_ms", 2_700_000)),
+            phase1_weak_peak_min_roe=float(data.get("phase1_weak_peak_min_roe", 3.0)),
             phase2_retrace=float(data.get("phase2_retrace", 0.015)),
             phase2_max_breaches=int(data.get("phase2_max_breaches", 2)),
             breach_decay_mode=data.get("breach_decay_mode", "hard"),

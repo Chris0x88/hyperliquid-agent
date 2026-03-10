@@ -18,6 +18,8 @@ class GuardAction(Enum):
     HOLD = "hold"
     CLOSE = "close"
     TIER_CHANGED = "tier_changed"
+    PHASE1_TIMEOUT = "phase1_timeout"
+    WEAK_PEAK_CUT = "weak_peak_cut"
 
 
 @dataclass
@@ -105,6 +107,40 @@ class TrailingStopEngine:
         """Phase 1: 'Let it breathe' — wide retrace, patient breach counting."""
         cfg = self.config
         is_long = cfg.direction == "long"
+
+        # Phase 1 time-based exits (checked before graduation)
+        if s.phase1_start_ts > 0:
+            elapsed = now_ms - s.phase1_start_ts
+
+            # Hard auto-cut: position stuck in Phase 1 too long
+            if cfg.phase1_max_duration_ms > 0 and elapsed >= cfg.phase1_max_duration_ms:
+                return GuardResult(
+                    action=GuardAction.PHASE1_TIMEOUT,
+                    state=s,
+                    reason=(
+                        f"Phase 1 timeout: {elapsed / 60_000:.0f}min >= "
+                        f"{cfg.phase1_max_duration_ms / 60_000:.0f}min limit, "
+                        f"ROE={roe:.1f}%"
+                    ),
+                    roe_pct=roe,
+                )
+
+            # Weak-peak early cut: position not developing
+            if (cfg.phase1_weak_peak_ms > 0
+                    and elapsed >= cfg.phase1_weak_peak_ms
+                    and s.high_water > 0):
+                # Compute peak ROE from high water
+                peak_roe = self._compute_roe(s.high_water, s)
+                if peak_roe < cfg.phase1_weak_peak_min_roe:
+                    return GuardResult(
+                        action=GuardAction.WEAK_PEAK_CUT,
+                        state=s,
+                        reason=(
+                            f"Weak peak cut: {elapsed / 60_000:.0f}min elapsed, "
+                            f"peak ROE={peak_roe:.1f}% < {cfg.phase1_weak_peak_min_roe}%"
+                        ),
+                        roe_pct=roe,
+                    )
 
         # Check tier graduation (transition to Phase 2)
         if cfg.tiers and roe >= cfg.tiers[0].trigger_pct:

@@ -30,6 +30,9 @@ class GuardState:
     # Exchange-level stop loss
     exchange_sl_oid: str = ""
 
+    # Phase 1 timing
+    phase1_start_ts: int = 0           # ms when Phase 1 started (set at creation)
+
     # Lifecycle
     created_ts: int = 0
     last_check_ts: int = 0
@@ -54,6 +57,7 @@ class GuardState:
             "breach_count": self.breach_count,
             "current_roe": self.current_roe,
             "exchange_sl_oid": self.exchange_sl_oid,
+            "phase1_start_ts": self.phase1_start_ts,
             "created_ts": self.created_ts,
             "last_check_ts": self.last_check_ts,
             "closed": self.closed,
@@ -85,6 +89,7 @@ class GuardState:
             direction=direction,
             high_water=entry_price,
             high_water_ts=now,
+            phase1_start_ts=now,
             created_ts=now,
         )
 

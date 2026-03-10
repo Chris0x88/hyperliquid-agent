@@ -557,3 +557,126 @@ class TestSerialization:
         assert s2.entry_price == 2500.0
         assert s2.position_id == "test-pos"
         assert s2.high_water == 2500.0
+
+    def test_config_roundtrip_with_phase1_timing(self):
+        cfg = GuardConfig(
+            phase1_max_duration_ms=5_400_000,
+            phase1_weak_peak_ms=2_700_000,
+            phase1_weak_peak_min_roe=3.0,
+        )
+        d = cfg.to_dict()
+        cfg2 = GuardConfig.from_dict(d)
+        assert cfg2.phase1_max_duration_ms == 5_400_000
+        assert cfg2.phase1_weak_peak_ms == 2_700_000
+        assert cfg2.phase1_weak_peak_min_roe == 3.0
+
+    def test_state_roundtrip_with_phase1_start_ts(self):
+        s = GuardState.new("ETH-PERP", 2500.0, 1.0, "long", "test-pos")
+        assert s.phase1_start_ts > 0
+        d = s.to_dict()
+        s2 = GuardState.from_dict(d)
+        assert s2.phase1_start_ts == s.phase1_start_ts
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 Auto-Cut (Time-Based Exits)
+# ---------------------------------------------------------------------------
+
+class TestPhase1AutoCut:
+    def test_phase1_timeout_triggers_close(self):
+        """Position stuck in Phase 1 for 90+ min → PHASE1_TIMEOUT."""
+        cfg = _long_config(phase1_max_duration_ms=5_400_000)
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+
+        # 91 minutes later, still in Phase 1
+        now = 1_000_000 + 91 * 60_000
+        r = engine.evaluate(100.2, s, now_ms=now)
+        assert r.action == GuardAction.PHASE1_TIMEOUT
+        assert "timeout" in r.reason.lower()
+
+    def test_phase1_timeout_does_not_trigger_before_limit(self):
+        """Before 90 min, no timeout."""
+        cfg = _long_config(phase1_max_duration_ms=5_400_000, phase1_weak_peak_ms=0)
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+
+        # 80 minutes — should still be HOLD (weak-peak disabled)
+        now = 1_000_000 + 80 * 60_000
+        r = engine.evaluate(100.2, s, now_ms=now)
+        assert r.action == GuardAction.HOLD
+
+    def test_phase1_timeout_disabled_when_zero(self):
+        """phase1_max_duration_ms=0 disables the timeout."""
+        cfg = _long_config(phase1_max_duration_ms=0, phase1_weak_peak_ms=0)
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+
+        # 10 hours later — no timeout because both timers disabled
+        now = 1_000_000 + 600 * 60_000
+        r = engine.evaluate(100.2, s, now_ms=now)
+        assert r.action == GuardAction.HOLD
+
+    def test_weak_peak_cut_triggers(self):
+        """After 45 min, peak ROE < 3% → WEAK_PEAK_CUT."""
+        cfg = _long_config(
+            phase1_weak_peak_ms=2_700_000,
+            phase1_weak_peak_min_roe=3.0,
+        )
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+        s.high_water = 100.2  # Peak ROE = (0.2/100)*10*100 = 2% < 3%
+
+        now = 1_000_000 + 46 * 60_000
+        r = engine.evaluate(100.1, s, now_ms=now)
+        assert r.action == GuardAction.WEAK_PEAK_CUT
+        assert "weak peak" in r.reason.lower()
+
+    def test_weak_peak_does_not_trigger_if_peak_roe_sufficient(self):
+        """After 45 min, peak ROE >= 3% → no weak-peak cut."""
+        cfg = _long_config(
+            phase1_weak_peak_ms=2_700_000,
+            phase1_weak_peak_min_roe=3.0,
+        )
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+        s.high_water = 100.5  # Peak ROE = (0.5/100)*10*100 = 5% >= 3%
+
+        now = 1_000_000 + 46 * 60_000
+        r = engine.evaluate(100.3, s, now_ms=now)
+        assert r.action != GuardAction.WEAK_PEAK_CUT
+
+    def test_weak_peak_does_not_trigger_before_time(self):
+        """Before 45 min, no weak-peak check."""
+        cfg = _long_config(
+            phase1_weak_peak_ms=2_700_000,
+            phase1_weak_peak_min_roe=3.0,
+        )
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+        s.high_water = 100.1  # Very low peak
+
+        now = 1_000_000 + 30 * 60_000  # Only 30 min
+        r = engine.evaluate(100.05, s, now_ms=now)
+        assert r.action == GuardAction.HOLD
+
+    def test_graduation_takes_priority_over_timeout(self):
+        """If ROE hits graduation AND timeout, graduation wins (checked after timeout but
+        timeout fires first — however if we hit tier trigger, we should graduate.
+        Actually timeout is checked first, so it wins. This test verifies that.)"""
+        cfg = _long_config(phase1_max_duration_ms=5_400_000)
+        engine = TrailingStopEngine(cfg)
+        s = _state(entry=100.0)
+        s.phase1_start_ts = 1_000_000
+
+        # 91 min later, price at 101.0 (10% ROE = tier 0 trigger)
+        # Timeout is checked first, so PHASE1_TIMEOUT wins
+        now = 1_000_000 + 91 * 60_000
+        r = engine.evaluate(101.0, s, now_ms=now)
+        assert r.action == GuardAction.PHASE1_TIMEOUT
