@@ -558,6 +558,9 @@ pip install -e ".[dev]"
 pytest tests/ -v                  # 263 tests
 ```
 
+## Attribution 
+
+Inspired by openclaw, senpi, and claude code. 
 ---
 
 ## Links
