@@ -589,12 +589,14 @@ class ApexRunner:
             size = (self.config.margin_per_slot * self.config.leverage) / mid
             side = "buy" if action.direction == "long" else "sell"
 
+            # Use configured entry order type (default ALO for maker rebates)
+            entry_tif = getattr(self.config, "entry_order_type", "Alo")
             fill = self.hl.place_order(
                 instrument=action.instrument,
                 side=side,
                 size=size,  # adapter rounds to szDecimals
                 price=mid,
-                tif="Ioc",
+                tif=entry_tif,
                 builder=self.builder,
             )
 
@@ -652,6 +654,7 @@ class ApexRunner:
             mid = float(mids.get(coin, "0"))
             side = "sell" if slot.direction == "long" else "buy"
 
+            # Exits always use IOC — speed > fees (includes guard CLOSE exits)
             fill = self.hl.place_order(
                 instrument=action.instrument,
                 side=side,

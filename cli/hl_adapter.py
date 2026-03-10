@@ -174,7 +174,11 @@ class DirectHLProxy:
         tif: str = "Ioc",
         builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
-        """Place a single order directly on HL. Returns HLFill if filled."""
+        """Place a single order directly on HL. Returns HLFill if filled.
+
+        For ALO (tif="Alo"): if the order would cross the book (rejected),
+        automatically falls back to Gtc with a warning log.
+        """
         coin = _to_hl_coin(instrument)
         is_buy = side.lower() == "buy"
 
@@ -198,6 +202,28 @@ class DirectHLProxy:
             except Exception:
                 pass  # use original price if snapshot fails
 
+        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder)
+
+        # ALO fallback: if ALO was rejected (would cross), retry with Gtc
+        if fill is None and tif == "Alo":
+            log.warning("ALO rejected for %s %s %s @ %s — falling back to Gtc",
+                        side, size, instrument, price)
+            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder)
+
+        return fill
+
+    def _send_order(
+        self,
+        coin: str,
+        instrument: str,
+        side: str,
+        is_buy: bool,
+        size: float,
+        price: float,
+        tif: str,
+        builder: Optional[dict],
+    ) -> Optional[HLFill]:
+        """Low-level order send with retry on rate-limit. Returns HLFill or None."""
         try:
             result = None
             for attempt in range(3):
@@ -220,8 +246,8 @@ class DirectHLProxy:
                 return None
 
             if result.get("status") == "err":
-                log.warning("Order rejected: %s %s %s @ %s -- %s",
-                            side, size, instrument, price, result.get("response"))
+                log.warning("Order rejected: %s %s %s @ %s [%s] -- %s",
+                            side, size, instrument, price, tif, result.get("response"))
                 return None
 
             resp = result.get("response", {})
@@ -245,22 +271,22 @@ class DirectHLProxy:
                     quantity=Decimal(str(info.get("totalSz", size))),
                     timestamp_ms=int(time.time() * 1000),
                 )
-                log.info("Filled: %s %s %s @ %s", side, info.get("totalSz", size),
+                log.info("Filled [%s]: %s %s %s @ %s", tif, side, info.get("totalSz", size),
                          instrument, info.get("avgPx", price))
                 return fill
             elif "resting" in status:
                 oid = status["resting"].get("oid", "") if isinstance(status["resting"], dict) else ""
-                log.info("Resting: %s %s %s @ %s (oid=%s)", side, size, instrument, price, oid)
+                log.info("Resting [%s]: %s %s %s @ %s (oid=%s)", tif, side, size, instrument, price, oid)
                 return None
             elif "error" in status:
-                log.info("No fill: %s %s %s @ %s -- %s", side, size, instrument, price, status["error"])
+                log.info("No fill [%s]: %s %s %s @ %s -- %s", tif, side, size, instrument, price, status["error"])
                 return None
             else:
                 log.warning("Unknown status: %s", status)
                 return None
 
         except Exception as e:
-            log.error("Order failed: %s %s %s @ %s -- %s", side, size, instrument, price, e)
+            log.error("Order failed: %s %s %s @ %s [%s] -- %s", side, size, instrument, price, tif, e)
             return None
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
@@ -369,6 +395,7 @@ class DirectMockProxy:
         tif: str = "Ioc",
         builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
+        self._last_tif = tif  # expose for testing
         fill = HLFill(
             oid=f"mock-{int(time.time()*1000)}",
             instrument=instrument,
@@ -377,7 +404,7 @@ class DirectMockProxy:
             quantity=Decimal(str(size)),
             timestamp_ms=int(time.time() * 1000),
         )
-        log.info("[MOCK] Filled: %s %s %s @ %s", side, size, instrument, price)
+        log.info("[MOCK] Filled [%s]: %s %s %s @ %s", tif, side, size, instrument, price)
         return fill
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
