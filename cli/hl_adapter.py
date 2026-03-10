@@ -297,6 +297,48 @@ class DirectHLProxy:
         """Fetch mid prices for all assets."""
         return self._hl.get_all_mids()
 
+    def _to_coin(self, instrument: str) -> str:
+        """Map instrument to HL coin symbol."""
+        return _to_hl_coin(instrument)
+
+    def _round_size(self, coin: str, size: float) -> float:
+        """Round size to instrument's szDecimals."""
+        sz_dec = self._get_sz_decimals(coin)
+        return round(size, sz_dec)
+
+    def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
+        """Place a trigger stop-loss order on the exchange. Returns order ID or None."""
+        coin = self._to_coin(instrument)
+        is_buy = side.lower() == "buy"
+        sz = self._round_size(coin, size)
+        try:
+            result = self._exchange.order(
+                coin, is_buy, sz, trigger_price,
+                order_type={"trigger": {"triggerPx": str(trigger_price), "isMarket": True, "tpsl": "sl"}},
+                reduce_only=True,
+            )
+            # Parse OID from response
+            statuses = result.get("response", {}).get("data", {}).get("statuses", [])
+            if statuses and "resting" in statuses[0]:
+                return str(statuses[0]["resting"]["oid"])
+            if statuses and "filled" in statuses[0]:
+                return str(statuses[0]["filled"]["oid"])
+            log.warning("Trigger order placed but no OID in response: %s", result)
+            return None
+        except Exception as e:
+            log.warning("Failed to place trigger SL for %s: %s", instrument, e)
+            return None
+
+    def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
+        """Cancel a trigger order. Returns True if successful."""
+        coin = self._to_coin(instrument)
+        try:
+            self._exchange.cancel(coin, int(oid))
+            return True
+        except Exception as e:
+            log.warning("Failed to cancel trigger order %s: %s", oid, e)
+            return False
+
 
 class DirectMockProxy:
     """Mock adapter for dry-run / testing — no real HL connection."""
@@ -304,6 +346,8 @@ class DirectMockProxy:
     def __init__(self, mock: Optional[MockHLProxy] = None):
         self._mock = mock or MockHLProxy()
         self._open_orders: List[Dict] = []
+        self._trigger_orders: Dict[str, Dict] = {}
+        self._next_trigger_oid: int = 9000
 
     def get_snapshot(self, instrument: str = "ETH-PERP"):
         return self._mock.get_snapshot(instrument)
@@ -353,3 +397,17 @@ class DirectMockProxy:
     def get_all_mids(self) -> Dict[str, str]:
         """Return mock mid prices."""
         return self._mock.get_all_mids()
+
+    def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
+        """Place a mock trigger stop-loss order. Returns OID."""
+        oid = str(self._next_trigger_oid)
+        self._next_trigger_oid += 1
+        self._trigger_orders[oid] = {
+            "instrument": instrument, "side": side, "size": size,
+            "trigger_price": trigger_price,
+        }
+        return oid
+
+    def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
+        """Cancel a mock trigger order. Returns True if found and removed."""
+        return self._trigger_orders.pop(oid, None) is not None

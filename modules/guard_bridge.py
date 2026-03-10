@@ -69,6 +69,58 @@ class GuardBridge:
     def is_active(self) -> bool:
         return not self.state.closed
 
+    def sync_exchange_sl(self, hl, instrument: str) -> None:
+        """Place or update exchange-level SL to match current GUARD floor."""
+        if not self.is_active:
+            return
+
+        floor_price = self._compute_current_floor()
+        if floor_price <= 0:
+            return
+
+        close_side = "sell" if self.state.direction == "long" else "buy"
+
+        # Cancel old trigger if exists
+        old_oid = self.state.exchange_sl_oid
+        if old_oid:
+            hl.cancel_trigger_order(instrument, old_oid)
+
+        new_oid = hl.place_trigger_order(
+            instrument=instrument, side=close_side,
+            size=self.state.position_size, trigger_price=floor_price,
+        )
+        self.state.exchange_sl_oid = new_oid or ""
+        self._persist()
+
+    def cancel_exchange_sl(self, hl, instrument: str) -> None:
+        """Cancel exchange-level SL (on position close)."""
+        if self.state.exchange_sl_oid:
+            hl.cancel_trigger_order(instrument, self.state.exchange_sl_oid)
+            self.state.exchange_sl_oid = ""
+
+    def _compute_current_floor(self) -> float:
+        """Compute the current effective floor price for exchange SL."""
+        cfg = self.config
+        s = self.state
+
+        if s.current_tier_index < 0:
+            # Phase 1 — use absolute floor if set, else compute from retrace
+            if cfg.phase1_absolute_floor > 0:
+                return cfg.phase1_absolute_floor
+            # Fallback: trailing floor from high water
+            retrace = cfg.phase1_retrace
+            if s.direction == "long":
+                return s.high_water * (1 - retrace)
+            else:
+                return s.high_water * (1 + retrace)
+        else:
+            # Phase 2 — use tier floor
+            return self.engine._tier_floor_price(s.current_tier_index, s)
+
+    def _persist(self) -> None:
+        """Persist current state to store."""
+        self.store.save(self.state, self.config.to_dict())
+
     @classmethod
     def from_store(
         cls,

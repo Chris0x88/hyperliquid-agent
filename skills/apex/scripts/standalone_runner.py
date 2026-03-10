@@ -355,6 +355,9 @@ class ApexRunner:
                         "action": guard_result.action.value.lower(),
                         "roe_pct": guard_result.roe_pct,
                     }
+                    # Sync exchange SL on tier changes
+                    if guard_result.action.value == "TIER_CHANGED":
+                        guard.sync_exchange_sl(self.hl, slot.instrument)
             except Exception as e:
                 log.warning("Guard check failed for slot %d: %s", slot.slot_id, e)
 
@@ -612,6 +615,11 @@ class ApexRunner:
                 # Create Guard bridge for this slot
                 self._create_guard_bridge(slot)
 
+                # Place exchange-level SL for the new position
+                guard = self.guard_bridges.get(slot.slot_id)
+                if guard:
+                    guard.sync_exchange_sl(self.hl, action.instrument)
+
                 self.state.total_trades += 1
                 self._log_trade(
                     tick=self.state.tick_count, instrument=action.instrument,
@@ -677,9 +685,13 @@ class ApexRunner:
 
     def _close_slot(self, slot: ApexSlot, reason: str, pnl: float) -> None:
         """Reset a slot to empty and update PnL tracking."""
-        # Close Guard bridge
+        # Capture slot snapshot BEFORE reset for archival
+        slot_snapshot = slot.to_dict()
+
+        # Cancel exchange-level SL before closing guard
         guard = self.guard_bridges.pop(slot.slot_id, None)
         if guard:
+            guard.cancel_exchange_sl(self.hl, slot.instrument)
             guard.mark_closed(slot.current_price, reason)
 
         # Update PnL
@@ -737,6 +749,15 @@ class ApexRunner:
         slot.current_price = 0.0
         slot.current_roe = 0.0
         slot.high_water_roe = 0.0
+
+        # Archive closed state
+        try:
+            from modules.archiver import StateArchiver
+            archiver = StateArchiver(archive_dir=f"{self.data_dir}/archive")
+            archiver.archive_slot_snapshot(slot_snapshot, slot_snapshot.get("slot_id", 0))
+            archiver.archive_guard_state(f"{self.data_dir}/guard", f"apex-slot-{slot_snapshot.get('slot_id', 0)}")
+        except Exception as e:
+            log.warning("Archival failed for slot %d: %s", slot_snapshot.get("slot_id", 0), e)
 
     def _create_guard_bridge(self, slot: ApexSlot) -> None:
         """Create a Guard bridge for a newly entered slot."""

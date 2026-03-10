@@ -27,6 +27,9 @@ class GuardState:
     breach_count: int = 0
     current_roe: float = 0.0
 
+    # Exchange-level stop loss
+    exchange_sl_oid: str = ""
+
     # Lifecycle
     created_ts: int = 0
     last_check_ts: int = 0
@@ -50,6 +53,7 @@ class GuardState:
             "current_tier_index": self.current_tier_index,
             "breach_count": self.breach_count,
             "current_roe": self.current_roe,
+            "exchange_sl_oid": self.exchange_sl_oid,
             "created_ts": self.created_ts,
             "last_check_ts": self.last_check_ts,
             "closed": self.closed,
