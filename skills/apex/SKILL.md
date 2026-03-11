@@ -50,16 +50,23 @@ APEX runs a single tick loop (60s base) that:
 - Daily loss limit: $500 (default)
 - Daily loss trigger: close all positions immediately
 
+## Prerequisites
+
+Before running APEX live (not mock), ensure:
+1. **Testnet**: Claim USDyP first — `hl setup claim-usdyp` (without funds, all orders fail silently)
+2. **Mainnet**: Deposit USDC via the Hyperliquid web UI
+3. **Builder fee**: Approve once per network — `hl builder approve` (testnet) or `hl builder approve --mainnet`
+
 ## Usage
 
 ```bash
-# Mock mode
+# Mock mode (no funds needed)
 hl apex run --mock --max-ticks 10
 
-# Live (testnet)
+# Live (testnet) — requires USDyP balance + builder approval
 hl apex run
 
-# Live (mainnet)
+# Live (mainnet) — requires USDC balance + mainnet builder approval
 hl apex run --mainnet
 
 # Check status

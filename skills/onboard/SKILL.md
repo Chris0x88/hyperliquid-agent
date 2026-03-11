@@ -120,6 +120,8 @@ hl setup check
 
 ## Step 4: Fund Account
 
+> **CRITICAL**: On testnet, you MUST claim USDyP tokens before ANY trading commands will work (including builder approval). Without funds, all orders fail silently.
+
 ### Testnet — Claim USDyP
 ```bash
 hl setup claim-usdyp
@@ -136,7 +138,7 @@ New wallets must connect to Hyperliquid testnet once before claiming.
 hl account
 ```
 
-**Expected:** USDyP balance > 0.
+**Expected:** USDyP balance > 0. If balance is 0, do NOT proceed — all subsequent steps will fail.
 
 ### Mainnet — Deposit USDC
 Deposit USDC to your Hyperliquid sub-account manually via the Hyperliquid web UI. This cannot be automated.
@@ -169,7 +171,7 @@ hl builder approve --mainnet
 hl builder status
 ```
 
-**Expected:** `Builder fee: 10.0 bps -> 0xF8C75F89...`
+**Expected:** `Builder fee: 10.0 bps -> 0x0D1DB1C8...`
 
 **If fails:**
 | Error | Fix |
@@ -233,11 +235,51 @@ hl apex run --max-ticks 10
 
 Only after completing Steps 1-8 on testnet:
 
-1. `export HL_TESTNET=false`
-2. Deposit USDC to HL sub-account
-3. `hl builder approve --mainnet`
-4. `hl run engine_mm -i ETH-PERP --tick 15 --max-ticks 5 --mainnet`
-5. Verify: `hl status`
+> **IMPORTANT**: Switching from testnet to mainnet requires re-approving the builder fee on mainnet. Testnet approvals do NOT carry over.
+
+### Checklist
+
+1. **Switch network**:
+   ```bash
+   export HL_TESTNET=false
+   ```
+
+2. **Deposit USDC** to your HL sub-account via the [Hyperliquid web UI](https://app.hyperliquid.xyz)
+
+3. **Verify balance**:
+   ```bash
+   hl account --mainnet
+   ```
+
+4. **Approve builder fee on mainnet** (required again — separate from testnet approval):
+   ```bash
+   hl builder approve --mainnet
+   ```
+
+5. **Test with a single strategy first**:
+   ```bash
+   hl run engine_mm -i ETH-PERP --tick 15 --max-ticks 5 --mainnet
+   ```
+
+6. **Verify**: `hl status`
+
+### Network Differences
+
+| | Testnet | Mainnet |
+|--|---------|---------|
+| Currency | USDyP (free, claim via `hl setup claim-usdyp`) | USDC (real money) |
+| Instruments | Same tickers (ETH-PERP, BTC-PERP, etc.) | Same tickers |
+| YEX markets | VXX-USDYP, US3M-USDYP, BTCSWP-USDYP | Same instruments |
+| Builder fee | Must approve separately | Must approve separately |
+| `--mainnet` flag | Not needed (default is testnet) | Required on all commands |
+| Risk | None (play money) | Real financial risk |
+
+### Common Mistakes
+
+- **Forgot to re-approve builder** on mainnet → orders fail. Run `hl builder approve --mainnet`.
+- **No USDC deposited** → orders fail with insufficient funds. Deposit first.
+- **Using testnet env with `--mainnet` flag** → confusing. Set `HL_TESTNET=false` instead of mixing flags.
+- **Forgot `--mainnet` on a command** → runs on testnet by accident (harmless but confusing).
 
 ---
 
@@ -270,4 +312,4 @@ This skill is the entry point for all other skills. After completing onboarding:
 - **APEX**: `hl apex run` — multi-slot orchestrator
 - **REFLECT**: `hl reflect run` — nightly performance review
 - **Radar**: `hl radar run` — find trading opportunities
-- **DSL**: `hl dsl start <instrument>` — trailing stop protection
+- **Guard**: `hl guard run -i <instrument>` — trailing stop protection

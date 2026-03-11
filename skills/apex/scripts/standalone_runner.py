@@ -157,11 +157,42 @@ class ApexRunner:
                 self.guard_bridges[slot.slot_id] = guard
                 log.info("Restored Guard bridge for slot %d (%s)", slot.slot_id, slot.instrument)
 
+    def _preflight_check(self) -> None:
+        """Verify account has funds before starting. Warns loudly if not."""
+        try:
+            account = self.hl.get_account_state()
+            # Check for balance in withdrawable or crossMarginSummary
+            balance = 0.0
+            if "crossMarginSummary" in account:
+                balance = float(account["crossMarginSummary"].get("accountValue", 0))
+            elif "marginSummary" in account:
+                balance = float(account["marginSummary"].get("accountValue", 0))
+
+            if balance <= 0:
+                is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
+                if is_testnet:
+                    log.warning(
+                        "** NO FUNDS DETECTED ** "
+                        "On testnet, claim USDyP first: hl setup claim-usdyp"
+                    )
+                else:
+                    log.warning(
+                        "** NO FUNDS DETECTED ** "
+                        "On mainnet, deposit USDC via the Hyperliquid web UI"
+                    )
+                log.warning("Without funds, all orders will fail silently.")
+            else:
+                log.info("Account balance: $%.2f", balance)
+        except Exception as e:
+            log.warning("Preflight balance check failed: %s (continuing anyway)", e)
+
     def run(self, max_ticks: int = 0) -> None:
         """Main loop. Blocks until max_ticks reached or SIGINT."""
         self._running = True
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
+
+        self._preflight_check()
 
         log.info("APEX started: slots=%d leverage=%.0fx budget=$%.0f tick=%ds",
                  self.config.max_slots, self.config.leverage,

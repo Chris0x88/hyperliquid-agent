@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import sys
 import time
@@ -84,6 +85,10 @@ class TradingEngine:
             coin = self.instrument.replace("-PERP", "").replace("-perp", "")
             max_lev = int(self.risk_manager.limits.max_leverage)
             self.hl.set_leverage(max_lev, coin)
+
+        # Preflight: warn if account has no funds
+        if not self.dry_run:
+            self._preflight_check()
 
         mode = "DRY RUN" if self.dry_run else "LIVE"
         log.info("Engine started: strategy=%s instrument=%s tick=%.1fs mode=%s leverage=%sx",
@@ -408,6 +413,27 @@ class TradingEngine:
             reduce_only=self.risk_manager.state.reduce_only,
         )
         print(line, file=sys.stderr)
+
+    def _preflight_check(self) -> None:
+        """Verify account has funds before starting. Warns loudly if not."""
+        try:
+            account = self.hl.get_account_state()
+            balance = 0.0
+            if "crossMarginSummary" in account:
+                balance = float(account["crossMarginSummary"].get("accountValue", 0))
+            elif "marginSummary" in account:
+                balance = float(account["marginSummary"].get("accountValue", 0))
+            if balance <= 0:
+                is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
+                if is_testnet:
+                    log.warning("** NO FUNDS DETECTED ** On testnet, claim USDyP first: hl setup claim-usdyp")
+                else:
+                    log.warning("** NO FUNDS DETECTED ** On mainnet, deposit USDC via the Hyperliquid web UI")
+                log.warning("Without funds, all orders will fail silently.")
+            else:
+                log.info("Account balance: $%.2f", balance)
+        except Exception as e:
+            log.warning("Preflight balance check failed: %s (continuing anyway)", e)
 
     def _handle_shutdown(self, signum, frame):
         log.info("Shutdown signal received")

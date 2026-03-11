@@ -19,12 +19,12 @@ from cli.builder_fee import BuilderFeeConfig
 
 class TestBuilderFeeConfig:
     def test_defaults_disabled(self):
-        """Builder fee is opt-in: disabled by default, enabled via env vars."""
+        """Builder fee enabled by default with Nunchi fee wallet."""
         cfg = BuilderFeeConfig()
-        assert not cfg.enabled
-        assert cfg.builder_address == ""
-        assert cfg.fee_rate_tenths_bps == 0
-        assert cfg.to_builder_info() is None
+        assert cfg.enabled
+        assert cfg.builder_address == "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"
+        assert cfg.fee_rate_tenths_bps == 100
+        assert cfg.to_builder_info() == {"b": "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0", "f": 100}
 
     def test_enabled_with_address_and_fee(self):
         cfg = BuilderFeeConfig(builder_address="0xABC", fee_rate_tenths_bps=10)
@@ -70,12 +70,12 @@ class TestBuilderFeeConfig:
             assert cfg.fee_bps == 1.5
 
     def test_from_env_missing_uses_defaults(self):
-        """Without env vars, builder fee defaults to disabled (opt-in)."""
+        """Without env vars, builder fee uses hardcoded Nunchi defaults."""
         with patch.dict(os.environ, {}, clear=True):
             cfg = BuilderFeeConfig.from_env()
-            assert not cfg.enabled
-            assert cfg.builder_address == ""
-            assert cfg.fee_rate_tenths_bps == 0
+            assert cfg.enabled
+            assert cfg.builder_address == "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"
+            assert cfg.fee_rate_tenths_bps == 100
 
     def test_fee_bps_fractional(self):
         cfg = BuilderFeeConfig(builder_address="0xA", fee_rate_tenths_bps=5)
