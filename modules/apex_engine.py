@@ -41,6 +41,7 @@ class ApexEngine:
         slot_guard_results: Dict[int, Dict[str, Any]],
         now_ms: int = 0,
         smart_money_signals: Optional[List[Dict[str, Any]]] = None,
+        strategy_signals: Optional[List[Dict[str, Any]]] = None,
     ) -> List[ApexAction]:
         """Evaluate all positions and signals, return ordered actions.
 
@@ -77,6 +78,7 @@ class ApexEngine:
         entry_actions = self._evaluate_entries(
             state, pulse_signals, radar_opps, now_ms,
             smart_money_signals=smart_money_signals or [],
+            strategy_signals=strategy_signals or [],
         )
         actions.extend(entry_actions)
 
@@ -174,6 +176,7 @@ class ApexEngine:
         radar_opps: List[Dict],
         now_ms: int,
         smart_money_signals: Optional[List[Dict[str, Any]]] = None,
+        strategy_signals: Optional[List[Dict[str, Any]]] = None,
     ) -> List[ApexAction]:
         """Evaluate potential new entries."""
         cfg = self.config
@@ -220,6 +223,19 @@ class ApexEngine:
                         "source": "radar",
                         "score": opp.get("final_score", 0),
                         "priority": 2,
+                    })
+
+        # Priority 2.25: Directional strategy signals
+        for sig in (strategy_signals or []):
+            if sig.get("confidence", 0) >= cfg.pulse_confidence_threshold:
+                instrument = sig["asset"] + "-PERP"
+                if instrument not in active_instruments and instrument not in cfg.excluded_instruments:
+                    candidates.append({
+                        "instrument": instrument,
+                        "direction": sig.get("direction", "long").lower(),
+                        "source": sig.get("source", "strategy"),
+                        "score": sig.get("confidence", 75),
+                        "priority": 2.25,
                     })
 
         # Priority 3: Pulse other signals

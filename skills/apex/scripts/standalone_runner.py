@@ -32,6 +32,7 @@ from modules.memory_engine import MemoryEngine
 from modules.memory_guard import MemoryGuard
 from modules.pulse_guard import PulseGuard
 from modules.radar_guard import RadarGuard
+from modules.strategy_guard import StrategyGuard
 from modules.apex_config import ApexConfig
 from modules.apex_engine import ApexAction, ApexEngine
 from modules.apex_state import ApexSlot, ApexState, ApexStateStore
@@ -105,6 +106,15 @@ class ApexRunner:
                 log.info("Cleared radar scan history (--fresh)")
 
 
+        # Directional strategy guard (opt-in via config)
+        self.strategy_guard: Optional[StrategyGuard] = None
+        if self.config.strategy_enabled and self.config.strategy_names:
+            self.strategy_guard = StrategyGuard(
+                strategy_names=self.config.strategy_names,
+                enabled=True,
+            )
+            log.info("Strategy guard active: %s", self.config.strategy_names)
+
         # Guard bridges per slot (created on entry, removed on exit)
         self.guard_bridges: Dict[int, GuardBridge] = {}
         self._restore_guard_bridges()
@@ -149,6 +159,15 @@ class ApexRunner:
             margin_utilization_block=self.config.portfolio_margin_block,
             enabled=self.config.portfolio_risk_enabled,
         ))
+
+        # Directional strategy guard (optional)
+        self.strategy_guard = None
+        if self.config.strategy_enabled and self.config.strategy_names:
+            self.strategy_guard = StrategyGuard(
+                strategy_names=self.config.strategy_names,
+                enabled=True,
+            )
+            log.info("Strategy guard: %d strategies loaded", len(self.strategy_guard.strategies))
 
         # Smart money tracker (optional)
         self.smart_money_tracker = None
@@ -320,6 +339,18 @@ class ApexRunner:
             except Exception as e:
                 log.warning("Smart money scan failed: %s", e)
 
+        # 3c. Run directional strategies
+        strategy_signals = []
+        if self.strategy_guard and tick % self.config.strategy_interval_ticks == 0:
+            try:
+                all_markets = self.hl.get_all_markets()
+                strategy_signals = self.strategy_guard.scan(
+                    all_markets=all_markets,
+                    slot_prices=slot_prices,
+                )
+            except Exception as e:
+                log.warning("Strategy guard scan failed: %s", e)
+
         # 4. Run radar (every N ticks)
         radar_opps = []
         if tick % self.config.radar_interval_ticks == 0:
@@ -346,6 +377,7 @@ class ApexRunner:
             slot_guard_results=slot_guard_results,
             now_ms=now_ms,
             smart_money_signals=smart_money_signals,
+            strategy_signals=strategy_signals,
         )
 
         # 7. Execute actions

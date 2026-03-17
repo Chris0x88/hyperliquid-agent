@@ -85,6 +85,11 @@ class ApexConfig:
     smart_money_conviction_threshold: int = 2
     smart_money_poll_interval_ticks: int = 5
 
+    # Directional strategy integration
+    strategy_enabled: bool = False
+    strategy_names: List[str] = field(default_factory=list)
+    strategy_interval_ticks: int = 1  # Run every N ticks (1 = every tick)
+
     # Order type optimization (ALO fee savings ~3 bps round-trip)
     entry_order_type: str = "Alo"  # "Alo" (maker rebate), "Gtc", or "Ioc"
 
