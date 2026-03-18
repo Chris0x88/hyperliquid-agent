@@ -17,6 +17,49 @@ log = logging.getLogger("hl_proxy")
 
 ZERO = Decimal("0")
 
+_spot_meta_patched = False
+
+
+def _patch_spot_meta_indexing():
+    """Patch hyperliquid SDK Info.__init__ to handle out-of-bounds token indices on testnet."""
+    global _spot_meta_patched
+    if _spot_meta_patched:
+        return
+    _spot_meta_patched = True
+
+    import hyperliquid.info as info_mod
+
+    _orig_init = info_mod.Info.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        try:
+            _orig_init(self, *args, **kwargs)
+        except IndexError:
+            log.warning("SDK spot_meta token index out of bounds — applying safe fallback")
+            # Pre-fetch spot_meta, patch its tokens list to return None for OOB,
+            # then retry with the patched data
+            spot_meta = kwargs.get("spot_meta")
+            if spot_meta is None:
+                from hyperliquid.api import API
+                api = API(args[0] if args else kwargs.get("base_url"), kwargs.get("timeout"))
+                spot_meta = api.post("/info", {"type": "spotMeta"})
+
+            tokens = spot_meta["tokens"]
+            max_idx = max(
+                (idx for si in spot_meta["universe"] for idx in si["tokens"]),
+                default=0,
+            )
+            # Pad tokens list so all indices are in-bounds
+            while len(tokens) <= max_idx:
+                tokens.append({"name": f"UNKNOWN-{len(tokens)}", "szDecimals": 0,
+                               "weiDecimals": 0, "index": len(tokens),
+                               "tokenId": "0x0", "isCanonical": False})
+
+            kwargs["spot_meta"] = spot_meta
+            _orig_init(self, *args, **kwargs)
+
+    info_mod.Info.__init__ = _patched_init
+
 
 @dataclass
 class HLFill:
@@ -241,6 +284,8 @@ class HLProxy:
         from hyperliquid.info import Info
         from hyperliquid.exchange import Exchange
         from hyperliquid.utils import constants
+
+        _patch_spot_meta_indexing()
 
         base_url = constants.TESTNET_API_URL if self.testnet else constants.MAINNET_API_URL
         self._info = Info(base_url, skip_ws=True)

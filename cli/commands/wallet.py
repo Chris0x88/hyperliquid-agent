@@ -155,7 +155,7 @@ def wallet_export(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.keystore import list_keystores, load_keystore
+    from cli.keystore import list_keystores, load_keystore, _resolve_password
 
     if not address:
         keystores = list_keystores()
@@ -164,12 +164,17 @@ def wallet_export(
             raise typer.Exit(1)
         address = keystores[0]["address"]
 
-    password = typer.prompt("Keystore password", hide_input=True)
+    # Try auto-loading password from env file / env var first
+    password = _resolve_password()
+    if not password:
+        password = typer.prompt("Keystore password", hide_input=True)
 
     try:
         key = load_keystore(address, password)
         typer.echo(f"Address: {address}")
         typer.echo(f"Private key: {key}")
+        typer.echo("")
+        typer.echo("Import this key into MetaMask/Rabby to connect your wallet.")
     except FileNotFoundError:
         typer.echo(f"No keystore found for {address}", err=True)
         raise typer.Exit(1)
