@@ -24,13 +24,12 @@ class TestVenueCapabilities:
         caps = VenueCapabilities()
         assert not caps.supports_alo
         assert not caps.supports_trigger_orders
-        assert not caps.supports_builder_fee
         assert not caps.supports_cross_margin
 
     def test_hl_capabilities(self):
         caps = VenueCapabilities(
             supports_alo=True, supports_trigger_orders=True,
-            supports_builder_fee=True, supports_cross_margin=True,
+            supports_cross_margin=True,
         )
         assert caps.supports_alo
         assert caps.supports_trigger_orders
@@ -49,7 +48,7 @@ class TestVenueAdapterABC:
             def get_candles(self, coin, interval, lookback_ms): return []
             def get_all_markets(self): return []
             def get_all_mids(self): return {}
-            def place_order(self, instrument, side, size, price, tif="Ioc", builder=None): return None
+            def place_order(self, instrument, side, size, price, tif="Ioc"): return None
             def cancel_order(self, instrument, oid): return False
             def get_open_orders(self, instrument=""): return []
             def get_account_state(self): return {}

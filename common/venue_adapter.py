@@ -59,8 +59,7 @@ class VenueAdapter(ABC):
 
     @abstractmethod
     def place_order(self, instrument: str, side: str, size: float,
-                    price: float, tif: str = "Ioc",
-                    builder: Optional[dict] = None) -> Optional[Fill]: ...
+                    price: float, tif: str = "Ioc") -> Optional[Fill]: ...
 
     @abstractmethod
     def cancel_order(self, instrument: str, oid: str) -> bool: ...
@@ -79,8 +78,7 @@ class VenueAdapter(ABC):
     # --- Optional (check capabilities first) ---
 
     def place_trigger_order(self, instrument: str, side: str, size: float,
-                            trigger_price: float,
-                            builder: Optional[dict] = None) -> Optional[str]:
+                            trigger_price: float) -> Optional[str]:
         raise NotImplementedError("Trigger orders not supported by this venue")
 
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:

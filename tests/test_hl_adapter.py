@@ -200,7 +200,7 @@ class TestALOFallback:
         proxy = _make_proxy()
         call_count = [0]
 
-        def mock_order(coin, is_buy, sz, price, order_type, builder=None):
+        def mock_order(coin, is_buy, sz, price, order_type):
             call_count[0] += 1
             if call_count[0] == 1:
                 # First call (ALO) — rejected
@@ -230,7 +230,7 @@ class TestIOCSlippage:
         original_send = proxy._send_order
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif):
             sent_prices.append(price)
             return None
 
@@ -245,7 +245,7 @@ class TestIOCSlippage:
         proxy = _make_proxy()
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif):
             sent_prices.append(price)
             return None
 
@@ -261,7 +261,7 @@ class TestRateLimitRetry:
         proxy = _make_proxy()
         call_count = [0]
 
-        def mock_order(coin, is_buy, sz, price, order_type, builder=None):
+        def mock_order(coin, is_buy, sz, price, order_type):
             call_count[0] += 1
             if call_count[0] < 3:
                 raise Exception("429 Too Many Requests")
@@ -282,7 +282,7 @@ class TestRateLimitRetry:
     def test_raises_after_max_retries(self):
         proxy = _make_proxy()
 
-        def always_429(coin, is_buy, sz, price, order_type, builder=None):
+        def always_429(coin, is_buy, sz, price, order_type):
             raise Exception("429 Too Many Requests")
 
         proxy._exchange.order = always_429

@@ -78,29 +78,6 @@ class TestToRiskLimits:
         assert float(limits.max_leverage) == 5.0
 
 
-class TestGetBuilderConfig:
-    def test_returns_default_when_no_override(self):
-        cfg = TradingConfig()
-        builder = cfg.get_builder_config()
-        assert builder.builder_address == "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"
-        assert builder.fee_rate_tenths_bps == 100
-
-    def test_yaml_builder_override(self):
-        cfg = TradingConfig(builder={
-            "builder_address": "0xCUSTOM",
-            "fee_rate_tenths_bps": 50,
-        })
-        builder = cfg.get_builder_config()
-        assert builder.builder_address == "0xCUSTOM"
-        assert builder.fee_rate_tenths_bps == 50
-
-    def test_env_override(self):
-        cfg = TradingConfig()
-        with patch.dict(os.environ, {"BUILDER_ADDRESS": "0xENV"}):
-            builder = cfg.get_builder_config()
-        assert builder.builder_address == "0xENV"
-
-
 class TestGetPrivateKey:
     def test_env_var_fallback(self):
         cfg = TradingConfig()

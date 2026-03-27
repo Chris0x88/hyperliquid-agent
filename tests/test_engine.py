@@ -39,7 +39,7 @@ class MockHL:
             timestamp_ms=int(time.time() * 1000),
         )
 
-    def place_order(self, instrument, side, size, price, tif="Ioc", builder=None):
+    def place_order(self, instrument, side, size, price, tif="Ioc"):
         if not self._fill_on_order:
             return None
         return HLFill(

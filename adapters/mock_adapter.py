@@ -65,9 +65,8 @@ class MockVenueAdapter(VenueAdapter):
     # --- Execution ---
 
     def place_order(self, instrument: str, side: str, size: float,
-                    price: float, tif: str = "Ioc",
-                    builder: Optional[dict] = None) -> Optional[Fill]:
-        hf = self._proxy.place_order(instrument, side, size, price, tif, builder)
+                    price: float, tif: str = "Ioc") -> Optional[Fill]:
+        hf = self._proxy.place_order(instrument, side, size, price, tif)
         return _hl_fill_to_fill(hf) if hf is not None else None
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
@@ -88,9 +87,7 @@ class MockVenueAdapter(VenueAdapter):
     # --- Optional: Trigger Orders ---
 
     def place_trigger_order(self, instrument: str, side: str, size: float,
-                            trigger_price: float,
-                            builder: Optional[dict] = None) -> Optional[str]:
-        # DirectMockProxy.place_trigger_order doesn't accept builder param
+                            trigger_price: float) -> Optional[str]:
         return self._proxy.place_trigger_order(instrument, side, size, trigger_price)
 
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:

@@ -93,17 +93,6 @@ class TestUpdate:
         call_kwargs = hl.place_order.call_args
         assert call_kwargs.kwargs.get("tif") == "Alo" or call_kwargs[1].get("tif") == "Alo"
 
-    def test_builder_fee_passthrough(self):
-        hl = _mock_hl()
-        builder = {"b": "0xTEST", "f": 100}
-        mgr = OrderManager(hl, instrument="ETH-PERP", builder=builder)
-        decisions = [StrategyDecision(
-            action="place_order", side="buy", size=1.0, limit_price=2500.0,
-        )]
-        mgr.update(decisions, _snapshot())
-        call_kwargs = hl.place_order.call_args
-        assert call_kwargs.kwargs.get("builder") == builder or call_kwargs[1].get("builder") == builder
-
     def test_multiple_decisions(self):
         hl = _mock_hl()
         mgr = OrderManager(hl, instrument="ETH-PERP")

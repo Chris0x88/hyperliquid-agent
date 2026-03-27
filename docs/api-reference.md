@@ -704,8 +704,7 @@ Returns:
   "ok": [
     "hyperliquid-python-sdk installed",
     "HL_PRIVATE_KEY set",
-    "Network: testnet",
-    "Builder fee: 10 bps"
+    "Network: testnet"
   ],
   "issues": [],
   "passed": true

@@ -56,7 +56,7 @@ class StubAdapter(VenueAdapter):
     def get_all_mids(self):
         return {self._mid: str(self._mid)}
 
-    def place_order(self, instrument, side, size, price, tif="Ioc", builder=None):
+    def place_order(self, instrument, side, size, price, tif="Ioc"):
         return Fill(
             oid="test-oid",
             instrument=instrument,

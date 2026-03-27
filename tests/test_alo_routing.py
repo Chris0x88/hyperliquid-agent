@@ -36,7 +36,6 @@ class _TifTrackingProxy:
         size: float,
         price: float,
         tif: str = "Ioc",
-        builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
         self.calls.append({"instrument": instrument, "side": side, "tif": tif})
         return HLFill(

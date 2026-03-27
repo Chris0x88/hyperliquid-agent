@@ -1,19 +1,7 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Nunchi" width="480" />
-</p>
-
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
 
 <p align="center">
   14 strategies &bull; APEX multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
-</p>
-
-<p align="center">
-  <a href="https://docs.nunchi.trade"><strong>Docs</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://yex.nunchi.trade"><strong>App</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://research.nunchi.trade"><strong>Research</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://discord.gg/nunchi"><strong>Discord</strong></a> &nbsp;&bull;&nbsp;
-  <a href="https://x.com/nunchi"><strong>X</strong></a>
 </p>
 
 <p align="center">
@@ -25,21 +13,21 @@
 </p>
 
 <p align="center">
-  <a href="https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default">
+  <a href="https://railway.com/new/template?template=https://github.com/your-org/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default">
     <img src="https://railway.com/button.svg" alt="Deploy on Railway" height="36" />
   </a>
 </p>
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and YEX yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
 
 ---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/Nunchi-trade/agent-cli.git && cd agent-cli
+git clone https://github.com/your-org/agent-cli.git && cd agent-cli
 bash scripts/bootstrap.sh        # Creates venv, installs, validates
 ```
 
@@ -47,8 +35,7 @@ bash scripts/bootstrap.sh        # Creates venv, installs, validates
 
 ```bash
 hl wallet auto --save-env        # Create wallet + save creds (no prompts)
-hl setup claim-usdyp             # Claim testnet USDyP
-hl builder approve               # Approve builder fee (one-time)
+hl keys import                   # Import keys
 hl run avellaneda_mm --mock --max-ticks 3   # Validate
 hl apex run --mock --max-ticks 5            # Full pipeline test
 ```
@@ -60,7 +47,6 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=true           # default
 
 hl setup check                   # Validate environment
-hl builder approve               # Approve builder fee
 hl run engine_mm -i ETH-PERP --tick 10
 ```
 
@@ -70,7 +56,6 @@ hl run engine_mm -i ETH-PERP --tick 10
 export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
 
-hl builder approve --mainnet
 hl run engine_mm -i ETH-PERP --tick 10 --mainnet
 hl apex run --mainnet
 ```
@@ -160,24 +145,24 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 Grab the raw URL and go:
 
 ```
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/onboard/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/apex/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/pulse/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/guard/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/onboard/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/apex/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/radar/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/pulse/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/guard/SKILL.md
+https://raw.githubusercontent.com/your-org/agent-cli/main/skills/reflect/SKILL.md
 ```
 
 ### Install a skill (OpenClaw / ClawHub)
 
 ```bash
-clawhub install nunchi-trade/yex-trader
+clawhub install your-org/yex-trader
 ```
 
 ### Install a skill (Claude Code)
 
 ```bash
-git clone https://github.com/Nunchi-trade/agent-cli.git ~/agent-cli
+git clone https://github.com/your-org/agent-cli.git ~/agent-cli
 cd ~/agent-cli && pip install -e .
 mkdir -p ~/.claude/skills/yex-trader
 cp ~/agent-cli/cli/skill.md ~/.claude/skills/yex-trader/SKILL.md
@@ -195,9 +180,8 @@ First-time setup skill that walks an agent from zero to first trade in 9 steps. 
 # The onboard skill automates this entire flow:
 bash scripts/bootstrap.sh          # Step 1: Environment
 hl wallet auto --save-env          # Step 2: Wallet
-hl setup claim-usdyp               # Step 4: Fund account
-hl builder approve                 # Step 5: Builder fee
-hl run avellaneda_mm --mock --max-ticks 3  # Step 6: Validate
+hl keys import                     # Step 4: Import keys
+hl run avellaneda_mm --mock --max-ticks 3  # Step 5: Validate
 ```
 
 **[Download SKILL.md](skills/onboard/SKILL.md)**
@@ -462,11 +446,9 @@ hl guard run -i ETH-PERP [options] # Guard trailing stop
 hl reflect run [--since DATE]        # Performance review
 
 # Infrastructure
-hl builder approve [--mainnet]    # Approve builder fee
 hl wallet auto [--save-env]       # Create wallet (agent-friendly)
 hl setup check                    # Validate environment
 hl setup bootstrap                # Auto-setup venv + install
-hl setup claim-usdyp              # Claim testnet USDyP
 hl mcp serve                      # Start MCP server
 ```
 
@@ -481,9 +463,9 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
+**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
 
-Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
+Fast tools (strategies, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
 ### HTTP API & SSE
 
@@ -501,7 +483,7 @@ Two deployment options: **headless** (APEX runs strategies directly) or **OpenCl
 
 One-click deploy to run APEX autonomously. No AI model needed — pure deterministic strategy execution.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/your-org/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -519,7 +501,7 @@ One-click deploy to run APEX autonomously. No AI model needed — pure determini
 
 One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend. Talk to your trading bot via Telegram — it scans markets, enters trades, manages risk, and learns from its mistakes.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/your-org/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -551,7 +533,7 @@ Both options persist state via Railway volume at `/data` — APEX state, REFLECT
 
 ## YEX Yield Markets
 
-[YEX](https://yex.nunchi.trade) (Nunchi HIP-3) yield perpetuals on Hyperliquid:
+YEX (HIP-3) yield perpetuals on Hyperliquid:
 
 | Instrument | HL Coin | Description |
 |------------|---------|-------------|
@@ -574,7 +556,6 @@ cli/           CLI commands and trading engine
   commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
   mcp_server.py  MCP server (16 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
-  builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)
   strategy_registry.py  Strategy + YEX market definitions
 strategies/    14 trading strategy implementations
@@ -646,8 +627,6 @@ hl run my_strategies.my_strategy:MyStrategy -i ETH-PERP --tick 10
 | `HL_PRIVATE_KEY` | Yes* | Hyperliquid private key |
 | `HL_KEYSTORE_PASSWORD` | Alt* | Password for encrypted keystore |
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
-| `BUILDER_ADDRESS` | No | Override builder fee address |
-| `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
 | `ANTHROPIC_API_KEY` | No | For `claude_agent` with Claude |
 | `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
 | `OPENAI_API_KEY` | No | For `claude_agent` with OpenAI |
@@ -670,16 +649,10 @@ Inspired by openclaw, senpi, and claude code.
 
 ## Links
 
-- **Docs** — [docs.nunchi.trade](https://docs.nunchi.trade)
-- **YEX App** — [yex.nunchi.trade](https://yex.nunchi.trade)
-- **Research** — [research.nunchi.trade](https://research.nunchi.trade)
-- **Discord** — [discord.gg/nunchi](https://discord.gg/nunchi)
-- **X** — [@nunchi](https://x.com/nunchi)
-- **GitHub** — [Nunchi-trade](https://github.com/Nunchi-trade)
 - **Agent Skills Standard** — [agentskills.io](https://agentskills.io)
 
 ---
 
 <p align="center">
-  <sub>Built by <a href="https://nunchi.trade">Nunchi</a> &bull; MIT License</sub>
+  <sub>MIT License</sub>
 </p>

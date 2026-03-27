@@ -13,12 +13,6 @@
 - **Where:** `cli/hl_adapter.py` lines 326-329 (`place_order` method). Fallback: `Alo` rejected -> retry with `Gtc`.
 - **Why it matters:** Maker rebates on HL. Strategies using ALO pay zero or negative fees; without it, every order pays taker fees.
 
-### F2: Builder Fee
-
-- **What:** HL-native per-order fee mechanism (`BuilderInfo`). Every order sent through `DirectHLProxy.place_order()` attaches a builder fee (default: 10 bps to `0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0`). Fee field `f` is in tenths of basis points.
-- **Where:** `cli/hl_adapter.py` lines 296-299 (enforcement point), `cli/builder_fee.py` (config). Also attempted on trigger orders (line 485).
-- **Why it matters:** **Revenue-critical.** This is the sole monetization path for Nunchi on every order. All order paths flow through `place_order()`, making it the single enforcement point.
-
 ### F3: Trigger Orders (Exchange-Side Stop Losses)
 
 - **What:** HL supports server-side trigger orders (`triggerPx`, `isMarket`, `tpsl="sl"`). These execute on the exchange when the trigger price is hit, without requiring the client to be online.
@@ -27,7 +21,7 @@
 
 ### F4: YEX Market Mapping
 
-- **What:** Nunchi HIP-3 yield perpetuals use a `yex:` prefixed coin namespace on HL (e.g., `VXX-USDYP` -> `yex:VXX`). The `_to_hl_coin()` function handles bidirectional mapping. Three YEX markets defined: `VXX-USDYP`, `US3M-USDYP`, `BTCSWP-USDYP`.
+- **What:** HIP-3 yield perpetuals use a `yex:` prefixed coin namespace on HL (e.g., `VXX-USDYP` -> `yex:VXX`). The `_to_hl_coin()` function handles bidirectional mapping. Three YEX markets defined: `VXX-USDYP`, `US3M-USDYP`, `BTCSWP-USDYP`.
 - **Where:** `cli/hl_adapter.py` lines 43-53 (`_to_hl_coin`), `cli/strategy_registry.py` lines 100-113 (`YEX_MARKETS`), `cli/hl_adapter.py` lines 121-144 (`_get_yex_snapshot`).
 - **Why it matters:** YEX markets are HL-exclusive products. No other exchange has these instruments.
 
@@ -83,26 +77,26 @@
 
 ## 2. Strategy x Feature Matrix
 
-| Strategy | F1: ALO | F2: Builder Fee | F3: Trigger | F4: YEX Map | F5: Price Round | F6: szDecimals | F7: L2 Format | F8: Funding Format | F9: HL Funding Rate | F10: Meta API | F11: Candle Format |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| **simple_mm** | - | I | - | I | I | I | I | - | - | - | - |
-| **avellaneda_mm** | - | I | - | I | I | I | I | - | - | - | - |
-| **mean_reversion** | - | I | - | I | I | I | I | - | - | - | - |
-| **hedge_agent** | - | I | - | I | I | I | I | - | - | - | - |
-| **rfq_agent** | - | I | - | I | I | I | I | - | - | - | - |
-| **aggressive_taker** | - | I | - | I | I | I | I | - | - | - | - |
-| **claude_agent** | - | I | - | I | I | I | I | - | - | - | - |
-| **engine_mm** | - | I | - | I | I | I | I | D | **D** | - | - |
-| **funding_arb** | - | I | - | I | I | I | I | D | **D** | - | - |
-| **regime_mm** | - | I | - | I | I | I | I | D | **D** | - | - |
-| **liquidation_mm** | - | I | - | I | I | I | I | D | **D** | - | - |
-| **momentum_breakout** | - | I | - | I | I | I | I | - | - | - | - |
-| **grid_mm** | - | I | - | I | I | I | I | - | - | - | - |
-| **basis_arb** | - | I | - | I | I | I | I | D | - | - | - |
-| **simplified_ensemble** | - | I | - | I | I | I | I | - | - | - | - |
-| **funding_momentum** | - | I | - | I | I | I | I | D | - | - | - |
-| **oi_divergence** | - | I | - | I | I | I | I | - | - | - | - |
-| **trend_follower** | - | I | - | I | I | I | I | - | - | - | - |
+| Strategy | F1: ALO | F3: Trigger | F4: YEX Map | F5: Price Round | F6: szDecimals | F7: L2 Format | F8: Funding Format | F9: HL Funding Rate | F10: Meta API | F11: Candle Format |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **simple_mm** | - | - | I | I | I | I | - | - | - | - |
+| **avellaneda_mm** | - | - | I | I | I | I | - | - | - | - |
+| **mean_reversion** | - | - | I | I | I | I | - | - | - | - |
+| **hedge_agent** | - | - | I | I | I | I | - | - | - | - |
+| **rfq_agent** | - | - | I | I | I | I | - | - | - | - |
+| **aggressive_taker** | - | - | I | I | I | I | - | - | - | - |
+| **claude_agent** | - | - | I | I | I | I | - | - | - | - |
+| **engine_mm** | - | - | I | I | I | I | D | **D** | - | - |
+| **funding_arb** | - | - | I | I | I | I | D | **D** | - | - |
+| **regime_mm** | - | - | I | I | I | I | D | **D** | - | - |
+| **liquidation_mm** | - | - | I | I | I | I | D | **D** | - | - |
+| **momentum_breakout** | - | - | I | I | I | I | - | - | - | - |
+| **grid_mm** | - | - | I | I | I | I | - | - | - | - |
+| **basis_arb** | - | - | I | I | I | I | D | - | - | - |
+| **simplified_ensemble** | - | - | I | I | I | I | - | - | - | - |
+| **funding_momentum** | - | - | I | I | I | I | D | - | - | - |
+| **oi_divergence** | - | - | I | I | I | I | - | - | - | - |
+| **trend_follower** | - | - | I | I | I | I | - | - | - | - |
 
 **Legend:**
 - **D** = Direct dependency (strategy code imports or explicitly uses the HL feature)
@@ -111,7 +105,7 @@
 
 **Notes on the matrix:**
 - F1 (ALO), F3 (Trigger), F10 (Meta API), F11 (Candle Format) are adapter-level features not directly used by any strategy's `on_tick()`. They are available to the execution layer.
-- F2 (Builder Fee), F4 (YEX Map), F5 (Price Round), F6 (szDecimals), F7 (L2 Format) affect **all 17 strategies** implicitly because every order flows through `DirectHLProxy.place_order()` and every snapshot flows through `get_snapshot()`.
+- F4 (YEX Map), F5 (Price Round), F6 (szDecimals), F7 (L2 Format) affect **all 17 strategies** implicitly because every order flows through `DirectHLProxy.place_order()` and every snapshot flows through `get_snapshot()`.
 - F8 (Funding Format) is consumed directly by 6 strategies that read `snapshot.funding_rate` for trading logic: `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm`, `basis_arb`, `funding_momentum`.
 - F9 (HyperliquidFundingRate) is a hard import in 4 quoting-engine strategies: `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm`.
 
@@ -122,7 +116,6 @@
 | Feature | Criticality | Rationale |
 |---|---|---|
 | **F1: ALO Orders** | **Degraded** | System works without it (falls back to GTC/IOC), but loses maker rebates. MM strategies become significantly less profitable paying taker fees on every order. |
-| **F2: Builder Fee** | **Required** | Revenue stops completely without it. No builder fee = no Nunchi income. This is the business model. |
 | **F3: Trigger Orders** | **Optional** | Convenience feature for server-side stop losses. Software-side stops work as a fallback (already the case for most strategies). |
 | **F4: YEX Market Mapping** | **Required** (for YEX markets) | YEX instruments are HL-exclusive. Without mapping, these 3 markets are untradeable. For standard perps, this feature is unused. |
 | **F5: Price Rounding** | **Required** | Orders rejected without correct tick-size rounding. Every exchange has equivalent logic but with different rules. |
@@ -141,7 +134,6 @@
 | Feature | Feasibility | Effort | Notes |
 |---|---|---|---|
 | **F1: ALO Orders** | **Easy** | Low | Already behind `place_order()` interface. Map to equivalent post-only on other exchanges (Binance: `timeInForce=GTX`, Bybit: `PostOnly`). |
-| **F2: Builder Fee** | **Medium** | Medium | Conceptually HL-only (no other exchange has builder fees). For multi-exchange, this becomes a no-op on non-HL venues. Need to separate "Nunchi revenue fee" from "exchange-native builder fee". |
 | **F3: Trigger Orders** | **Easy** | Low | Already behind `place_trigger_order()` interface. Most exchanges support conditional/trigger orders with similar semantics. |
 | **F4: YEX Market Mapping** | **Hard** | High | Deeply coupled to HL's `yex:` namespace. YEX markets don't exist on other exchanges. For multi-exchange support, this is an HL-only code path that needs to be isolated. |
 | **F5: Price Rounding** | **Medium** | Medium | The concept (tick-size rounding) is universal, but the rule (5 sig-figs) is HL-specific. Need an exchange-agnostic `TickSizeProvider` interface. Each exchange adapter provides its own implementation. Currently computed inline in `_get_price_tick`. |
