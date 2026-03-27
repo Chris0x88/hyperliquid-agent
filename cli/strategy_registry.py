@@ -94,6 +94,11 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Long-only Brent Oil supply squeeze — geopolitical thesis + trend following + dip buying",
         "params": {"base_size_pct": 0.15, "max_position_pct": 0.50},
     },
+    "oil_war_regime": {
+        "path": "strategies.oil_war_regime:OilWarRegimeStrategy",
+        "description": "War-regime oil: mean-reversion at extremes + regime detection + bullish structural bias (professional framework)",
+        "params": {},
+    },
     "oil_liq_sweep": {
         "path": "strategies.oil_liq_sweep:OilLiqSweepStrategy",
         "description": "Liquidation sweep — buy dips from long cascades, fade short squeezes, profit from forced sellers",
