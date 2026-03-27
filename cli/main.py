@@ -35,6 +35,8 @@ from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.markets import markets_app
+from cli.commands.data import data_app
+from cli.commands.backtest import backtest_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -53,6 +55,8 @@ app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(markets_app, name="markets", help="Browse, search, and filter all HL perpetual contracts")
+app.add_typer(data_app, name="data", help="Historical data — fetch, cache, export")
+app.add_typer(backtest_app, name="backtest", help="Backtest strategies against historical data")
 
 
 def main():
