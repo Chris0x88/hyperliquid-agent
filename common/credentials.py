@@ -455,114 +455,35 @@ class FlatFileBackend(KeystoreBackend):
 
 
 # ---------------------------------------------------------------------------
-# iCloud Drive encrypted backup
+# Backup reality check
 # ---------------------------------------------------------------------------
-
-# iCloud Drive path on macOS — files here sync automatically to iCloud
-_ICLOUD_DRIVE = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs"
-_BACKUP_DIR = _ICLOUD_DRIVE / "agent-cli-backup"
-
-
-def icloud_backup(address: str, private_key: str) -> Optional[Path]:
-    """Write an AES-encrypted backup of the private key to iCloud Drive.
-
-    The backup file is encrypted with a key derived from the address +
-    a machine-specific salt (hardware UUID). This means:
-      - The file syncs to iCloud automatically (it's just a file)
-      - An attacker who gets the file still needs the address + machine UUID
-      - You can restore on a new Mac if you know your address
-
-    Returns the backup file path, or None if iCloud Drive is not available.
-    """
-    if not _ICLOUD_DRIVE.exists():
-        log.debug("iCloud Drive not found at %s", _ICLOUD_DRIVE)
-        return None
-
-    import hashlib
-    import hmac
-    import json as _json
-    import time as _time
-
-    # Derive encryption key from address + machine UUID
-    # This isn't meant to be military-grade — it's a backup-of-last-resort.
-    # The primary security is that iCloud Drive is encrypted by Apple E2E.
-    machine_id = _get_machine_uuid() or "fallback-salt"
-    dk = hashlib.pbkdf2_hmac(
-        "sha256",
-        address.encode(),
-        machine_id.encode(),
-        iterations=100_000,
-    )
-
-    # XOR-encrypt the key (simple but sufficient for a cloud backup
-    # that's already behind Apple ID + device passcode + E2E encryption)
-    key_bytes = private_key.encode()
-    encrypted = bytes(b ^ dk[i % len(dk)] for i, b in enumerate(key_bytes))
-
-    # Write backup
-    _BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    backup_file = _BACKUP_DIR / f"{address.lower()}.enc"
-
-    payload = {
-        "version": 1,
-        "address": address.lower(),
-        "encrypted_key": encrypted.hex(),
-        "created": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "note": "Encrypted with PBKDF2(address, machine-uuid). Restore with: hl keys restore",
-    }
-    backup_file.write_text(_json.dumps(payload, indent=2))
-    os.chmod(backup_file, 0o600)
-
-    return backup_file
-
-
-def icloud_restore(address: str) -> Optional[str]:
-    """Restore a private key from iCloud Drive encrypted backup.
-
-    Returns the decrypted private key, or None if no backup found.
-    """
-    backup_file = _BACKUP_DIR / f"{address.lower()}.enc"
-    if not backup_file.exists():
-        return None
-
-    import hashlib
-    import json as _json
-
-    payload = _json.loads(backup_file.read_text())
-    if payload.get("version") != 1:
-        log.warning("Unknown backup version: %s", payload.get("version"))
-        return None
-
-    encrypted = bytes.fromhex(payload["encrypted_key"])
-    machine_id = _get_machine_uuid() or "fallback-salt"
-    dk = hashlib.pbkdf2_hmac(
-        "sha256",
-        address.encode(),
-        machine_id.encode(),
-        iterations=100_000,
-    )
-
-    decrypted = bytes(b ^ dk[i % len(dk)] for i, b in enumerate(encrypted))
-    return decrypted.decode()
-
-
-def _get_machine_uuid() -> Optional[str]:
-    """Get the hardware UUID of this Mac (stable across reboots)."""
-    try:
-        result = subprocess.run(
-            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            if "IOPlatformUUID" in line:
-                # Line looks like: "IOPlatformUUID" = "XXXXXXXX-XXXX-..."
-                parts = line.split('"')
-                for i, p in enumerate(parts):
-                    if p == "IOPlatformUUID" and i + 2 < len(parts):
-                        return parts[i + 2]
-    except Exception:
-        pass
-    return None
+#
+# We explored iCloud Keychain sync, iCloud Drive encrypted backups, and
+# Swift TouchID helpers. Here's what we learned:
+#
+#   - iCloud Keychain sync (kSecAttrSynchronizable) requires an Apple
+#     Developer certificate ($99/yr). Without it, Keychain is LOCAL ONLY.
+#
+#   - Encrypting a backup file with machine UUID and putting it in iCloud
+#     Drive doesn't work: new Mac = new UUID = can't decrypt. Encrypting
+#     with a user-chosen password works but is just "password manager with
+#     extra steps."
+#
+#   - The ows-touchid project uses TouchID to gate LOCAL Keychain access
+#     to the OWS encryption key. Smart for theft protection, but doesn't
+#     solve the "Mac dies" backup problem either.
+#
+# ACTUAL BACKUP STRATEGY:
+#   Your Hyperliquid private key is an API wallet key. If this machine dies:
+#     1. Log into app.hyperliquid.xyz with your main wallet
+#     2. Go to Portfolio > API Wallets > Export Key
+#     3. Re-import on new machine: hl keys import
+#
+#   For non-API keys (main wallet), you already have your seed phrase.
+#   That's your backup. Write it down. Store it physically.
+#
+#   The OWS vault + local Keychain protect against ON-DISK theft.
+#   They are NOT a cloud backup system. That's not their job.
 
 
 # ---------------------------------------------------------------------------
@@ -642,16 +563,15 @@ def _archive_ows_wallet(address: str) -> Optional[str]:
 
 
 def store_key_secure(address: str, private_key: str, force: bool = False) -> List[str]:
-    """Store a key in ALL available secure backends (OWS + Keychain + iCloud Drive backup).
+    """Store a key in ALL available secure backends (OWS + Keychain).
 
-    Writes to three locations:
+    Writes to two locations:
       - OWS vault: AES-256-GCM encrypted file on disk (primary runtime store)
-      - macOS Keychain: local login keychain (fast retrieval, NOT iCloud-synced)
-      - iCloud Drive: encrypted backup file (survives machine death)
+      - macOS Keychain: local login keychain (fast fallback, NOT iCloud-synced)
 
-    NOTE: macOS Keychain items stored via `security` CLI are LOCAL ONLY.
-    Apple requires an Apple Developer certificate to write iCloud-synced
-    Keychain items. The iCloud Drive backup is the real cloud safety net.
+    BACKUP: Neither of these survives machine death. For API wallet keys,
+    re-export from app.hyperliquid.xyz. For main wallet keys, your seed
+    phrase IS your backup. Write it down physically.
 
     SAFETY: If a different key already exists, raises ValueError unless
     force=True. When forced, the old OWS wallet is archived with a
@@ -706,15 +626,6 @@ def store_key_secure(address: str, private_key: str, force: bool = False) -> Lis
             log.info("Key stored in macOS Keychain for %s (local only)", address)
         except Exception as exc:
             log.warning("Keychain store failed: %s", exc)
-
-    # Always try iCloud Drive encrypted backup (survives machine death)
-    try:
-        backup_path = icloud_backup(address, private_key)
-        if backup_path:
-            stored_in.append("icloud-drive")
-            log.info("Encrypted backup saved to iCloud Drive: %s", backup_path)
-    except Exception as exc:
-        log.warning("iCloud Drive backup failed: %s", exc)
 
     if not stored_in:
         raise RuntimeError(

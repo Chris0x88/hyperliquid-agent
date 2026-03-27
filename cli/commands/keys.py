@@ -44,11 +44,15 @@ def _print_key_guide():
     typer.echo("  \033[33m  This tool encrypts and stores it securely after import.\033[0m")
     typer.echo("")
     typer.echo("  \033[1mWhat happens next:\033[0m")
-    typer.echo("    Your key will be encrypted and stored in 3 places:")
+    typer.echo("    Your key will be encrypted and stored in 2 places:")
     typer.echo("    1. OWS vault       — AES-256-GCM encrypted on disk (bot reads from here)")
-    typer.echo("    2. macOS Keychain  — local login keychain (fast backup)")
-    typer.echo("    3. iCloud Drive    — encrypted backup file (survives machine death)")
+    typer.echo("    2. macOS Keychain  — local login keychain (fast fallback)")
     typer.echo("    The raw key is never stored in plaintext anywhere.")
+    typer.echo("")
+    typer.echo("  \033[1mBackup:\033[0m")
+    typer.echo("    Neither survives if this machine dies. For API wallets,")
+    typer.echo("    re-export anytime from: app.hyperliquid.xyz > API Wallets > Export")
+    typer.echo("    For main wallets, your seed phrase IS your backup.")
     typer.echo("")
 
 
@@ -136,13 +140,7 @@ def keys_import(
                     typer.echo("  \033[32m✓ OWS vault\033[0m       — encrypted on disk (~/.ows/wallets/)")
                 elif name == "keychain":
                     typer.echo("  \033[32m✓ macOS Keychain\033[0m  — local login keychain")
-                elif name == "icloud-drive":
-                    typer.echo("  \033[32m✓ iCloud Drive\033[0m    — encrypted backup (syncs to cloud)")
             typer.echo("")
-            if "icloud-drive" not in stored_in:
-                typer.echo("  \033[33m⚠ iCloud Drive backup failed — enable iCloud Drive in System Settings\033[0m")
-                typer.echo("    Your key is stored locally but NOT backed up to the cloud.")
-                typer.echo("")
             typer.echo("  Verify with: hl keys list")
             typer.echo("")
         except ValueError as e:
@@ -252,88 +250,3 @@ def keys_migrate(
     typer.echo(f"\nMigrated {migrated}/{len(addresses)} key(s) from {from_backend} to {to_backend}.")
 
 
-@keys_app.command("backup-status")
-def keys_backup_status():
-    """Check the status of iCloud Drive encrypted backups."""
-    _ensure_path()
-
-    from common.credentials import _BACKUP_DIR, _ICLOUD_DRIVE
-
-    typer.echo("")
-    # Check iCloud Drive
-    if _ICLOUD_DRIVE.exists():
-        typer.echo("  \033[32m✓ iCloud Drive\033[0m  — available")
-    else:
-        typer.echo("  \033[31m✗ iCloud Drive\033[0m  — not found")
-        typer.echo("    Enable iCloud Drive in System Settings > Apple ID > iCloud > iCloud Drive")
-        typer.echo("")
-        raise typer.Exit(1)
-
-    # Check backup directory
-    if _BACKUP_DIR.exists():
-        backups = list(_BACKUP_DIR.glob("*.enc"))
-        if backups:
-            typer.echo(f"  \033[32m✓ Backups\033[0m       — {len(backups)} encrypted backup(s) found")
-            typer.echo("")
-            for bf in backups:
-                import json as _json
-                try:
-                    data = _json.loads(bf.read_text())
-                    addr = data.get("address", "unknown")
-                    created = data.get("created", "unknown")
-                    typer.echo(f"    {addr}  created: {created}")
-                except Exception:
-                    typer.echo(f"    {bf.name}  (could not read)")
-        else:
-            typer.echo("  \033[33m⚠ Backups\033[0m       — backup directory exists but no backups found")
-    else:
-        typer.echo("  \033[33m⚠ Backups\033[0m       — no backup directory yet (run: hl keys import)")
-
-    typer.echo("")
-    typer.echo("  Backup location: ~/Library/Mobile Documents/com~apple~CloudDocs/agent-cli-backup/")
-    typer.echo("  These files sync to iCloud automatically and are encrypted.")
-    typer.echo("")
-
-
-@keys_app.command("restore")
-def keys_restore(
-    address: str = typer.Argument(..., help="Wallet address to restore (0x...)"),
-):
-    """Restore a key from iCloud Drive encrypted backup.
-
-    Use this on a new Mac after signing into your Apple ID.
-    The backup must have been created on a Mac with the same hardware UUID.
-    """
-    _ensure_path()
-
-    from common.credentials import icloud_restore, store_key_secure
-
-    address = address.lower()
-    if not address.startswith("0x"):
-        address = "0x" + address
-
-    typer.echo(f"\n  Restoring key for {address}...")
-
-    key = icloud_restore(address)
-    if key is None:
-        typer.echo("  \033[31m✗ No backup found\033[0m for this address.", err=True)
-        typer.echo("    Check: hl keys backup-status")
-        typer.echo("")
-        raise typer.Exit(1)
-
-    # Validate the restored key
-    try:
-        from eth_account import Account
-        acct = Account.from_key(key)
-        if acct.address.lower() != address:
-            typer.echo(f"  \033[31m✗ Key mismatch\033[0m — decrypted key produces {acct.address.lower()}, not {address}", err=True)
-            typer.echo("    This may mean the backup was created on a different machine.")
-            raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"  \033[31m✗ Invalid key\033[0m — {e}", err=True)
-        raise typer.Exit(1)
-
-    # Store in all backends
-    stored_in = store_key_secure(address, key, force=True)
-    typer.echo(f"  \033[32m✓ Key restored\033[0m and stored in: {', '.join(stored_in)}")
-    typer.echo("")
