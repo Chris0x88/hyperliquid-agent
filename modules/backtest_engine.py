@@ -190,19 +190,22 @@ class BacktestEngine:
         return result
 
     def _candle_to_snapshot(self, candle: Dict) -> MarketSnapshot:
-        """Convert a candle dict to a MarketSnapshot."""
+        """Convert a candle dict to a MarketSnapshot.
+
+        Uses actual OHLCV high/low as bid/ask so strategies that analyze
+        candle structure (wicks, ranges) get accurate data in backtesting.
+        """
         close = float(candle["c"])
         high = float(candle["h"])
         low = float(candle["l"])
         volume = float(candle["v"])
 
-        # Synthetic bid/ask from candle range
         spread = max(high - low, close * 0.0001)
         return MarketSnapshot(
             instrument=self.config.instrument,
             mid_price=close,
-            bid=close - spread * 0.01,
-            ask=close + spread * 0.01,
+            bid=low,   # actual candle low, not synthetic
+            ask=high,  # actual candle high, not synthetic
             spread_bps=(spread / close * 10000) if close > 0 else 0,
             timestamp_ms=int(candle["t"]),
             volume_24h=volume,
@@ -248,6 +251,7 @@ class BacktestEngine:
                 "candles_total": total,
                 "account_value": self._equity + unrealized,
                 "drawdown_pct": 0.0,
+                "candle": candle,  # raw OHLCV for strategies that need it
             },
         )
 
