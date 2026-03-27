@@ -89,6 +89,11 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "OI divergence filter — enter on price/OI agreement, exit on divergence",
         "params": {"size": 1.0},
     },
+    "brent_oil_squeeze": {
+        "path": "strategies.brent_oil_squeeze:BrentOilSqueezeStrategy",
+        "description": "Long-only Brent Oil supply squeeze — geopolitical thesis + trend following + dip buying",
+        "params": {"base_size_pct": 0.15, "max_position_pct": 0.50},
+    },
     "trend_follower": {
         "path": "strategies.trend_follower:TrendFollowerStrategy",
         "description": "EMA crossover + ADX trend strength filter — avoid chop, catch sustained moves",

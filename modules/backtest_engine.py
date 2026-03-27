@@ -224,19 +224,29 @@ class BacktestEngine:
             else:
                 unrealized = (entry - price) * size
 
+        # position_qty: positive = long, negative = short, 0 = flat
+        pos_qty = 0.0
+        pos_notional = 0.0
+        if self._position:
+            size = self._position["size"]
+            price = float(candle["c"])
+            pos_qty = size if self._position["side"] == "long" else -size
+            pos_notional = abs(size * price)
+
+        snapshot = self._candle_to_snapshot(candle)
+
         return StrategyContext(
-            tick_count=index,
-            position_size=self._position["size"] if self._position else 0.0,
-            position_side=self._position["side"] if self._position else "",
-            avg_entry=self._position["entry_price"] if self._position else 0.0,
+            snapshot=snapshot,
+            position_qty=pos_qty,
+            position_notional=pos_notional,
             unrealized_pnl=unrealized,
-            account_value=self._equity + unrealized,
-            available_margin=self._equity * 0.9,  # conservative
-            leverage=self.config.max_leverage,
+            realized_pnl=sum(t.pnl for t in self._trades if t.action == "close"),
+            round_number=index,
             meta={
                 "backtest": True,
                 "candle_index": index,
                 "candles_total": total,
+                "account_value": self._equity + unrealized,
                 "drawdown_pct": 0.0,
             },
         )

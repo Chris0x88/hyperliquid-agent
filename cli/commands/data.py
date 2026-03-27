@@ -94,7 +94,7 @@ def data_stats(
         for interval, info in intervals.items():
             start = datetime.fromtimestamp(info["start"] / 1000).strftime("%Y-%m-%d") if info["start"] else "?"
             end = datetime.fromtimestamp(info["end"] / 1000).strftime("%Y-%m-%d") if info["end"] else "?"
-            typer.echo(f"  {coin:<6} {interval:<4} {info['count']:>8,} candles  {start} → {end}")
+            typer.echo(f"  {coin:<16} {interval:<4} {info['count']:>8,} candles  {start} → {end}")
 
     typer.echo("")
     cache.close()
@@ -138,14 +138,27 @@ def _build_proxy(mainnet: bool, testnet: bool):
     base_url = MAINNET_API_URL if mainnet else TESTNET_API_URL
     info = Info(base_url=base_url, skip_ws=True)
 
-    # Return a simple object with get_candles and _info for the fetcher
+    # Return a simple object with get_candles — handles both perps and spot (xyz:) tokens
     class ReadOnlyProxy:
-        def __init__(self, info_obj):
+        def __init__(self, info_obj, api_url):
             self._info = info_obj
+            self._api_url = api_url
 
         def get_candles(self, coin, interval, lookback_ms):
             end = int(time.time() * 1000)
             start = end - lookback_ms
-            return self._info.candles_snapshot(coin, interval, start, end)
+            return self._candles_snapshot(coin, interval, start, end)
 
-    return ReadOnlyProxy(info)
+        def _candles_snapshot(self, coin, interval, start_ms, end_ms):
+            """Fetch candles — uses raw API for spot tokens (SDK doesn't support xyz: prefix)."""
+            if ":" in coin:
+                import requests as req
+                resp = req.post(f"{self._api_url}/info", json={
+                    "type": "candleSnapshot",
+                    "req": {"coin": coin, "interval": interval, "startTime": start_ms, "endTime": end_ms}
+                })
+                resp.raise_for_status()
+                return resp.json()
+            return self._info.candles_snapshot(coin, interval, start_ms, end_ms)
+
+    return ReadOnlyProxy(info, base_url)

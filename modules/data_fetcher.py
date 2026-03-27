@@ -39,7 +39,12 @@ class DataFetcher:
 
         Returns total number of new candles stored.
         """
-        coin = coin.upper()
+        # Preserve xyz: prefix for spot tokens (API expects lowercase prefix)
+        if ":" in coin:
+            prefix, name = coin.split(":", 1)
+            coin = f"{prefix.lower()}:{name.upper()}"
+        else:
+            coin = coin.upper()
         interval_ms = INTERVAL_MS.get(interval)
         if not interval_ms:
             raise ValueError(f"Unknown interval '{interval}'. Use: {list(INTERVAL_MS.keys())}")
@@ -88,10 +93,15 @@ class DataFetcher:
 
     def _fetch_chunk(self, coin: str, interval: str, start_ms: int, end_ms: int):
         """Fetch a single chunk of candles from the HL API."""
+        # For spot tokens (xyz: prefix), use the proxy's _candles_snapshot if available
+        # (SDK doesn't support xyz: coins natively)
+        snapshot_fn = getattr(self.proxy, '_candles_snapshot', None)
+        if snapshot_fn:
+            return snapshot_fn(coin, interval, start_ms, end_ms)
+
         # Try the SDK's candles_snapshot directly (takes absolute timestamps)
         info = getattr(self.proxy, '_info', None)
         if info is None:
-            # DirectHLProxy wraps an inner proxy
             inner = getattr(self.proxy, '_proxy', None)
             if inner:
                 info = getattr(inner, '_info', None)

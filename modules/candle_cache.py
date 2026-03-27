@@ -54,6 +54,18 @@ INTERVAL_MS = {
 }
 
 
+def _normalize_coin(coin: str) -> str:
+    """Normalize coin name, preserving xyz: prefix for spot tokens.
+
+    HL API uses lowercase prefix (xyz:BRENTOIL), so we keep prefix as-is
+    and only uppercase the token name.
+    """
+    if ":" in coin:
+        prefix, name = coin.split(":", 1)
+        return f"{prefix.lower()}:{name.upper()}"
+    return coin.upper()
+
+
 @dataclass
 class CandleCache:
     """Persistent SQLite cache for OHLCV candle data."""
@@ -81,7 +93,7 @@ class CandleCache:
         if not candles:
             return 0
 
-        coin = coin.upper()
+        coin = _normalize_coin(coin)
         rows = []
         for c in candles:
             rows.append((
@@ -104,7 +116,7 @@ class CandleCache:
         self, coin: str, interval: str, start_ms: int, end_ms: int
     ) -> List[Dict]:
         """Retrieve candles in the standard HL dict format, sorted by time."""
-        coin = coin.upper()
+        coin = _normalize_coin(coin)
         rows = self._conn.execute(
             "SELECT timestamp_ms, open, high, low, close, volume FROM candles "
             "WHERE coin = ? AND interval = ? AND timestamp_ms >= ? AND timestamp_ms <= ? "
@@ -123,7 +135,7 @@ class CandleCache:
         params: list = []
         if coin:
             query += " AND coin = ?"
-            params.append(coin.upper())
+            params.append(_normalize_coin(coin))
         if interval:
             query += " AND interval = ?"
             params.append(interval)
@@ -131,7 +143,7 @@ class CandleCache:
 
     def date_range(self, coin: str, interval: str) -> Optional[Tuple[int, int]]:
         """Return (min_ts, max_ts) for a coin/interval, or None if empty."""
-        coin = coin.upper()
+        coin = _normalize_coin(coin)
         row = self._conn.execute(
             "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM candles "
             "WHERE coin = ? AND interval = ?",
@@ -152,7 +164,7 @@ class CandleCache:
         """Return all intervals with data for a coin."""
         rows = self._conn.execute(
             "SELECT DISTINCT interval FROM candles WHERE coin = ? ORDER BY interval",
-            (coin.upper(),),
+            (_normalize_coin(coin),),
         ).fetchall()
         return [r[0] for r in rows]
 
@@ -162,7 +174,7 @@ class CandleCache:
         self._conn.execute(
             "INSERT OR REPLACE INTO fetch_log (coin, interval, start_ms, end_ms, count, source, fetched_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (coin.upper(), interval, start_ms, end_ms, count, source, int(time.time() * 1000)),
+            (_normalize_coin(coin), interval, start_ms, end_ms, count, source, int(time.time() * 1000)),
         )
         self._conn.commit()
 
@@ -186,7 +198,7 @@ class CandleCache:
     def export_csv(self, coin: str, interval: str, path: str) -> int:
         """Export candles to CSV. Returns row count."""
         import csv
-        coin = coin.upper()
+        coin = _normalize_coin(coin)
         rows = self._conn.execute(
             "SELECT timestamp_ms, open, high, low, close, volume FROM candles "
             "WHERE coin = ? AND interval = ? ORDER BY timestamp_ms",
