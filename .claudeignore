@@ -1,0 +1,8 @@
+# Railway deploy — not used, local only
+deploy/
+railway.toml
+Dockerfile
+
+# Test fixtures for removed features
+tests/test_telemetry.py
+tests/test_builder_fee.py

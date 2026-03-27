@@ -1,0 +1,23 @@
+{
+  "name": "hl-trader",
+  "version": "0.1.0",
+  "description": "Autonomous Hyperliquid trading agent -- 15 strategies, APEX orchestrator, risk management",
+  "workspace": ".",
+  "mcp": [
+    {
+      "name": "hl-trading",
+      "command": "python3",
+      "args": ["-m", "cli.main", "mcp", "serve"],
+      "cwd": ".",
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  ],
+  "files": {
+    "agents": "AGENTS.md",
+    "tools": "TOOLS.md",
+    "bootstrap": "BOOTSTRAP.md",
+    "soul": "SOUL.md"
+  }
+}

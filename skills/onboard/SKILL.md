@@ -16,7 +16,6 @@ You are onboarding onto the YEX trading system. Your goal is to reach a state wh
 
 RULES:
 - Follow steps sequentially — each depends on the previous
-- NEVER skip builder fee approval — all orders will fail without it
 - ALWAYS validate with a mock trade before going live
 - NEVER start on mainnet without completing testnet validation first
 - Save all credentials (passwords, addresses) — they cannot be recovered
@@ -120,25 +119,20 @@ hl setup check
 
 ## Step 4: Fund Account
 
-> **CRITICAL**: On testnet, you MUST claim USDyP tokens before ANY trading commands will work (including builder approval). Without funds, all orders fail silently.
+> **CRITICAL**: You must deposit funds before ANY trading commands will work. Without funds, all orders fail silently.
 
-### Testnet — Claim USDyP
-```bash
-hl setup claim-usdyp
-```
-
-**If you get "Wallet not eligible" error:**
-New wallets must connect to Hyperliquid testnet once before claiming.
+### Testnet — Deposit USDC
+Deposit USDC to your Hyperliquid testnet sub-account via the Hyperliquid testnet UI.
 1. Visit https://app.hyperliquid-testnet.xyz
 2. Connect the wallet address shown by `hl wallet list`
-3. Re-run `hl setup claim-usdyp`
+3. Deposit USDC
 
 **Verify:**
 ```bash
 hl account
 ```
 
-**Expected:** USDyP balance > 0. If balance is 0, do NOT proceed — all subsequent steps will fail.
+**Expected:** USDC balance > 0. If balance is 0, do NOT proceed — all subsequent steps will fail.
 
 ### Mainnet — Deposit USDC
 Deposit USDC to your Hyperliquid sub-account manually via the Hyperliquid web UI. This cannot be automated.
@@ -152,36 +146,7 @@ hl account --mainnet
 
 ---
 
-## Step 5: Builder Fee Approval
-
-Approve the builder fee so your orders include revenue collection. This is a one-time on-chain approval.
-
-**Testnet:**
-```bash
-hl builder approve
-```
-
-**Mainnet:**
-```bash
-hl builder approve --mainnet
-```
-
-**Verify:**
-```bash
-hl builder status
-```
-
-**Expected:** `Builder fee: 10.0 bps -> 0x0D1DB1C8...`
-
-**If fails:**
-| Error | Fix |
-|-------|-----|
-| `No private key` | Complete Step 2 |
-| `insufficient funds` | Complete Step 4 |
-
----
-
-## Step 6: Validate with Mock Trade
+## Step 5: Validate with Mock Trade
 
 Run a strategy in mock mode to verify the full pipeline without real orders.
 
@@ -199,7 +164,7 @@ hl run avellaneda_mm --mock --fresh --max-ticks 3
 
 ---
 
-## Step 7: First Live Trade (Testnet)
+## Step 6: First Live Trade (Testnet)
 
 Run a real strategy on testnet with a short time limit.
 
@@ -216,7 +181,7 @@ hl status
 
 ---
 
-## Step 8: APEX Multi-Slot (Optional)
+## Step 7: APEX Multi-Slot (Optional)
 
 After single-strategy validation, try the full APEX orchestrator.
 
@@ -231,11 +196,9 @@ hl apex run --max-ticks 10
 
 ---
 
-## Step 9: Mainnet (When Ready)
+## Step 8: Mainnet (When Ready)
 
-Only after completing Steps 1-8 on testnet:
-
-> **IMPORTANT**: Switching from testnet to mainnet requires re-approving the builder fee on mainnet. Testnet approvals do NOT carry over.
+Only after completing Steps 1-7 on testnet:
 
 ### Checklist
 
@@ -251,32 +214,25 @@ Only after completing Steps 1-8 on testnet:
    hl account --mainnet
    ```
 
-4. **Approve builder fee on mainnet** (required again — separate from testnet approval):
-   ```bash
-   hl builder approve --mainnet
-   ```
-
-5. **Test with a single strategy first**:
+4. **Test with a single strategy first**:
    ```bash
    hl run engine_mm -i ETH-PERP --tick 15 --max-ticks 5 --mainnet
    ```
 
-6. **Verify**: `hl status`
+5. **Verify**: `hl status`
 
 ### Network Differences
 
 | | Testnet | Mainnet |
 |--|---------|---------|
-| Currency | USDyP (free, claim via `hl setup claim-usdyp`) | USDC (real money) |
+| Currency | USDC (testnet, free via HL testnet faucet) | USDC (real money) |
 | Instruments | Same tickers (ETH-PERP, BTC-PERP, etc.) | Same tickers |
 | YEX markets | VXX-USDYP, US3M-USDYP, BTCSWP-USDYP | Same instruments |
-| Builder fee | Must approve separately | Must approve separately |
 | `--mainnet` flag | Not needed (default is testnet) | Required on all commands |
 | Risk | None (play money) | Real financial risk |
 
 ### Common Mistakes
 
-- **Forgot to re-approve builder** on mainnet → orders fail. Run `hl builder approve --mainnet`.
 - **No USDC deposited** → orders fail with insufficient funds. Deposit first.
 - **Using testnet env with `--mainnet` flag** → confusing. Set `HL_TESTNET=false` instead of mixing flags.
 - **Forgot `--mainnet` on a command** → runs on testnet by accident (harmless but confusing).
@@ -285,7 +241,6 @@ Only after completing Steps 1-8 on testnet:
 
 ## Anti-Patterns
 
-- **Skipping builder fee approval** → Every order fails silently. Always approve first.
 - **Going mainnet without testnet validation** → Real money at risk with unverified setup.
 - **Running APEX before single-strategy test** → APEX composes multiple systems — if any sub-component fails, debugging is harder.
 - **Ignoring password save** → Keystore password cannot be recovered. Lose it = lose wallet access.
@@ -298,8 +253,6 @@ Only after completing Steps 1-8 on testnet:
 | `HL_KEYSTORE_PASSWORD` | Yes* | Password for encrypted keystore |
 | `HL_PRIVATE_KEY` | Alt* | Raw private key (alternative to keystore) |
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
-| `BUILDER_ADDRESS` | No | Override builder fee address |
-| `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
 | `ANTHROPIC_API_KEY` | No | For `claude_agent` strategy |
 | `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
 

@@ -94,9 +94,21 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "EMA crossover + ADX trend strength filter — avoid chop, catch sustained moves",
         "params": {"size": 1.0},
     },
+    "power_law_btc": {
+        "path": "strategies.power_law_btc:PowerLawBTCStrategy",
+        "description": (
+            "Bitcoin Heartbeat Model rebalancer — power-law floor/ceiling signal drives "
+            "BTC-PERP leverage (0-40x). Set --tick 3600 for hourly rebalancing."
+        ),
+        "params": {
+            "max_leverage": 40.0,
+            "threshold_percent": 15.0,
+            "simulate": True,
+        },
+    },
 }
 
-# YEX market definitions — Nunchi HIP-3 yield perpetuals
+# YEX market definitions — HIP-3 yield perpetuals
 YEX_MARKETS: Dict[str, Dict[str, str]] = {
     "VXX-USDYP": {
         "hl_coin": "yex:VXX",

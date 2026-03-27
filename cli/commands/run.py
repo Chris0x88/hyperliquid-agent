@@ -232,14 +232,6 @@ def run_cmd(
         typer.echo(f"Max ticks: {cfg.max_ticks}")
     typer.echo("")
 
-    # Builder fee
-    builder_cfg = cfg.get_builder_config()
-    builder_info = builder_cfg.to_builder_info()
-    if builder_info:
-        typer.echo(f"Builder fee: {builder_cfg.fee_bps} bps -> {builder_cfg.builder_address[:10]}...")
-    else:
-        typer.echo("Builder fee: disabled")
-
     # Build and run engine
     from cli.engine import TradingEngine
 
@@ -251,7 +243,6 @@ def run_cmd(
         dry_run=cfg.dry_run,
         data_dir=cfg.data_dir,
         risk_limits=cfg.to_risk_limits(),
-        builder=builder_info,
     )
 
     # Attach markout tracker if protection is enabled

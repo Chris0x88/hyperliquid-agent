@@ -1,6 +1,6 @@
 ---
 name: yex-trader
-description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, DSL trailing stops, and builder fee revenue collection.
+description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, and DSL trailing stops.
 user-invocable: true
 argument-hint: "<strategy> [options]"
 allowed-tools:
@@ -17,7 +17,7 @@ metadata:
 
 # YEX Trader
 
-Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making, momentum, arbitrage, and LLM-powered trading. APEX multi-slot orchestrator. REFLECT nightly performance review. Builder fee revenue collection.
+Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making, momentum, arbitrage, and LLM-powered trading. APEX multi-slot orchestrator. REFLECT nightly performance review.
 
 ## Quick Start (Agent-Friendly)
 
@@ -25,8 +25,6 @@ Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making
 cd ~/agent-cli
 bash scripts/bootstrap.sh           # Creates venv, installs, validates
 hl wallet auto --save-env             # Creates wallet, saves creds to ~/.hl-agent/env
-hl setup claim-usdyp                 # Claim testnet USDyP
-hl builder approve                   # Approve builder fee (one-time)
 hl run avellaneda_mm --mock --max-ticks 3  # Validate
 hl run engine_mm -i ETH-PERP --tick 15 --max-ticks 5  # First live trade
 ```
@@ -48,17 +46,7 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=true  # default
 ```
 
-2. Claim testnet USDyP (required for YEX markets):
-```bash
-hl setup claim-usdyp
-```
-
-3. Approve builder fee (one-time):
-```bash
-hl builder approve
-```
-
-4. Start trading:
+2. Start trading:
 ```bash
 hl run avellaneda_mm -i VXX-USDYP --tick 15          # YEX yield market
 hl run engine_mm -i ETH-PERP --tick 10                # Standard perp
@@ -73,12 +61,7 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
 ```
 
-2. Approve builder fee (one-time):
-```bash
-hl builder approve --mainnet
-```
-
-3. Start trading:
+2. Start trading:
 ```bash
 hl run engine_mm -i ETH-PERP --tick 10 --mainnet      # ETH perp
 hl run avellaneda_mm -i BTC-PERP --tick 10 --mainnet   # BTC perp
@@ -92,8 +75,6 @@ hl apex run --mainnet                                   # APEX multi-slot
 | `HL_PRIVATE_KEY` | Yes* | Hyperliquid private key |
 | `HL_KEYSTORE_PASSWORD` | Alt* | Password for encrypted keystore |
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
-| `BUILDER_ADDRESS` | No | Override builder fee address (default: hardcoded) |
-| `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
 | `ANTHROPIC_API_KEY` | No | For `claude_agent` strategy |
 | `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
 
@@ -154,13 +135,6 @@ hl radar history [-n 5]
 hl movers run [--top 10]
 ```
 
-### Builder Fee
-
-```bash
-hl builder status
-hl builder approve [--mainnet]
-```
-
 ### Wallet (Encrypted Keystore)
 
 ```bash
@@ -176,7 +150,6 @@ hl wallet export [--address 0x...]
 ```bash
 hl setup check                       # Validate environment
 hl setup bootstrap                   # Auto-create venv and install
-hl setup claim-usdyp                 # Claim testnet USDyP tokens
 ```
 
 ### MCP Server (16 Tools)
@@ -186,7 +159,7 @@ hl mcp serve                         # Start MCP server (stdio transport)
 hl mcp serve --transport sse         # Start MCP server (SSE transport)
 ```
 
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `agent_memory`, `trade_journal`, `judge_report`
+Tools: `strategies`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `agent_memory`, `trade_journal`, `judge_report`
 
 ## Strategies (14)
 
@@ -215,19 +188,13 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 ## Workflow
 
 1. **Setup**: `hl setup check`
-2. **Claim USDyP** (testnet only): `hl setup claim-usdyp`
-3. **Approve builder fee**: `hl builder approve` (testnet) or `hl builder approve --mainnet`
-4. **Mock test**: `hl run avellaneda_mm --mock --max-ticks 5`
+2. **Mock test**: `hl run avellaneda_mm --mock --max-ticks 5`
 5. **Dry run**: `hl run engine_mm --dry-run --max-ticks 10`
 6. **Live testnet**: `hl run engine_mm -i ETH-PERP --tick 10`
 7. **Live mainnet**: `hl run engine_mm -i ETH-PERP --tick 10 --mainnet`
 8. **APEX mode**: `hl apex run --mainnet` or `hl apex run --mock --max-ticks 5`
 9. **Monitor**: `hl status --watch`
 10. **Review**: `hl reflect run`
-
-## Builder Fee Revenue
-
-Set `BUILDER_ADDRESS` and `BUILDER_FEE_TENTHS_BPS` to collect fees on every trade. Users must approve once via `hl builder approve`. Fee is collected natively by Hyperliquid — no extra gas, no contract calls.
 
 ## REFLECT Self-Improvement
 

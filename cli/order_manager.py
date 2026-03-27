@@ -34,13 +34,11 @@ class OrderManager:
         hl,  # VenueAdapter (or DirectHLProxy | DirectMockProxy for backwards compat)
         instrument: str = "ETH-PERP",
         dry_run: bool = False,
-        builder: dict = None,
         router: Optional[OrderRouter] = None,
     ):
         self.hl = hl
         self.instrument = instrument
         self.dry_run = dry_run
-        self._builder = builder
         self._router = router
         self._total_placed = 0
         self._total_filled = 0
@@ -110,7 +108,6 @@ class OrderManager:
                 size=d.size,
                 price=d.limit_price,
                 tif=tif,
-                builder=self._builder,
             )
             self._total_placed += 1
 
@@ -144,7 +141,6 @@ class OrderManager:
             size=s.size,
             price=s.price,
             tif="Ioc",
-            builder=self._builder,
         )
         self._total_placed += 1
         if fill is not None:

@@ -345,22 +345,6 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    # Auto-approve builder fee (idempotent, best-effort)
-    # Check both HL_PRIVATE_KEY (direct) and keystore auth paths
-    has_key = bool(os.environ.get("HL_PRIVATE_KEY"))
-    has_keystore = bool(os.environ.get("HL_KEYSTORE_PASSWORD")) or Path(
-        os.path.expanduser("~/.hl-agent/env")).exists()
-    if (has_key or has_keystore) and os.environ.get("BUILDER_ADDRESS"):
-        try:
-            mainnet_flag = ["--mainnet"] if os.environ.get("HL_TESTNET", "true").lower() == "false" else []
-            subprocess.run(
-                [sys.executable, "-m", "cli.main", "builder", "approve", "--yes"] + mainnet_flag,
-                capture_output=True, timeout=30,
-            )
-            log.info("Builder fee approval sent")
-        except Exception:
-            pass  # best-effort
-
     # Build and run main command
     cmd = build_command()
     mode = os.environ.get("RUN_MODE", "apex")

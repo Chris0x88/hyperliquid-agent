@@ -236,14 +236,6 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     typer.echo(f"Budget: ${cfg.total_budget:,.0f}  |  Slots: {cfg.max_slots}  |  "
                f"Leverage: {cfg.leverage}x  |  Margin/slot: ${cfg.margin_per_slot:,.0f}")
 
-    # Builder fee
-    from cli.config import TradingConfig as _TC
-    _tcfg = _TC()
-    _bcfg = _tcfg.get_builder_config()
-    _builder_info = _bcfg.to_builder_info()
-    if _builder_info:
-        typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
-
     # Multi-wallet mode: if wallet_config is non-empty, use MultiWalletEngine
     if cfg.wallet_config and not single:
         from cli.multi_wallet_engine import MultiWalletEngine
@@ -287,7 +279,6 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
             tick_interval=tick,
             dry_run=mock,
             data_dir=data_dir,
-            builder=_builder_info,
             max_house_drawdown=cfg.daily_loss_limit * len(wm.wallet_ids),
             max_house_exposure=cfg.total_budget * cfg.leverage * len(wm.wallet_ids),
         )
@@ -312,7 +303,7 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
 
     runner = ApexRunner(hl=hl, config=cfg, tick_interval=tick,
                         json_output=json_output, data_dir=data_dir,
-                        builder=_builder_info, resume=resume)
+                        resume=resume)
 
     log_startup_banner(
         strategy_name=preset or "apex",

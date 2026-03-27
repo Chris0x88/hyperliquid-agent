@@ -9,9 +9,7 @@ description = "Autonomous Hyperliquid trading CLI — deterministic and LLM-powe
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [
-    { name = "Nunchi Trade", email = "dev@nunchi.trade" },
-]
+authors = []
 keywords = ["hyperliquid", "trading", "market-making", "defi", "yex", "llm"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -30,6 +28,11 @@ dependencies = [
     "pyyaml>=6.0",
     "hyperliquid-python-sdk>=0.4.0",
     "eth-account>=0.10.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
+    "requests>=2.28.0",
+    "open-wallet-standard>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -41,8 +44,6 @@ dev = ["pytest>=7.0", "ruff>=0.4.0", "mypy>=1.8.0"]
 hl = "cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/Nunchi-trade/agent-cli"
-Repository = "https://github.com/Nunchi-trade/agent-cli"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -55,4 +56,4 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
-include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*"]
+include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*", "plugins*"]

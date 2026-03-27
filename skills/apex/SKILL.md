@@ -53,9 +53,8 @@ APEX runs a single tick loop (60s base) that:
 ## Prerequisites
 
 Before running APEX live (not mock), ensure:
-1. **Testnet**: Claim USDyP first — `hl setup claim-usdyp` (without funds, all orders fail silently)
+1. **Testnet**: Deposit USDC via the Hyperliquid testnet UI (without funds, all orders fail silently)
 2. **Mainnet**: Deposit USDC via the Hyperliquid web UI
-3. **Builder fee**: Approve once per network — `hl builder approve` (testnet) or `hl builder approve --mainnet`
 
 ## Usage
 
@@ -63,10 +62,10 @@ Before running APEX live (not mock), ensure:
 # Mock mode (no funds needed)
 hl apex run --mock --max-ticks 10
 
-# Live (testnet) — requires USDyP balance + builder approval
+# Live (testnet) — requires USDC balance
 hl apex run
 
-# Live (mainnet) — requires USDC balance + mainnet builder approval
+# Live (mainnet) — requires USDC balance
 hl apex run --mainnet
 
 # Check status
@@ -125,7 +124,6 @@ RULES:
 | `No positions but slots show ACTIVE` | Stale state after restart | `hl apex status`, manually reset via state file |
 | `Radar returned 0 candidates` | Low-vol period or API issue | Normal during weekends/low-vol — APEX will idle safely |
 | `Daily loss limit reached` | Bad session | APEX auto-closes all. Review with `hl reflect run` tomorrow |
-| `Builder fee not approved` | Skipped onboarding step | `hl builder approve` then restart APEX |
 | `Connection timeout` | HL API rate limit | APEX auto-retries with backoff — no action needed |
 
 ## Composition

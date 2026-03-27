@@ -15,33 +15,103 @@ def _ensure_path():
         sys.path.insert(0, project_root)
 
 
-BACKEND_NAMES = ["keychain", "keystore", "file"]
+BACKEND_NAMES = ["ows", "keychain", "keystore", "file"]
+
+
+def _print_key_guide():
+    """Print a human-friendly guide for finding your Hyperliquid private key."""
+    typer.echo("")
+    typer.echo("\033[1m  Hyperliquid Private Key Import\033[0m")
+    typer.echo("  " + "-" * 50)
+    typer.echo("")
+    typer.echo("  Your private key is an EVM wallet key — the same kind")
+    typer.echo("  used by MetaMask, Rabby, or any Ethereum wallet.")
+    typer.echo("")
+    typer.echo("  \033[1mWhat it looks like:\033[0m")
+    typer.echo("    64 hex characters (0-9, a-f), optionally starting with 0x")
+    typer.echo("    Example: 0x4c0883a69102937d6231471b5dbb6204fe512961...")
+    typer.echo("")
+    typer.echo("  \033[1mWhere to find it:\033[0m")
+    typer.echo("    MetaMask:  Settings > Security > Reveal Private Key")
+    typer.echo("    Rabby:     Click address > Export Private Key")
+    typer.echo("    Other:     Check your wallet's export/backup settings")
+    typer.echo("")
+    typer.echo("  \033[1mHyperliquid API wallet:\033[0m")
+    typer.echo("    If you use an API-only wallet (created on app.hyperliquid.xyz),")
+    typer.echo("    export it from: Portfolio > API Wallets > Export Key")
+    typer.echo("")
+    typer.echo("  \033[33m  NEVER share this key. Anyone with it controls your funds.\033[0m")
+    typer.echo("  \033[33m  This tool encrypts and stores it securely after import.\033[0m")
+    typer.echo("")
+    typer.echo("  \033[1mWhat happens next:\033[0m")
+    typer.echo("    Your key will be encrypted and stored in:")
+    typer.echo("    1. OWS vault  — AES-256-GCM encrypted file on disk")
+    typer.echo("    2. macOS Keychain — syncs to iCloud for backup")
+    typer.echo("    The raw key is never stored in plaintext anywhere.")
+    typer.echo("")
 
 
 @keys_app.command("import")
 def keys_import(
     backend: str = typer.Option(
-        "keystore", "--backend", "-b",
-        help="Storage backend: keychain, keystore, or file",
+        "", "--backend", "-b",
+        help="Storage backend (default: OWS + Keychain dual-store). "
+             "Options: ows, keychain, keystore, file",
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q",
+        help="Skip the explanation and just prompt for the key",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Archive existing key and store the new one (old key is never deleted)",
     ),
 ):
-    """Import a private key into the chosen backend."""
+    """Import your Hyperliquid wallet private key securely.
+
+    By default, stores in BOTH OWS vault (encrypted) and macOS Keychain
+    (iCloud backup). Use --backend to target a specific backend instead.
+    """
     _ensure_path()
 
-    if backend not in BACKEND_NAMES:
-        typer.echo(f"Unknown backend '{backend}'. Choose from: {', '.join(BACKEND_NAMES)}", err=True)
+    if not quiet:
+        _print_key_guide()
+
+    private_key = typer.prompt(
+        "  Paste your private key (input is hidden)",
+        hide_input=True,
+    )
+    private_key = private_key.strip()
+
+    if not private_key:
+        typer.echo("\n  No key entered. Aborting.", err=True)
         raise typer.Exit(1)
 
-    from common.credentials import get_backend
-
-    be = get_backend(backend)
-    if be is None or not be.available():
-        typer.echo(f"Backend '{backend}' is not available on this system.", err=True)
-        raise typer.Exit(1)
-
-    private_key = typer.prompt("Private key (hex)", hide_input=True)
+    # Normalize
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
+
+    # Validate length (0x + 64 hex chars = 66)
+    stripped = private_key[2:]
+    if len(stripped) != 64:
+        typer.echo(
+            f"\n  Invalid key length: got {len(stripped)} characters, expected 64."
+            "\n  A private key is exactly 64 hex characters (0-9, a-f)."
+            "\n  Example: 0x4c0883a69102937d6231471b5dbb6204fe512961708279f388e80a09fec1e185",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    # Validate hex
+    try:
+        int(stripped, 16)
+    except ValueError:
+        typer.echo(
+            "\n  Invalid characters in key. A private key contains only hex"
+            "\n  characters: 0-9 and a-f. Check for accidental spaces or typos.",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     # Derive address from key
     try:
@@ -49,15 +119,55 @@ def keys_import(
         acct = Account.from_key(private_key)
         address = acct.address.lower()
     except Exception as e:
-        typer.echo(f"Invalid private key: {e}", err=True)
+        typer.echo(f"\n  Invalid private key: {e}", err=True)
         raise typer.Exit(1)
 
-    try:
-        be.store_key(address, private_key)
-        typer.echo(f"Key stored for {address} via {backend} backend.")
-    except Exception as e:
-        typer.echo(f"Failed to store key: {e}", err=True)
-        raise typer.Exit(1)
+    typer.echo(f"\n  Wallet address: \033[1m{address}\033[0m")
+
+    if not backend:
+        # Default: dual-store to OWS + Keychain
+        from common.credentials import store_key_secure
+        try:
+            stored_in = store_key_secure(address, private_key, force=force)
+            typer.echo("")
+            for name in stored_in:
+                if name == "ows":
+                    typer.echo("  \033[32mOWS vault\033[0m       — encrypted on disk (~/.ows/wallets/)")
+                elif name == "keychain":
+                    typer.echo("  \033[32mmacOS Keychain\033[0m  — syncs to iCloud for backup")
+            typer.echo("")
+            typer.echo("  Key is secured and backed up. You can verify with: hl keys list")
+            typer.echo("")
+        except ValueError as e:
+            # Overwrite protection triggered
+            typer.echo(f"\n  \033[33mKey already exists:\033[0m {e}", err=True)
+            typer.echo("")
+            typer.echo("  To replace it (old key is archived, never deleted):")
+            typer.echo("    hl keys import --force")
+            typer.echo("")
+            raise typer.Exit(1)
+        except Exception as e:
+            typer.echo(f"\n  Failed to store key: {e}", err=True)
+            raise typer.Exit(1)
+    else:
+        # Specific backend requested
+        if backend not in BACKEND_NAMES:
+            typer.echo(f"\n  Unknown backend '{backend}'. Choose from: {', '.join(BACKEND_NAMES)}", err=True)
+            raise typer.Exit(1)
+
+        from common.credentials import get_backend
+
+        be = get_backend(backend)
+        if be is None or not be.available():
+            typer.echo(f"\n  Backend '{backend}' is not available on this system.", err=True)
+            raise typer.Exit(1)
+
+        try:
+            be.store_key(address, private_key)
+            typer.echo(f"\n  Key stored for {address} via {backend} backend.")
+        except Exception as e:
+            typer.echo(f"\n  Failed to store key: {e}", err=True)
+            raise typer.Exit(1)
 
 
 @keys_app.command("list")

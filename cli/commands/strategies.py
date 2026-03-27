@@ -18,7 +18,7 @@ def strategies_cmd():
 
     typer.echo(strategy_table(STRATEGY_REGISTRY))
     typer.echo("")
-    typer.echo("\033[1mYEX Markets (Nunchi HIP-3)\033[0m")
+    typer.echo("\033[1mYEX Markets (HIP-3)\033[0m")
     typer.echo(f"{'Name':<20} {'HL Coin':<15} {'Description'}")
     typer.echo(f"{'-'*20} {'-'*15} {'-'*40}")
     for name, info in sorted(YEX_MARKETS.items()):

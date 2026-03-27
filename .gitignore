@@ -29,3 +29,8 @@ Thumbs.db
 
 # Test / build artifacts
 .pytest_cache/
+
+# Railway deploy (not used — local only)
+deploy/
+railway.toml
+Dockerfile

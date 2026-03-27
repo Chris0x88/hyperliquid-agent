@@ -1,13 +1,14 @@
 """Standardized key management — pluggable backends with unified resolution.
 
 Backends:
+  0. OWSBackend — Open Wallet Standard vault (AES-256-GCM, Rust core)
   1. MacOSKeychainBackend  — macOS Keychain via `security` CLI
   2. EncryptedKeystoreBackend — geth-compatible Web3 Secret Storage (existing)
   3. RailwayEnvBackend — Railway-injected environment variables
   4. FlatFileBackend — plaintext files at ~/.hl-agent/keys/ (dev only)
 
 Resolution order for resolve_private_key():
-  macOS Keychain -> encrypted keystore -> Railway env -> flat file -> env var -> error
+  OWS vault -> macOS Keychain -> encrypted keystore -> Railway env -> flat file -> env var -> error
 """
 from __future__ import annotations
 
@@ -52,6 +53,134 @@ class KeystoreBackend(ABC):
     def available(self) -> bool:
         """Return True if this backend can be used on the current system."""
         ...
+
+
+class OWSBackend(KeystoreBackend):
+    """Open Wallet Standard — Rust vault with AES-256-GCM encryption.
+
+    Keys are stored in ~/.ows/wallets/ encrypted at rest. The Rust core
+    uses mlock'd memory and zeroization. Keys are retrieved via
+    export_wallet() only when the HL SDK needs to sign.
+
+    Install: pip install open-wallet-standard  (or: pip install -e .[ows])
+    """
+
+    WALLET_PREFIX = "hl-agent"
+
+    def name(self) -> str:
+        return "ows"
+
+    def get_key(self, address: Optional[str] = None) -> Optional[str]:
+        if not self.available():
+            return None
+
+        try:
+            from ows import list_wallets, export_wallet
+
+            wallets = list_wallets()
+            if not wallets:
+                return None
+
+            # Find matching wallet
+            target = None
+            if address:
+                addr = address.lower()
+                for w in wallets:
+                    for acct in w.get("accounts", []):
+                        if acct.get("address", "").lower() == addr:
+                            target = w
+                            break
+                    if target:
+                        break
+            else:
+                # Use first hl-agent wallet
+                for w in wallets:
+                    if w.get("name", "").startswith(self.WALLET_PREFIX):
+                        target = w
+                        break
+                # Fallback to any wallet
+                if not target and wallets:
+                    target = wallets[0]
+
+            if not target:
+                return None
+
+            exported = export_wallet(target["name"])
+            # export_wallet returns a JSON string with key material
+            import json as _json
+
+            if isinstance(exported, str):
+                try:
+                    data = _json.loads(exported)
+                except (ValueError, TypeError):
+                    # Might be a raw mnemonic phrase
+                    log.debug("OWS wallet returned non-JSON string, skipping")
+                    return None
+            elif isinstance(exported, dict):
+                data = exported
+            else:
+                return None
+
+            key = data.get("secp256k1") or data.get("private_key")
+            if key:
+                # Ensure 0x prefix for consistency with eth-account
+                if not key.startswith("0x"):
+                    key = "0x" + key
+                return key
+
+            return None
+        except Exception as exc:
+            log.debug("OWS get_key failed: %s", exc)
+            return None
+
+    def store_key(self, address: str, private_key: str) -> None:
+        if not self.available():
+            raise RuntimeError(
+                "OWS not installed. Run: pip install open-wallet-standard"
+            )
+
+        from ows import import_wallet_private_key
+
+        # Strip 0x prefix if present
+        key_hex = private_key
+        if key_hex.startswith("0x"):
+            key_hex = key_hex[2:]
+
+        wallet_name = f"{self.WALLET_PREFIX}-{address[-8:].lower()}"
+        import_wallet_private_key(
+            name=wallet_name,
+            private_key_hex=key_hex,
+            chain="evm",
+        )
+        log.info("Key stored in OWS vault as '%s'", wallet_name)
+
+    def list_keys(self) -> List[str]:
+        if not self.available():
+            return []
+
+        try:
+            from ows import list_wallets
+
+            wallets = list_wallets()
+            addresses = []
+            for w in wallets:
+                if not w.get("name", "").startswith(self.WALLET_PREFIX):
+                    continue
+                for acct in w.get("accounts", []):
+                    addr = acct.get("address", "")
+                    # Only return EVM addresses (0x-prefixed)
+                    if addr and addr.startswith("0x") and len(addr) == 42:
+                        addresses.append(addr.lower())
+            return addresses
+        except Exception:
+            return []
+
+    def available(self) -> bool:
+        try:
+            import ows  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
 
 class EncryptedKeystoreBackend(KeystoreBackend):
@@ -149,22 +278,35 @@ class MacOSKeychainBackend(KeystoreBackend):
             return []
 
         addresses: List[str] = []
-        lines = result.stdout.splitlines()
-        in_agent_cli_entry = False
+        # Parse entries — each keychain entry has attributes in any order,
+        # separated by "keychain:" headers. Collect acct + svce per block.
+        current_acct = None
+        current_is_ours = False
 
-        for line in lines:
+        for line in result.stdout.splitlines():
             stripped = line.strip()
-            # Detect service matching our service name
-            if '"svce"' in stripped and self.SERVICE in stripped:
-                in_agent_cli_entry = True
-            elif '"acct"' in stripped and in_agent_cli_entry:
-                # Extract account value — format: "acct"<blob>="0xaddress..."
+
+            if stripped.startswith("keychain:") or stripped.startswith("class:"):
+                # End of previous entry — emit if it was ours
+                if current_is_ours and current_acct:
+                    addresses.append(current_acct)
+                current_acct = None
+                current_is_ours = False
+                continue
+
+            # Check for our service name (appears as "svce" or 0x00000007)
+            if self.SERVICE in stripped and ('"svce"' in stripped or "0x00000007" in stripped):
+                current_is_ours = True
+
+            # Extract account address
+            if '"acct"' in stripped:
                 match = re.search(r'"acct".*?="(0x[0-9a-fA-F]+)"', stripped)
                 if match:
-                    addresses.append(match.group(1).lower())
-                in_agent_cli_entry = False
-            elif stripped.startswith("keychain:"):
-                in_agent_cli_entry = False
+                    current_acct = match.group(1).lower()
+
+        # Don't forget the last entry
+        if current_is_ours and current_acct:
+            addresses.append(current_acct)
 
         return addresses
 
@@ -299,8 +441,9 @@ class FlatFileBackend(KeystoreBackend):
 # Backend registry & unified resolver
 # ---------------------------------------------------------------------------
 
-# Resolution order: keychain -> keystore -> railway -> flat file -> env var
+# Resolution order: OWS -> keychain -> keystore -> railway -> flat file -> env var
 _BACKENDS: List[KeystoreBackend] = [
+    OWSBackend(),
     MacOSKeychainBackend(),
     EncryptedKeystoreBackend(),
     RailwayEnvBackend(),
@@ -321,11 +464,132 @@ def get_backend(name: str) -> Optional[KeystoreBackend]:
     return None
 
 
+def check_existing_key() -> Optional[dict]:
+    """Check if a key already exists in any secure backend.
+
+    Returns {address, backend, key} if found, None otherwise.
+    """
+    for backend in [get_backend("ows"), get_backend("keychain")]:
+        if backend and backend.available():
+            try:
+                addresses = backend.list_keys()
+                if addresses:
+                    key = backend.get_key(addresses[0])
+                    return {
+                        "address": addresses[0],
+                        "backend": backend.name(),
+                        "key": key,
+                    }
+            except Exception:
+                continue
+    return None
+
+
+def _archive_ows_wallet(address: str) -> Optional[str]:
+    """Rename an existing OWS wallet with a timestamp suffix.
+
+    Returns the archive wallet name, or None if nothing to archive.
+    Private keys are self-custody funds — never lose them.
+    """
+    try:
+        import time as _time
+        from ows import list_wallets, rename_wallet
+
+        ows_be = get_backend("ows")
+        if not ows_be or not ows_be.available():
+            return None
+
+        prefix = ows_be.WALLET_PREFIX  # type: ignore[attr-defined]
+        for w in list_wallets():
+            name = w.get("name", "")
+            if name.startswith(prefix):
+                ts = _time.strftime("%Y%m%d_%H%M%S")
+                archive_name = f"{name}-archived-{ts}"
+                rename_wallet(name, archive_name)
+                log.info("Archived old OWS wallet '%s' -> '%s'", name, archive_name)
+                return archive_name
+    except Exception as exc:
+        log.warning("OWS archive failed: %s", exc)
+    return None
+
+
+def store_key_secure(address: str, private_key: str, force: bool = False) -> List[str]:
+    """Store a key in ALL available secure backends (OWS + Keychain).
+
+    Always writes to both OWS vault and macOS Keychain so that:
+      - OWS provides encrypted-at-rest storage with hardened memory
+      - Keychain syncs to iCloud for backup/recovery if the machine dies
+
+    SAFETY: If a different key already exists, raises ValueError unless
+    force=True. When forced, the old OWS wallet is archived with a
+    timestamp suffix — old keys are NEVER deleted. They are the only
+    copy of self-custody funds.
+
+    Returns list of backend names where the key was stored.
+    """
+    # Check for existing key — refuse to overwrite without force
+    existing = check_existing_key()
+    if existing and existing["key"]:
+        # Same key? No-op, just ensure it's in both backends.
+        existing_normalized = existing["key"]
+        new_normalized = private_key
+        # Normalize both to bare hex for comparison
+        if existing_normalized.startswith("0x"):
+            existing_normalized = existing_normalized[2:]
+        if new_normalized.startswith("0x"):
+            new_normalized = new_normalized[2:]
+
+        if existing_normalized.lower() != new_normalized.lower():
+            if not force:
+                raise ValueError(
+                    f"A different key already exists (address: {existing['address']}, "
+                    f"backend: {existing['backend']}). "
+                    "Use --force to archive the old key and store the new one. "
+                    "The old key will be preserved — never deleted."
+                )
+            # Force mode: archive the old wallet before overwriting
+            archived = _archive_ows_wallet(existing["address"])
+            if archived:
+                log.info("Old key archived as '%s'", archived)
+
+    stored_in: List[str] = []
+
+    # Always try OWS first
+    ows = get_backend("ows")
+    if ows and ows.available():
+        try:
+            ows.store_key(address, private_key)
+            stored_in.append("ows")
+            log.info("Key stored in OWS vault for %s", address)
+        except Exception as exc:
+            log.warning("OWS store failed: %s", exc)
+
+    # Always try Keychain (iCloud backup)
+    keychain = get_backend("keychain")
+    if keychain and keychain.available():
+        try:
+            keychain.store_key(address, private_key)
+            stored_in.append("keychain")
+            log.info("Key stored in macOS Keychain for %s (syncs to iCloud)", address)
+        except Exception as exc:
+            log.warning("Keychain store failed: %s", exc)
+
+    if not stored_in:
+        raise RuntimeError(
+            "Failed to store key in any secure backend. "
+            "Ensure OWS is installed (pip install open-wallet-standard) "
+            "and/or macOS Keychain is accessible."
+        )
+
+    return stored_in
+
+
 def resolve_private_key(venue: str = "hl", address: Optional[str] = None) -> str:
     """Resolve a private key by trying backends in priority order.
 
     Resolution order:
-      1. macOS Keychain
+      0. OWS vault (AES-256-GCM encrypted, Rust core)
+      1. macOS Keychain (iCloud backup)
       2. Encrypted keystore (geth-compatible)
       3. Railway environment
       4. Flat .txt file
@@ -353,8 +617,9 @@ def resolve_private_key(venue: str = "hl", address: Optional[str] = None) -> str
 
     raise RuntimeError(
         "No private key available. Options:\n"
-        "  1. Import a key:  hl keys import --backend keychain\n"
-        "  2. Use keystore:  hl wallet import\n"
-        "  3. Set env var:   export HL_PRIVATE_KEY=0x...\n"
-        "  4. On Railway:    set HL_PRIVATE_KEY in dashboard"
+        "  1. OWS vault:     hl keys import --backend ows  (recommended)\n"
+        "  2. Import a key:  hl keys import --backend keychain\n"
+        "  3. Use keystore:  hl wallet import\n"
+        "  4. Set env var:   export HL_PRIVATE_KEY=0x...\n"
+        "  5. On Railway:    set HL_PRIVATE_KEY in dashboard"
     )

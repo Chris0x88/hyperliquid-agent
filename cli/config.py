@@ -44,9 +44,6 @@ class TradingConfig:
     # Persistence
     data_dir: str = "data/cli"
 
-    # Builder fee
-    builder: Dict[str, Any] = field(default_factory=dict)
-
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -82,12 +79,6 @@ class TradingConfig:
             and self.max_order_size == 5.0
             and self.tvl == 100000.0
         )
-
-    def get_builder_config(self):
-        from cli.builder_fee import BuilderFeeConfig
-        if self.builder:
-            return BuilderFeeConfig.from_dict(self.builder)
-        return BuilderFeeConfig.from_env()
 
     def get_private_key(self) -> str:
         from common.credentials import resolve_private_key

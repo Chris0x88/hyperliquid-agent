@@ -45,7 +45,6 @@ class MockVenueAdapter(VenueAdapter):
         return VenueCapabilities(
             supports_alo=True,
             supports_trigger_orders=True,
-            supports_builder_fee=True,
             supports_cross_margin=True,
         )
 

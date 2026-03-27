@@ -40,19 +40,17 @@ class TradingEngine:
         dry_run: bool = False,
         data_dir: str = "data/cli",
         risk_limits: Optional[RiskLimits] = None,
-        builder: Optional[dict] = None,
     ):
         self.hl = hl
         self.strategy = strategy
         self.instrument = instrument
         self.tick_interval = tick_interval
         self.dry_run = dry_run
-        self.builder = builder
 
         # Reuse existing components (no modifications to core)
         self.position_tracker = PositionTracker()
         self.risk_manager = RiskManager(limits=risk_limits)
-        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run, builder=builder)
+        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run)
 
         # Persistence
         self.state_db = StateDB(path=f"{data_dir}/state.db")
@@ -182,6 +180,7 @@ class TradingEngine:
                     float(self.risk_manager.state.daily_drawdown / self.risk_manager.limits.tvl)
                     if self.risk_manager.limits.tvl > 0 else 0.0
                 ),
+                "proxy": self.hl,
             },
         )
 
@@ -367,7 +366,6 @@ class TradingEngine:
             size=size,
             price=price,
             tif="Ioc",
-            builder=self.builder,
         )
         if fill:
             self.position_tracker.apply_fill(
@@ -451,7 +449,6 @@ class TradingEngine:
             size=size,
             price=price,
             tif="Ioc",
-            builder=self.builder,
         )
         if fill:
             self.position_tracker.apply_fill(
@@ -505,7 +502,7 @@ class TradingEngine:
             if balance <= 0:
                 is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
                 if is_testnet:
-                    log.warning("** NO FUNDS DETECTED ** On testnet, claim USDyP first: hl setup claim-usdyp")
+                    log.warning("** NO FUNDS DETECTED ** On testnet, deposit USDC via the Hyperliquid testnet UI")
                 else:
                     log.warning("** NO FUNDS DETECTED ** On mainnet, deposit USDC via the Hyperliquid web UI")
                 log.warning("Without funds, all orders will fail silently.")

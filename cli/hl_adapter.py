@@ -3,7 +3,7 @@
 Adds place_order(), cancel_order(), get_open_orders() on top of the existing
 HLProxy / MockHLProxy from parent/hl_proxy.py.
 
-Also handles YEX (Nunchi HIP-3) market symbol mapping.
+Also handles YEX market symbol mapping.
 """
 from __future__ import annotations
 
@@ -33,10 +33,6 @@ class APICircuitBreakerOpen(Exception):
     pass
 
 
-def _default_builder() -> Optional[dict]:
-    """Return the default Nunchi builder fee. Always active unless overridden."""
-    from cli.builder_fee import BuilderFeeConfig
-    return BuilderFeeConfig().to_builder_info()
 ZERO = Decimal("0")
 
 
@@ -285,18 +281,12 @@ class DirectHLProxy:
         size: float,
         price: float,
         tif: str = "Ioc",
-        builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
         """Place a single order directly on HL. Returns HLFill if filled.
 
         For ALO (tif="Alo"): if the order would cross the book (rejected),
         automatically falls back to Gtc with a warning log.
         """
-        # REVENUE-CRITICAL: Enforce builder fee on every order.
-        # Default: 10 bps to Nunchi wallet (0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0).
-        # This is the sole enforcement point — all order paths flow through here.
-        if builder is None:
-            builder = _default_builder()
         coin = _to_hl_coin(instrument)
         is_buy = side.lower() == "buy"
 
@@ -320,13 +310,13 @@ class DirectHLProxy:
             except Exception:
                 pass  # use original price if snapshot fails
 
-        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder)
+        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif)
 
         # ALO fallback: if ALO was rejected (would cross), retry with Gtc
         if fill is None and tif == "Alo":
             log.warning("ALO rejected for %s %s %s @ %s — falling back to Gtc",
                         side, size, instrument, price)
-            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder)
+            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc")
 
         return fill
 
@@ -339,7 +329,6 @@ class DirectHLProxy:
         size: float,
         price: float,
         tif: str,
-        builder: Optional[dict],
     ) -> Optional[HLFill]:
         """Low-level order send with retry on rate-limit. Returns HLFill or None."""
         try:
@@ -350,7 +339,6 @@ class DirectHLProxy:
                     result = self._exchange.order(
                         coin, is_buy, size, price,
                         {"limit": {"tif": tif}},
-                        builder=builder,
                     )
                     self._api_consecutive_429s = 0  # reset on success
                     break
@@ -466,14 +454,8 @@ class DirectHLProxy:
         sz_dec = self._get_sz_decimals(coin)
         return round(size, sz_dec)
 
-    def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float, builder: Optional[dict] = None) -> Optional[str]:
-        """Place a trigger stop-loss order on the exchange. Returns order ID or None.
-
-        Attempts to attach builder fee; falls back to no-builder if HL rejects it
-        (trigger orders may not support builder fees on all exchange versions).
-        """
-        if builder is None:
-            builder = _default_builder()
+    def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
+        """Place a trigger stop-loss order on the exchange. Returns order ID or None."""
         coin = self._to_coin(instrument)
         is_buy = side.lower() == "buy"
         sz = self._round_size(coin, size)
@@ -482,7 +464,6 @@ class DirectHLProxy:
                 coin, is_buy, sz, trigger_price,
                 order_type={"trigger": {"triggerPx": str(trigger_price), "isMarket": True, "tpsl": "sl"}},
                 reduce_only=True,
-                builder=builder,
             )
             # Parse OID from response
             statuses = result.get("response", {}).get("data", {}).get("statuses", [])
@@ -534,7 +515,6 @@ class DirectMockProxy:
         size: float,
         price: float,
         tif: str = "Ioc",
-        builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
         self._last_tif = tif  # expose for testing
         fill = HLFill(

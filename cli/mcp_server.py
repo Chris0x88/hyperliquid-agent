@@ -1,6 +1,6 @@
 """MCP server for agent-cli — exposes trading tools via Model Context Protocol.
 
-Fast tools (account, strategies, builder, wallet, setup) call Python directly.
+Fast tools (account, strategies, wallet, setup) call Python directly.
 Long-running tools (run_strategy, apex_run, radar, reflect) use subprocess.
 """
 from __future__ import annotations
@@ -51,21 +51,6 @@ def create_mcp_server():
         return json.dumps(result, indent=2)
 
     @mcp.tool()
-    def builder_status() -> str:
-        """Get builder fee configuration status."""
-        from cli.config import TradingConfig
-
-        cfg = TradingConfig()
-        bcfg = cfg.get_builder_config()
-        return json.dumps({
-            "enabled": bcfg.enabled,
-            "builder_address": bcfg.builder_address,
-            "fee_bps": bcfg.fee_bps,
-            "fee_rate_tenths_bps": bcfg.fee_rate_tenths_bps,
-            "max_fee_rate_str": bcfg.max_fee_rate_str,
-        }, indent=2)
-
-    @mcp.tool()
     def wallet_list() -> str:
         """List saved encrypted keystores."""
         from cli.keystore import list_keystores
@@ -106,7 +91,7 @@ def create_mcp_server():
 
     @mcp.tool()
     def setup_check() -> str:
-        """Validate environment — SDK, keys, network, builder fee."""
+        """Validate environment — SDK, keys, network."""
         import os
         from cli.keystore import list_keystores
         from cli.config import TradingConfig
@@ -134,14 +119,6 @@ def create_mcp_server():
         # Network
         testnet = os.environ.get("HL_TESTNET", "true").lower()
         ok_items.append(f"Network: {'testnet' if testnet == 'true' else 'mainnet'}")
-
-        # Builder
-        cfg = TradingConfig()
-        bcfg = cfg.get_builder_config()
-        if bcfg.enabled:
-            ok_items.append(f"Builder fee: {bcfg.fee_bps} bps")
-        else:
-            ok_items.append("Builder fee: not configured")
 
         return json.dumps({
             "ok": ok_items,

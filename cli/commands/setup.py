@@ -12,7 +12,7 @@ setup_app = typer.Typer(no_args_is_help=True)
 
 @setup_app.command("check")
 def setup_check():
-    """Validate environment: SDK, keys, builder fee config."""
+    """Validate environment: SDK, keys, network config."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -49,22 +49,13 @@ def setup_check():
     testnet = os.environ.get("HL_TESTNET", "true").lower()
     ok_items.append(f"Network: {'testnet' if testnet == 'true' else 'mainnet'}")
 
-    # 4. Builder fee
-    from cli.config import TradingConfig
-    cfg = TradingConfig()
-    bcfg = cfg.get_builder_config()
-    if bcfg.enabled:
-        ok_items.append(f"Builder fee: {bcfg.fee_bps} bps -> {bcfg.builder_address[:10]}...")
-    else:
-        ok_items.append("Builder fee: not configured (optional)")
-
-    # 5. LLM key (for claude_agent)
+    # 4. LLM key (for claude_agent)
     if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY"):
         ok_items.append("LLM API key found")
     else:
         ok_items.append("LLM API key: not set (only needed for claude_agent strategy)")
 
-    # 6. Data directories
+    # 5. Data directories
     data_dir = Path("data/cli")
     if data_dir.exists():
         ok_items.append(f"Data dir: {data_dir} exists")
@@ -131,65 +122,3 @@ def setup_bootstrap():
     setup_check()
 
     typer.echo("\nBootstrap complete. Next: hl wallet auto")
-
-
-@setup_app.command("claim-usdyp")
-def setup_claim_usdyp():
-    """Claim testnet USDyP tokens (required for YEX markets)."""
-    import json
-    import urllib.request
-
-    project_root = str(Path(__file__).resolve().parent.parent.parent)
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    # Derive address from private key
-    from cli.config import TradingConfig
-
-    cfg = TradingConfig()
-    try:
-        key = cfg.get_private_key()
-    except RuntimeError as e:
-        typer.echo(f"ERROR: {e}", err=True)
-        typer.echo("Run 'hl wallet auto' first to create a wallet.")
-        raise typer.Exit(1)
-
-    from eth_account import Account
-    acct = Account.from_key(key)
-    address = acct.address
-
-    typer.echo(f"Claiming USDyP for {address} ...")
-
-    url = "https://api-temp.nunchi.trade/api/v1/yex/usdyp-claim"
-    payload = json.dumps({"userAddress": address}).encode()
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-network": "testnet",
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read().decode()
-            typer.echo(f"OK  Claim response: {body}")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode() if e.fp else ""
-        typer.echo(f"ERROR: HTTP {e.code}: {body}", err=True)
-        if "not eligible" in body.lower() or "verify" in body.lower():
-            typer.echo("")
-            typer.echo("This wallet hasn't been seen by Hyperliquid yet.")
-            typer.echo("")
-            typer.echo("  One-time fix (takes 30 seconds):")
-            typer.echo("  1. Visit https://app.hyperliquid-testnet.xyz")
-            typer.echo("  2. Connect wallet: " + address)
-            typer.echo("  3. Re-run: hl setup claim-usdyp")
-            typer.echo("")
-            typer.echo("This is a Hyperliquid requirement for fresh wallets — only needed once.")
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"ERROR: {e}", err=True)
-        raise typer.Exit(1)

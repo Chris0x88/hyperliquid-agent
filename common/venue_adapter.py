@@ -17,7 +17,6 @@ class VenueCapabilities:
     """Declares optional features a venue supports."""
     supports_alo: bool = False
     supports_trigger_orders: bool = False
-    supports_builder_fee: bool = False
     supports_cross_margin: bool = False
 
 

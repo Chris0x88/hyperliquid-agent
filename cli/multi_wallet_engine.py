@@ -54,7 +54,6 @@ class MultiWalletEngine:
         tick_interval:    Seconds between tick cycles.
         dry_run:          If True, no real orders.
         data_dir:         Base data directory (sub-dirs created per wallet).
-        builder:          Optional builder fee info.
         max_house_drawdown:  House-level drawdown limit ($).
         max_house_exposure:  House-level max notional exposure ($).
     """
@@ -68,7 +67,6 @@ class MultiWalletEngine:
         tick_interval: float = 10.0,
         dry_run: bool = False,
         data_dir: str = "data/multi",
-        builder: Optional[dict] = None,
         max_house_drawdown: float = 2000.0,
         max_house_exposure: float = 100_000.0,
     ):
@@ -105,7 +103,6 @@ class MultiWalletEngine:
                 dry_run=dry_run,
                 data_dir=wallet_data_dir,
                 risk_limits=risk_limits,
-                builder=builder,
             )
 
             self._contexts[wid] = WalletEngineContext(

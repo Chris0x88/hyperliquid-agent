@@ -2,7 +2,7 @@
   "name": "yex-trader",
   "version": "0.1.0",
   "description": "Autonomous Hyperliquid trading agent — deterministic and LLM-powered strategies for HL perps and YEX markets",
-  "repository": "https://github.com/Nunchi-trade/agent-cli",
+  "repository": "",
   "actions": [
     {
       "name": "run_strategy",
