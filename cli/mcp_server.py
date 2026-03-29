@@ -25,7 +25,7 @@ def create_mcp_server():
     """Create and configure the FastMCP server."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("yex-trader", instructions="Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, REFLECT reviews.")
+    mcp = FastMCP("hyperliquid-agent", instructions="Autonomous Hyperliquid trading agent — 23 strategies, APEX orchestrator, REFLECT reviews.")
 
     # ------------------------------------------------------------------
     # Fast tools — call Python directly (no subprocess overhead)

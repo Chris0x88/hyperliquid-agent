@@ -1,6 +1,6 @@
-# API Reference — Pulling Data from Nunchi Agents
+# API Reference — Pulling Data from HyperLiquid Agent Agents
 
-This guide covers every method for pulling data from a running Nunchi agent. Three access paths depending on your deployment and use case:
+This guide covers every method for pulling data from a running HyperLiquid Agent agent. Three access paths depending on your deployment and use case:
 
 | Path | Protocol | Best For |
 |------|----------|----------|
@@ -255,7 +255,7 @@ Same output as running `hl apex status` in a terminal. Useful for quick checks b
 
 ### `POST /api/skill/install`
 
-Verifies that the agent has the Nunchi trading CLI installed and returns the strategy count.
+Verifies that the agent has the HyperLiquid Agent trading CLI installed and returns the strategy count.
 
 ```bash
 curl -X POST $AGENT_URL/api/skill/install \
@@ -411,185 +411,6 @@ for line in response.iter_lines():
 
 ---
 
-## Leaderboard API
-
-The leaderboard runs as a **separate microservice** from the agent. It tracks registered wallet addresses and queries Hyperliquid directly for account values.
-
-### Deployment
-
-```bash
-# From the cli-UI repo
-cd deploy
-docker build -t nunchi-leaderboard .
-docker run -p 8090:8090 -v leaderboard-data:/data nunchi-leaderboard
-```
-
-Or deploy to Railway using the included `railway.toml`.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LEADERBOARD_PORT` | `8090` | HTTP server port |
-| `LEADERBOARD_DB` | `/data/leaderboard.db` | SQLite database path |
-| `CORS_ORIGIN` | `*` | Allowed CORS origin |
-
-### `GET /health`
-
-```bash
-curl http://localhost:8090/health
-```
-
-```json
-{ "status": "ok", "uptime_s": 1200 }
-```
-
-### `POST /api/register`
-
-Register a wallet address for leaderboard tracking. The service queries Hyperliquid at registration time to capture the `initial_account_value` baseline.
-
-```bash
-curl -X POST http://localhost:8090/api/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "address": "0x1234567890abcdef1234567890abcdef12345678",
-    "network": "testnet",
-    "display_name": "my-agent"
-  }'
-```
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `address` | string | Yes | Ethereum address (`0x` + 40 hex chars) |
-| `network` | string | No | `"testnet"` (default) or `"mainnet"` |
-| `display_name` | string | No | Display name (max 32 chars) |
-
-**Response (new registration):**
-
-```json
-{
-  "registered": true,
-  "new": true,
-  "address": "0x1234567890abcdef1234567890abcdef12345678",
-  "network": "testnet",
-  "initial_account_value": 10000.0
-}
-```
-
-**Response (already registered):**
-
-```json
-{
-  "registered": true,
-  "new": false,
-  "address": "0x1234567890abcdef1234567890abcdef12345678",
-  "network": "testnet",
-  "initial_account_value": 10000.0
-}
-```
-
-**Error (invalid address):**
-
-```json
-{ "error": "Invalid Ethereum address (expected 0x + 40 hex chars)" }
-```
-
-**Error (HL query failed):**
-
-```json
-{ "error": "Failed to query Hyperliquid: ConnectionError(...)" }
-```
-
-> **How PnL is computed:** `PnL = current_account_value - initial_account_value`. The `initial_account_value` is captured once at registration and never updated. If the user deposits or withdraws funds after registration, the PnL figure will be incorrect. This is a known limitation.
-
-### `GET /api/leaderboard`
-
-Returns the ranked leaderboard for a given network.
-
-```bash
-curl "http://localhost:8090/api/leaderboard?network=testnet"
-```
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `network` | string | `testnet` | `"testnet"` or `"mainnet"` |
-
-**Response:**
-
-```json
-{
-  "agents": [
-    {
-      "rank": 1,
-      "address": "0xabcd...1234",
-      "display_name": "alpha-apex",
-      "pnl": 842.50,
-      "account_value": 10842.50,
-      "positions_count": 2,
-      "network": "testnet",
-      "registered_at": 1709712000000
-    },
-    {
-      "rank": 2,
-      "address": "0xef01...5678",
-      "display_name": "",
-      "pnl": 321.00,
-      "account_value": 10321.00,
-      "positions_count": 1,
-      "network": "testnet",
-      "registered_at": 1709798400000
-    }
-  ],
-  "total_agents": 2,
-  "last_updated": 1709884800000
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `agents` | array | Agents sorted by PnL (descending) |
-| `agents[].rank` | int | 1-indexed rank |
-| `agents[].address` | string | Wallet address (lowercase) |
-| `agents[].display_name` | string | User-chosen name (may be empty) |
-| `agents[].pnl` | float | `current_value - initial_value` (rounded to 2 decimals) |
-| `agents[].account_value` | float | Current HL account value |
-| `agents[].positions_count` | int | Number of open positions on HL |
-| `agents[].network` | string | `"testnet"` or `"mainnet"` |
-| `agents[].registered_at` | int | Registration timestamp (Unix ms) |
-| `agents[].stale` | bool | Present and `true` if the HL query failed for this agent |
-| `total_agents` | int | Total registered agents on this network |
-| `last_updated` | int | Cache refresh timestamp (Unix ms) |
-
-**Caching:** The leaderboard is cached and refreshed by a background thread every 45 seconds. The `last_updated` field tells you how fresh the data is. The cache refreshes both testnet and mainnet every cycle.
-
-**Frontend polling:**
-
-```javascript
-const LEADERBOARD_URL = 'https://leaderboard.nunchi.trade';
-
-async function fetchLeaderboard(network = 'testnet') {
-  const res = await fetch(`${LEADERBOARD_URL}/api/leaderboard?network=${network}`);
-  const data = await res.json();
-  return data.agents;
-}
-
-// Poll every 30 seconds
-setInterval(() => fetchLeaderboard().then(renderTable), 30000);
-```
-
-**CLI usage:**
-
-```bash
-# Register an address
-python leaderboard.py register 0x1234...abcd --name "my-agent" --network testnet
-
-# List current rankings
-python leaderboard.py list --network testnet
-
-# Start the HTTP server
-python leaderboard.py serve --port 8090
-```
-
----
-
 ## MCP Server
 
 The MCP server exposes 16 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
@@ -613,7 +434,7 @@ Add to your Claude Code MCP configuration:
 ```json
 {
   "mcpServers": {
-    "nunchi": {
+    "hyperliquid-agent": {
       "command": "hl",
       "args": ["mcp", "serve"]
     }
@@ -992,30 +813,6 @@ for agent in agents:
         print(f"{agent['name']}: UNREACHABLE ({e})")
 ```
 
-### Leaderboard + Agent Combo
-
-```python
-import requests
-
-AGENT = "https://your-agent.up.railway.app"
-LEADERBOARD = "https://leaderboard.nunchi.trade"
-YOUR_ADDRESS = "0x1234...abcd"
-
-# Get your agent status
-status = requests.get(f"{AGENT}/api/status").json()
-
-# Get leaderboard
-lb = requests.get(f"{LEADERBOARD}/api/leaderboard?network=testnet").json()
-
-# Find your rank
-your_entry = next((a for a in lb["agents"] if a["address"] == YOUR_ADDRESS.lower()), None)
-
-if your_entry:
-    print(f"Rank #{your_entry['rank']} of {lb['total_agents']} | PnL: ${your_entry['pnl']:.2f}")
-else:
-    print("Not registered on leaderboard")
-```
-
 ---
 
 ## Endpoint Summary
@@ -1032,15 +829,6 @@ else:
 | `POST` | `/api/skill/install` | None | JSON | <2s |
 | `POST` | `/api/pause` | None | JSON | <10ms |
 | `POST` | `/api/resume` | None | JSON | <10ms |
-
-### Leaderboard Endpoints (separate service)
-
-| Method | Path | Body | Response | Latency |
-|--------|------|------|----------|---------|
-| `GET` | `/health` | None | JSON | <10ms |
-| `GET` | `/api/leaderboard?network=` | None | JSON | <10ms (cached) |
-| `POST` | `/api/register` | JSON | JSON | 1-5s (queries HL) |
-| `OPTIONS` | `*` | None | 204 | <10ms |
 
 ### MCP Tools (via `hl mcp serve`)
 

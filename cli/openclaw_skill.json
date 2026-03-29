@@ -1,8 +1,8 @@
 {
-  "name": "yex-trader",
-  "version": "0.1.0",
-  "description": "Autonomous Hyperliquid trading agent — deterministic and LLM-powered strategies for HL perps and YEX markets",
-  "repository": "",
+  "name": "hyperliquid-agent",
+  "version": "1.0.0",
+  "description": "Autonomous Hyperliquid trading agent — open source, no fees, no telemetry",
+  "repository": "https://github.com/Chris0x88/hyperliquid-agent",
   "actions": [
     {
       "name": "run_strategy",

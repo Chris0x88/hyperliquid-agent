@@ -1,6 +1,6 @@
 ---
-name: yex-trader
-description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, and DSL trailing stops.
+name: hyperliquid-agent
+description: Autonomous Hyperliquid trading — 23 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, and DSL trailing stops.
 user-invocable: true
 argument-hint: "<strategy> [options]"
 allowed-tools:

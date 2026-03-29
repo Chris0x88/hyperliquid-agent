@@ -1,6 +1,6 @@
 {
-  "name": "hl-trader",
-  "version": "0.1.0",
+  "name": "hyperliquid-agent",
+  "version": "1.0.0",
   "description": "Autonomous Hyperliquid trading agent -- 15 strategies, APEX orchestrator, risk management",
   "workspace": ".",
   "mcp": [

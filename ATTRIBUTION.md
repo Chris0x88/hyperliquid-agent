@@ -1,4 +1,11 @@
-# Open Source Attribution
+# Attribution
+
+## Nunchi Trade (agent-cli)
+
+**Repository:** [Nunchi-trade/agent-cli](https://github.com/Nunchi-trade/agent-cli)
+**License:** MIT
+
+HyperLiquid Agent was originally forked from Nunchi's agent-cli. Credit to the Nunchi team for the foundational architecture — strategy engine, CLI framework, MCP server, and agent skills system.
 
 ## Senpi
 

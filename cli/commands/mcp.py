@@ -22,7 +22,7 @@ def mcp_serve(
     try:
         from cli.mcp_server import create_mcp_server
     except ImportError:
-        typer.echo("ERROR: MCP package not installed. Run: pip install 'yex-trader[mcp]'", err=True)
+        typer.echo("ERROR: MCP package not installed. Run: pip install 'hyperliquid-agent[mcp]'", err=True)
         raise typer.Exit(1)
 
     server = create_mcp_server()

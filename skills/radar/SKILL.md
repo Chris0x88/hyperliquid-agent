@@ -2,7 +2,7 @@
 name: opportunity-radar
 version: 1.0.0
 description: Screens all Hyperliquid perps and surfaces top trading setups
-author: Nunchi Trade
+author: HyperLiquid Agent
 tags: [radar, screener, technicals, opportunities, hyperliquid]
 ---
 

@@ -2,7 +2,7 @@
 name: reflect-performance-review
 version: 1.0.0
 description: Reflect, Evaluate, Fine-tune, Learn, Evolve, Correct, Transform — nightly automated performance review
-author: Nunchi Trade
+author: HyperLiquid Agent
 tags: [reflect, performance, review, analytics, self-improvement]
 cron: "55 23 * * *"
 dependencies:

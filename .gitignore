@@ -9,6 +9,7 @@ build/
 
 # Environment
 .env
+.env.*
 .venv/
 env/
 
@@ -17,6 +18,12 @@ data/
 logs/
 *.db
 *.jsonl
+
+# Secrets / wallets
+*.keystore
+*.key
+.ows/
+wallets/
 
 # IDE
 .vscode/
@@ -29,8 +36,8 @@ Thumbs.db
 
 # Test / build artifacts
 .pytest_cache/
+htmlcov/
+.coverage
 
-# Railway deploy (not used — local only)
-deploy/
-railway.toml
-Dockerfile
+# Memory (local agent state)
+memory/

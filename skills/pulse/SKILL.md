@@ -2,7 +2,7 @@
 name: pulse
 version: 1.0.0
 description: Detects assets with sudden capital inflow via OI/volume/funding proxy signals
-author: Nunchi Trade
+author: HyperLiquid Agent
 tags: [pulse, detector, smart-money, signals, hyperliquid]
 ---
 
