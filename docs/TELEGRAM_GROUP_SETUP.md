@@ -162,3 +162,43 @@ Multiple bot instances running. The bot now auto-kills previous instances on sta
 
 ### OpenClaw says "not-allowed"
 The group chat ID is not in the `groups` config at BOTH the top-level AND account-level telegram config. Add it to both.
+
+### OpenClaw responds to slash commands (duplicate responses)
+Both bots respond to `/status`, `/help`, etc. Fix:
+
+1. **Disable native commands** on the OpenClaw agent's Telegram account:
+   ```json5
+   accounts: {
+     "hl-trader": {
+       commands: { native: false, nativeSkills: false },
+       // ... rest of config
+     }
+   }
+   ```
+
+2. **Add to the agent's system prompt** (AGENT.md):
+   ```
+   NEVER respond to messages starting with "/".
+   Slash commands are handled by the Commands Bot.
+   ```
+
+3. **In the OpenClaw dashboard**: if there's a "commands" toggle for the channel, disable it.
+
+This ensures slash commands only go to the Commands Bot, and free text only goes to OpenClaw.
+
+### Full checklist for group setup
+
+Do ALL of these or it won't work:
+
+- [ ] Create two bots in @BotFather
+- [ ] Disable privacy mode for the AGENT bot (Bot Settings → Group Privacy → OFF)
+- [ ] Create the Telegram group
+- [ ] Add both bots to the group
+- [ ] **Remove and re-add the agent bot** (forces privacy mode change to take effect)
+- [ ] Get both group IDs (original AND supergroup — add both to config)
+- [ ] Set `requireMention: false` for the group at both top-level AND account-level
+- [ ] Set `groupPolicy: "open"` on the agent account
+- [ ] Set `commands: {native: false}` on the agent account
+- [ ] Add `groupAllowFrom: [YOUR_USER_ID]` (user IDs only, NOT group IDs)
+- [ ] Add slash command ignore rule to agent's AGENT.md system prompt
+- [ ] Restart the gateway: `openclaw gateway restart`
