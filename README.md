@@ -14,6 +14,9 @@
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <img src="https://img.shields.io/badge/Claude_Code-compatible-ff6b35" alt="Claude Code" />
+  <img src="https://img.shields.io/badge/Telegram-bot-26A5E4?logo=telegram&logoColor=white" alt="Telegram" />
+  <img src="https://img.shields.io/badge/OpenClaw-compatible-FF4500" alt="OpenClaw" />
+  <img src="https://img.shields.io/badge/HyperLiquid-trade.xyz-00D4AA" alt="HyperLiquid" />
 </p>
 
 ---
