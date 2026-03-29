@@ -42,6 +42,12 @@ class TelegramIterator:
         self._bot_token = os.environ.get("HL_TELEGRAM_BOT_TOKEN")
         self._chat_id = os.environ.get("HL_TELEGRAM_CHAT_ID")
 
+        # Try macOS Keychain (encrypted at rest)
+        if not self._bot_token:
+            self._bot_token = self._keychain_read("bot_token")
+        if not self._chat_id:
+            self._chat_id = self._keychain_read("chat_id")
+
         # Fallback to config file
         if not self._bot_token and self._config_path.exists():
             try:
@@ -112,6 +118,22 @@ class TelegramIterator:
 
         # Flush queue
         self._flush()
+
+    @staticmethod
+    def _keychain_read(key_name: str) -> Optional[str]:
+        """Read a secret from macOS Keychain (hl-agent-telegram service)."""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password",
+                 "-s", "hl-agent-telegram", "-a", key_name, "-w"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return None
 
     def _queue(self, msg: str) -> None:
         self._msg_queue.append(msg)
