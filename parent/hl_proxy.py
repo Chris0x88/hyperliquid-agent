@@ -264,7 +264,10 @@ class HLProxy:
         _patch_spot_meta_indexing()
 
         base_url = constants.TESTNET_API_URL if self.testnet else constants.MAINNET_API_URL
-        self._info = Info(base_url, skip_ws=True, timeout=10)
+        # Include builder-deployed perp DEXes (trade.xyz, etc.) so all markets
+        # are available for data queries AND order placement
+        self._info = Info(base_url, skip_ws=True, timeout=10,
+                          perp_dexs=["", "xyz"])
 
         account = Account.from_key(self.private_key)
         delegated = self._account_address
