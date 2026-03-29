@@ -45,8 +45,41 @@ COMMAND_QUEUE = Path("data/daemon/telegram_commands.jsonl")
 PID_FILE = Path("data/daemon/telegram_bot.pid")
 LAST_UPDATE_FILE = Path("data/daemon/telegram_last_update_id.txt")
 
-# Approved markets for scanning
-APPROVED_MARKETS = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:GOLD", "xyz:NATGAS", "xyz:SP500"]
+# ── Watchlist: markets we track ──────────────────────────────
+# Format: (display_name, hl_coin, aliases, category)
+WATCHLIST = [
+    ("BTC", "BTC", ["btc", "bitcoin"], "crypto"),
+    ("ETH", "ETH", ["eth", "ethereum"], "crypto"),
+    ("Brent Oil", "xyz:BRENTOIL", ["oil", "brent", "brentoil", "crude"], "commodity"),
+    ("WTI Crude", "xyz:CL", ["wti", "cl", "crude-us"], "commodity"),
+    ("Gold", "xyz:GOLD", ["gold", "xau"], "commodity"),
+    ("Silver", "xyz:SILVER", ["silver", "xag"], "commodity"),
+    ("Nat Gas", "xyz:NATGAS", ["natgas", "gas", "ng"], "commodity"),
+    ("S&P 500", "xyz:SP500", ["sp500", "spx", "sp"], "index"),
+    ("Nvidia", "xyz:NVDA", ["nvda", "nvidia"], "equity"),
+    ("Tesla", "xyz:TSLA", ["tsla", "tesla"], "equity"),
+]
+
+# Quick lookup: alias → hl_coin
+COIN_ALIASES: dict[str, str] = {}
+for _name, _coin, _aliases, _cat in WATCHLIST:
+    COIN_ALIASES[_coin.lower()] = _coin
+    COIN_ALIASES[_name.lower()] = _coin
+    for a in _aliases:
+        COIN_ALIASES[a.lower()] = _coin
+
+APPROVED_MARKETS = [w[1] for w in WATCHLIST]
+
+
+def resolve_coin(text: str) -> Optional[str]:
+    """Resolve user input to an HL coin identifier."""
+    t = text.strip().lower()
+    if t in COIN_ALIASES:
+        return COIN_ALIASES[t]
+    # Try with xyz: prefix
+    if f"xyz:{t}" in COIN_ALIASES:
+        return COIN_ALIASES[f"xyz:{t}"]
+    return None
 
 
 # ── Keychain helpers ─────────────────────────────────────────
@@ -250,29 +283,74 @@ def cmd_commands(token: str, chat_id: str, args: str) -> None:
 
 
 def cmd_chart(token: str, chat_id: str, args: str) -> None:
-    """Generate and send a price chart. Usage: /chart [coin] [hours]"""
+    """Generate and send a price chart. Usage: /chart <market> [hours]"""
     parts = args.split() if args else []
-    coin = parts[0] if parts else "xyz:BRENTOIL"
-    hours = int(parts[1]) if len(parts) > 1 else 72
 
-    # Normalize coin name
-    if coin.upper() in ("BRENTOIL", "OIL"):
-        coin = "xyz:BRENTOIL"
-    elif coin.upper() in ("GOLD",):
-        coin = "xyz:GOLD"
-    elif coin.upper() in ("NATGAS", "GAS"):
-        coin = "xyz:NATGAS"
-    elif not coin.startswith("xyz:") and coin.upper() not in ("BTC", "ETH", "SOL"):
-        coin = coin.upper()
+    if not parts:
+        # Show available markets
+        lines = ["Usage: /chart <market> [hours]", "", "Markets:"]
+        for name, coin, aliases, cat in WATCHLIST:
+            hint = aliases[0] if aliases else coin
+            lines.append(f"  /chart {hint}  — {name}")
+        lines.append("\nExamples:")
+        lines.append("  /chart oil 72")
+        lines.append("  /chart btc 168")
+        lines.append("  /chart gold 48")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
 
-    tg_send(token, chat_id, f"Generating {coin} {hours}h chart...")
+    coin = resolve_coin(parts[0])
+    if not coin:
+        tg_send(token, chat_id, f"Unknown market: {parts[0]}\nTry /chart to see available markets.")
+        return
+
+    hours = 72
+    if len(parts) > 1:
+        try:
+            hours = int(parts[1])
+        except ValueError:
+            pass
+
+    # Find display name
+    display = next((w[0] for w in WATCHLIST if w[1] == coin), coin)
+    tg_send(token, chat_id, f"Generating {display} {hours}h chart...")
     try:
         from cli.chart_engine import ChartEngine
         engine = ChartEngine()
         path = engine.price_action(coin, hours=hours)
-        engine.send_to_telegram(path, caption=f"{coin} — {hours}h price action")
+        engine.send_to_telegram(path, caption=f"{display} ({coin}) — {hours}h")
     except Exception as e:
         tg_send(token, chat_id, f"Chart error: {e}")
+
+
+def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
+    """Show the watchlist with current prices."""
+    mids = _hl_post({"type": "allMids"})
+    lines = ["Watchlist:", ""]
+    by_cat: dict[str, list] = {}
+    for name, coin, aliases, cat in WATCHLIST:
+        by_cat.setdefault(cat, []).append((name, coin, aliases))
+
+    for cat, markets in by_cat.items():
+        lines.append(f"{cat.upper()}")
+        for name, coin, aliases in markets:
+            price = None
+            if coin in mids:
+                price = float(mids[coin])
+            else:
+                try:
+                    book = _hl_post({"type": "l2Book", "coin": coin})
+                    levels = book.get("levels", [])
+                    if len(levels) >= 2 and levels[0] and levels[1]:
+                        price = (float(levels[0][0]["px"]) + float(levels[1][0]["px"])) / 2
+                except Exception:
+                    pass
+            px = f"${price:,.2f}" if price else "--"
+            hint = aliases[0] if aliases else ""
+            lines.append(f"  {name:<12} {px:>12}   /chart {hint}")
+        lines.append("")
+
+    tg_send(token, chat_id, "\n".join(lines))
 
 
 def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
@@ -295,13 +373,13 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
-        "/status  — portfolio\n"
-        "/price   — prices\n"
-        "/chart   — chart (/chart OIL 72)\n"
-        "/powerlaw — BTC model\n"
-        "/pnl     — profit & loss\n"
-        "/orders  — open orders\n"
-        "/commands — full CLI list\n"
+        "/status    — portfolio\n"
+        "/watchlist — markets + prices\n"
+        "/chart     — chart (try /chart)\n"
+        "/powerlaw  — BTC model\n"
+        "/pnl       — profit & loss\n"
+        "/orders    — open orders\n"
+        "/commands  — full CLI list\n"
         "\nAnything else → Claude")
 
 
@@ -312,6 +390,7 @@ HANDLERS = {
     "/pnl": cmd_pnl,
     "/commands": cmd_commands,
     "/chart": cmd_chart,
+    "/watchlist": cmd_watchlist,
     "/powerlaw": cmd_powerlaw,
     "/help": cmd_help,
     "status": cmd_status,
@@ -320,6 +399,8 @@ HANDLERS = {
     "pnl": cmd_pnl,
     "commands": cmd_commands,
     "chart": cmd_chart,
+    "watchlist": cmd_watchlist,
+    "w": cmd_watchlist,
     "powerlaw": cmd_powerlaw,
     "help": cmd_help,
 }
