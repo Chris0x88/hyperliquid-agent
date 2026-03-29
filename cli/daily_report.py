@@ -142,9 +142,10 @@ def generate_report() -> Path:
         fig.text(0.05, y, "PORTFOLIO", fontsize=12, fontweight="bold", color="#58a6ff")
         y -= 0.025
         fig.text(0.05, y, f"Spot USDC: ${usdc:,.2f}", fontsize=10, color="#c9d1d9")
-        fig.text(0.5, y, f"Perps equity: ${xyz_val:,.2f}", fontsize=10, color="#c9d1d9")
+        if xyz_val > 0.01:
+            fig.text(0.5, y, f"xyz margin: ${xyz_val:,.2f} (transfer to spot)", fontsize=9, color="#f0883e")
         y -= 0.02
-        fig.text(0.05, y, f"Vault equity: ${vault_val:,.2f}", fontsize=10, color="#c9d1d9")
+        fig.text(0.05, y, f"Vault: ${vault_val:,.2f}", fontsize=10, color="#c9d1d9")
         total = usdc + xyz_val + vault_val
         fig.text(0.5, y, f"TOTAL: ${total:,.2f}", fontsize=10, fontweight="bold", color="#3fb950")
 
