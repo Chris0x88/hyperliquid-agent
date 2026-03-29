@@ -1,8 +1,30 @@
-# Railway deploy — not used, local only
-deploy/
-railway.toml
-Dockerfile
+# Nunchi legacy strategies — unused, don't analyze
+strategies/aggressive_taker.py
+strategies/avellaneda_mm.py
+strategies/basis_arb.py
+strategies/claude_agent.py
+strategies/engine_mm.py
+strategies/funding_arb.py
+strategies/funding_momentum.py
+strategies/grid_mm.py
+strategies/hedge_agent.py
+strategies/liquidation_mm.py
+strategies/mean_reversion.py
+strategies/momentum_breakout.py
+strategies/oi_divergence.py
+strategies/regime_mm.py
+strategies/rfq_agent.py
+strategies/simple_mm.py
+strategies/simplified_ensemble.py
+strategies/trend_follower.py
 
-# Test fixtures for removed features
-tests/test_telemetry.py
-tests/test_builder_fee.py
+# Nunchi legacy modules we don't use
+modules/quoting_engine.py
+modules/opportunity_radar.py
+modules/pulse_engine.py
+
+# Legacy agent skills (we use daemon now, not APEX)
+skills/
+
+# SDK internals
+sdk/
