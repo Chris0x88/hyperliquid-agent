@@ -74,15 +74,15 @@ CATEGORIES = {
 
 # Telegram command registry (for /commands in Telegram bot)
 TELEGRAM_COMMANDS = [
-    ("/hstatus", "Portfolio snapshot"),
-    ("/hprice", "Current prices"),
-    ("/horders", "Open orders"),
-    ("/hpnl", "P&L summary"),
-    ("/hchart", "Price chart (/hchart oil 72)"),
-    ("/hwatchlist", "Markets + prices"),
-    ("/hpowerlaw", "BTC Power Law chart"),
-    ("/hcommands", "All CLI commands"),
-    ("/hhelp", "Telegram help"),
+    ("/status", "Portfolio snapshot"),
+    ("/price", "Current prices"),
+    ("/orders", "Open orders"),
+    ("/pnl", "P&L summary"),
+    ("/chart", "Price chart (/chart oil 72)"),
+    ("/watchlist", "Markets + prices"),
+    ("/powerlaw", "BTC Power Law chart"),
+    ("/commands", "All CLI commands"),
+    ("/help", "Telegram help"),
 ]
 
 
@@ -161,7 +161,7 @@ def get_commands_text(long: bool = False, category: Optional[str] = None) -> str
         for cmd, alias, desc, cat in top:
             lines.append(f"  {alias}  —  {desc}")
         lines.append(f"\n/commands long — full list")
-        lines.append(f"/hcommands <category> — filter")
+        lines.append(f"/commands <category> — filter")
         lines.append(f"Categories: {', '.join(CATEGORIES.keys())}")
         return "\n".join(lines)
 

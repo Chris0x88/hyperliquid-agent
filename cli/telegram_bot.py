@@ -283,25 +283,25 @@ def cmd_commands(token: str, chat_id: str, args: str) -> None:
 
 
 def cmd_chart(token: str, chat_id: str, args: str) -> None:
-    """Generate and send a price chart. Usage: /hchart <market> [hours]"""
+    """Generate and send a price chart. Usage: /chart <market> [hours]"""
     parts = args.split() if args else []
 
     if not parts:
         # Show available markets
-        lines = ["Usage: /hchart <market> [hours]", "", "Markets:"]
+        lines = ["Usage: /chart <market> [hours]", "", "Markets:"]
         for name, coin, aliases, cat in WATCHLIST:
             hint = aliases[0] if aliases else coin
-            lines.append(f"  /hchart{hint}  — {name}")
+            lines.append(f"  /chart{hint}  — {name}")
         lines.append("\nExamples:")
-        lines.append("  /hchartoil 72")
-        lines.append("  /hchartbtc 168")
-        lines.append("  /hchartgold 48")
+        lines.append("  /chartoil 72")
+        lines.append("  /chartbtc 168")
+        lines.append("  /chartgold 48")
         tg_send(token, chat_id, "\n".join(lines))
         return
 
     coin = resolve_coin(parts[0])
     if not coin:
-        tg_send(token, chat_id, f"Unknown market: {parts[0]}\nTry /hchart to see available markets.")
+        tg_send(token, chat_id, f"Unknown market: {parts[0]}\nTry /chart to see available markets.")
         return
 
     hours = 72
@@ -351,7 +351,7 @@ def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
                     pass
             px = f"${price:,.2f}" if price else "--"
             hint = aliases[0] if aliases else ""
-            lines.append(f"  {name:<12} {px:>12}   /hchart{hint}")
+            lines.append(f"  {name:<12} {px:>12}   /chart{hint}")
         lines.append("")
 
     tg_send(token, chat_id, "\n".join(lines))
@@ -375,39 +375,37 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
-        "/hstatus    — portfolio\n"
-        "/hwatchlist — markets + prices (or /hw)\n"
-        "/hchart     — chart (try /hchart)\n"
-        "/hpowerlaw  — BTC model\n"
-        "/hpnl       — profit & loss\n"
-        "/horders    — open orders\n"
-        "/hcommands  — full CLI list\n"
-        "/hhelp      — this message")
+        "/status    — portfolio\n"
+        "/watchlist — markets + prices (or /w)\n"
+        "/chart     — chart (/chart oil 72)\n"
+        "/powerlaw  — BTC model\n"
+        "/pnl       — profit & loss\n"
+        "/orders    — open orders\n"
+        "/commands  — full CLI list\n"
+        "/help      — this message")
 
 
 HANDLERS = {
-    # /h-prefixed commands — no collision with OpenClaw native commands
-    "/hstatus": cmd_status,
-    "/hprice": cmd_price,
-    "/horders": cmd_orders,
-    "/hpnl": cmd_pnl,
-    "/hcommands": cmd_commands,
-    "/hchart": cmd_chart,
-    "/hwatchlist": cmd_watchlist,
-    "/hw": cmd_watchlist,
-    "/hpowerlaw": cmd_powerlaw,
-    "/hhelp": cmd_help,
-    # Without slash (DM convenience)
-    "hstatus": cmd_status,
-    "hprice": cmd_price,
-    "horders": cmd_orders,
-    "hpnl": cmd_pnl,
-    "hcommands": cmd_commands,
-    "hchart": cmd_chart,
-    "hwatchlist": cmd_watchlist,
-    "hw": cmd_watchlist,
-    "hpowerlaw": cmd_powerlaw,
-    "hhelp": cmd_help,
+    "/status": cmd_status,
+    "/price": cmd_price,
+    "/orders": cmd_orders,
+    "/pnl": cmd_pnl,
+    "/commands": cmd_commands,
+    "/chart": cmd_chart,
+    "/watchlist": cmd_watchlist,
+    "/w": cmd_watchlist,
+    "/powerlaw": cmd_powerlaw,
+    "/help": cmd_help,
+    "status": cmd_status,
+    "price": cmd_price,
+    "orders": cmd_orders,
+    "pnl": cmd_pnl,
+    "commands": cmd_commands,
+    "chart": cmd_chart,
+    "watchlist": cmd_watchlist,
+    "w": cmd_watchlist,
+    "powerlaw": cmd_powerlaw,
+    "help": cmd_help,
 }
 
 
