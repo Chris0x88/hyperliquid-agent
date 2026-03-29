@@ -227,14 +227,62 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+def cmd_commands(token: str, chat_id: str, args: str) -> None:
+    from cli.commands.commands import get_commands_text
+    is_long = args.strip() in ("--long", "-l", "long")
+    text = get_commands_text(long=is_long)
+    # Telegram has 4096 char limit, split if needed
+    if len(text) > 4000:
+        parts = text.split("\n\n")
+        chunk = ""
+        for part in parts:
+            if len(chunk) + len(part) > 3900:
+                tg_send(token, chat_id, chunk)
+                chunk = part
+            else:
+                chunk += "\n\n" + part if chunk else part
+        if chunk:
+            tg_send(token, chat_id, chunk)
+    else:
+        tg_send(token, chat_id, text)
+
+
+def cmd_chart(token: str, chat_id: str, args: str) -> None:
+    """Generate and send a price chart. Usage: /chart [coin] [hours]"""
+    parts = args.split() if args else []
+    coin = parts[0] if parts else "xyz:BRENTOIL"
+    hours = int(parts[1]) if len(parts) > 1 else 72
+
+    # Normalize coin name
+    if coin.upper() in ("BRENTOIL", "OIL"):
+        coin = "xyz:BRENTOIL"
+    elif coin.upper() in ("GOLD",):
+        coin = "xyz:GOLD"
+    elif coin.upper() in ("NATGAS", "GAS"):
+        coin = "xyz:NATGAS"
+    elif not coin.startswith("xyz:") and coin.upper() not in ("BTC", "ETH", "SOL"):
+        coin = coin.upper()
+
+    tg_send(token, chat_id, f"Generating {coin} {hours}h chart...")
+    try:
+        from cli.chart_engine import ChartEngine
+        engine = ChartEngine()
+        path = engine.price_action(coin, hours=hours)
+        engine.send_to_telegram(path, caption=f"{coin} — {hours}h price action")
+    except Exception as e:
+        tg_send(token, chat_id, f"Chart error: {e}")
+
+
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
         "Commands (instant, no AI):\n"
-        "  /status  — full portfolio\n"
-        "  /price   — current prices\n"
-        "  /orders  — open orders\n"
-        "  /pnl     — P&L summary\n"
-        "  /help    — this message\n"
+        "  /status    — full portfolio\n"
+        "  /price     — current prices\n"
+        "  /orders    — open orders\n"
+        "  /pnl       — P&L summary\n"
+        "  /chart     — price chart (/chart BRENTOIL 72)\n"
+        "  /commands  — all CLI + Telegram commands\n"
+        "  /help      — this message\n"
         "\n"
         "Anything else → forwarded to Claude\n"
         "(processed on next scheduled check-in)")
@@ -245,11 +293,15 @@ HANDLERS = {
     "/price": cmd_price,
     "/orders": cmd_orders,
     "/pnl": cmd_pnl,
+    "/commands": cmd_commands,
+    "/chart": cmd_chart,
     "/help": cmd_help,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
     "pnl": cmd_pnl,
+    "commands": cmd_commands,
+    "chart": cmd_chart,
     "help": cmd_help,
 }
 
