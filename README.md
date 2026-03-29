@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="HyperLiquid Agent" width="100%" />
+</p>
+
 <h1 align="center">HyperLiquid Agent</h1>
 
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
