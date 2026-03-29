@@ -1,365 +1,333 @@
 <p align="center">
-  <img src="assets/banner.png" alt="HyperLiquid Agent" width="100%" />
+  <img src="docs/banner2.png" alt="HyperLiquid Agent" width="100%" />
 </p>
 
 <h1 align="center">HyperLiquid Agent</h1>
 
-<h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
+<h3 align="center">Autonomous Trading Daemon for Hyperliquid</h3>
 
 <p align="center">
-  Fully open source. No fees. No telemetry. No tricks.
+  Open source. No fees. No telemetry. Your keys, your rules.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/strategies-23-C9A84C" alt="Strategies" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-16%20tools-8A2BE2" alt="MCP" />
   <img src="https://img.shields.io/badge/OpenClaw-ready-ff6b35" alt="OpenClaw Ready" />
 </p>
 
 ---
 
-**Plug-and-play trading agent for [OpenClaw](https://agentskills.io).** Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review.
+A monitoring and rebalancing daemon for [Hyperliquid](https://hyperliquid.xyz) perps. Start in watch-only mode, graduate to automated rebalancing when you're ready. Designed to work **alongside** your normal HyperLiquid account — not replace it.
 
-**OpenClaw-native** — config files, skills, and MCP tools are all included. Point your agent at this repo and start trading. Also works as a standalone CLI or Claude Code skill.
+**The idea:** Set up your account at [app.hyperliquid.xyz](https://app.hyperliquid.xyz/), create an API wallet for the bot, and let the daemon monitor and trade on your behalf. You stay in control. The bot uses a restricted API key that can trade but never withdraw.
 
-**What makes this different:**
-- **OpenClaw plug-and-play** — `openclaw.json`, 6 agent skills, 16 MCP tools, workspace files all pre-configured
-- **No builder fees** — zero fee skimming on your trades, ever
-- **No telemetry** — nothing phones home, no tracking, no analytics
-- **Fully open source** — read every line, fork it, make it yours
+---
 
-### Copy My Bitcoin Rebalancer Vault
+## What This Is (And Isn't)
 
-Follow the Bitcoin Power Law rebalancing strategy on Hyperliquid:
+**This is** a focused trading daemon that:
+- Monitors your positions, PnL, and risk in real time
+- Rebalances based on deterministic strategies (Bitcoin Power Law is the flagship)
+- Scans for opportunities and guards your positions with trailing stops
+- Exposes everything via MCP tools so your AI agent can query and act
 
+**This is not** a black box. Every decision the daemon makes is deterministic — no LLM in the loop. If you use an AI agent (OpenClaw, Claude Code), it acts like a human running CLI commands. The daemon runs the math; the agent runs the daemon.
+
+---
+
+## How It's Built
+
+We frankensteined this together from several sources and made it work:
+
+| Component | Origin | What We Did |
+|-----------|--------|-------------|
+| **Strategy engine + CLI** | Forked from [Nunchi's agent-cli](https://github.com/Nunchi-trade/agent-cli) | Stripped all fees, telemetry, and external dependencies. Kept the strategy framework and pure-logic modules. |
+| **Bitcoin Power Law plugin** | Built from scratch | Index-fund-style BTC rebalancer based on the Power Law floor/ceiling model. The flagship strategy. |
+| **Key management** | [Open Wallet Standard](https://github.com/OpenWalletStandard) + macOS Keychain | OWS vault (AES-256-GCM, Rust core) as primary backend, Keychain as fast fallback. Dual-write to both. |
+| **Historical data system** | Built from scratch | SQLite candle cache, HL API fetcher with rate limiting, backtest engine, technical analysis. |
+| **Oil strategies** | Built from scratch | Brent squeeze, liquidation sweep, war regime — experimental, thesis-driven. |
+| **Daemon layer** | Inspired by [Hummingbot](https://hummingbot.org/) clock architecture | Tick-based iterator loop. Simpler than Hummingbot — no Cython, no event bus. |
+| **Agent skills** | [Agent Skills](https://agentskills.io) standard | 6 skills for AI agent integration (onboard, radar, pulse, guard, reflect, apex). |
+| **MCP tools** | [Model Context Protocol](https://modelcontextprotocol.io) | 16+ tools for AI agents to query data, run strategies, check status. |
+
+See [ATTRIBUTION.md](ATTRIBUTION.md) for full credits.
+
+---
+
+## Security First: Use an API Wallet
+
+> **Never give this tool your main HyperLiquid private key.**
+
+HyperLiquid has a purpose-built system for bot trading called **API wallets** (agent wallets). You should always use one:
+
+| | Main Key | API Wallet |
+|-|----------|-----------|
+| **Can trade** | Yes | Yes |
+| **Can withdraw** | Yes | **No** |
+| **Revocable** | No — it's your key forever | Yes — deregister instantly from web UI |
+| **Nonce isolation** | Shared with web UI | Separate — no conflicts with manual trading |
+| **If leaked** | Attacker drains everything | Attacker can only trade (no withdrawals) |
+
+**How to create one:**
+1. Log in at [app.hyperliquid.xyz](https://app.hyperliquid.xyz/)
+2. Go to **Portfolio → API Wallets → Generate**
+3. Name it (e.g., "agent-bot")
+4. Copy the private key — **you'll only see it once**
+
+This is the key you give to the agent. Your main key stays in your browser wallet, untouched.
+
+---
+
+## Quick Start
+
+```bash
+# 1. Clone and install
+git clone https://github.com/Chris0x88/hyperliquid-agent.git
+cd hyperliquid-agent && pip install -e .
+
+# 2. Import your API wallet key (NOT your main key)
+hl keys import --backend ows
+
+# 3. Verify
+hl account
+
+# 4. Start the daemon in watch mode (no trading, just monitoring)
+hl daemon start --tier watch
+
+# 5. When ready, upgrade to rebalancing
+hl daemon start --tier rebalance
+```
+
+**First time?** The daemon defaults to testnet. Add `--mainnet` when you're ready for real money.
+
+---
+
+## The Daemon
+
+The daemon is a tick-based loop (inspired by Hummingbot's clock architecture) that runs registered iterators in dependency order. Each tier activates more capabilities:
+
+### Tiers
+
+| Tier | What It Does | Who It's For |
+|------|-------------|--------------|
+| **`watch`** | Monitors positions, PnL, risk levels. Alerts on thresholds. No trading. | Beginners. Start here. |
+| **`rebalance`** | Monitors + auto-rebalances per your strategy + guards positions with trailing stops. | Intermediate. Set and forget. |
+| **`opportunistic`** | All of the above + scans for opportunities via Radar/Pulse. Acts within strict capital/leverage limits. | Advanced. Full autonomous. |
+
+```bash
+hl daemon start --tier watch           # start monitoring
+hl daemon tier rebalance               # upgrade at runtime
+hl daemon status                       # check what's happening
+hl daemon once                         # single tick (for cron/agents)
+```
+
+### Multi-Strategy Roster
+
+The daemon can run multiple strategies simultaneously. Each strategy has its own instrument and tick interval.
+
+```bash
+hl daemon strategies                              # what's running?
+hl daemon add power_law_btc -i BTC-PERP -t 3600  # hourly BTC rebalance
+hl daemon add trend_follower -i ETH-PERP -t 60   # minutely ETH trend
+hl daemon pause power_law_btc                     # pause without removing
+hl daemon remove trend_follower                   # drop it
+```
+
+### Opportunistic Tier Limits
+
+When running in `opportunistic` mode, all entries are strictly bounded:
+- Capital limit per opportunity (default 5% of account)
+- Leverage limit (default 3x)
+- Position size limits (configurable)
+- All signals are deterministic — no LLM decisions
+
+---
+
+## Featured Strategy: Bitcoin Power Law
+
+The flagship strategy. Based on the Bitcoin Power Law model — the idea that BTC price follows a power-law corridor over long timeframes.
+
+- Calculates a "floor" and "ceiling" from the model
+- When BTC is near the floor: increase leverage (accumulate)
+- When BTC is near the ceiling: decrease leverage (take profit)
+- Rebalances hourly by default
+
+```bash
+hl daemon add power_law_btc -i BTC-PERP -t 3600
+hl daemon start --tier rebalance
+```
+
+Or follow the same strategy via vault:
 **[Copy Vault on Hyperliquid →](https://app.hyperliquid.xyz/vaults/0x9da9a9aef5a968277b5ea66c6a0df7add49d98da)**
 
-Or run `power_law_btc` yourself with the built-in strategy.
+---
+
+## Historical Data & Analytics
+
+Built-in historical data system with SQLite cache, HL API fetcher, and technical analysis.
+
+```bash
+# Fetch and cache candles
+hl data fetch --coin BTC --interval 1h --days 90
+
+# Run a backtest
+hl backtest run -s power_law_btc -c BTC -d 90 --capital 10000
+
+# Check what's cached
+hl data stats
+
+# Export to CSV
+hl data export --coin BTC --interval 1h --output btc_candles.csv
+```
+
+**For AI agents** — all of this is exposed via MCP tools:
+- `get_candles` — query cached OHLCV data (auto-fetches if not cached)
+- `analyze` — technical analysis snapshot (EMA, RSI, trend, volume)
+- `backtest` — run a strategy backtest, get metrics
+- `fetch_data` — explicitly populate the cache
+- `price_at` — point lookup at a timestamp
 
 ---
 
-## Quick Start — OpenClaw (Recommended)
+## Key Management
 
-Already have an OpenClaw agent? Just point it at this repo:
+Multi-backend key storage with automatic fallback:
 
-```bash
-git clone https://github.com/Chris0x88/hyperliquid-agent.git ~/hyperliquid-agent
-cd ~/hyperliquid-agent && bash scripts/bootstrap.sh
-```
+| Backend | Security | Platform | How |
+|---------|----------|----------|-----|
+| **OWS Vault** (primary) | AES-256-GCM, mlock'd memory, Rust core | All | `hl keys import --backend ows` |
+| **macOS Keychain** (fallback) | System-level encryption | macOS | Auto-detected |
+| **Encrypted Keystore** | geth-compatible scrypt KDF | All | `hl keys import --backend keystore` |
 
-Everything is pre-configured: `openclaw.json`, workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `BOOTSTRAP.md`), 6 agent skills, and 16 MCP tools. Your agent can onboard itself — the Onboard skill walks it from zero to first trade.
-
-## Quick Start — CLI
-
-```bash
-git clone https://github.com/Chris0x88/hyperliquid-agent.git && cd hyperliquid-agent
-bash scripts/bootstrap.sh        # Creates venv, installs, validates
-```
-
-### Agent-Friendly (Zero Prompts)
+Keys are dual-written to OWS + Keychain (on macOS) for redundancy.
 
 ```bash
-hl wallet auto --save-env        # Create wallet + save creds (no prompts)
-hl keys import                   # Import keys
-hl run avellaneda_mm --mock --max-ticks 3   # Validate
-hl apex run --mock --max-ticks 5            # Full pipeline test
-```
-
-### Manual Setup
-
-```bash
-export HL_PRIVATE_KEY=0x...
-export HL_TESTNET=true           # default
-
-hl setup check                   # Validate environment
-hl run engine_mm -i ETH-PERP --tick 10
-```
-
-### Mainnet
-
-```bash
-export HL_PRIVATE_KEY=0x...
-export HL_TESTNET=false
-
-hl run engine_mm -i ETH-PERP --tick 10 --mainnet
-hl apex run --mainnet
+hl keys import              # import a key (prompts for backend)
+hl keys list                # show all stored keys
+hl keys migrate --from keystore --to ows --address 0x...
 ```
 
 ---
 
-## Strategies
+## More Strategies
 
-23 built-in strategies across four categories. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling between strategies.
-
-### Market Making
-
-Provide two-sided liquidity and earn the spread.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `engine_mm` | Production quoting engine — composite 4-signal fair value, dynamic spreads, inventory skew, multi-level quote ladder. | `base_size`, `num_levels` | Primary MM strategy. |
-| `avellaneda_mm` | Avellaneda-Stoikov optimal market maker. Reservation price adjusts with inventory. | `gamma`, `k`, `base_size` | Theoretically grounded inventory-aware quoting. |
-| `regime_mm` | Vol-regime adaptive — classifies into 4 regimes, switches spread/sizing per regime. | `base_size` | Volatile markets. |
-| `simple_mm` | Symmetric bid/ask at fixed spread around mid. | `spread_bps`, `size` | Testnet, benchmarking. |
-| `grid_mm` | Fixed-interval grid levels above and below mid. | `grid_spacing_bps`, `num_levels` | Range-bound markets. |
-| `liquidation_mm` | Provides liquidity during cascade/liquidation events. | `oi_drop_threshold_pct` | Liquidation-heavy markets. |
-
-### Arbitrage
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `funding_arb` | Cross-venue funding rate arbitrage. | `divergence_threshold_bps` | Funding divergence. |
-| `basis_arb` | Trades implied basis from funding rate. | `basis_threshold_bps`, `size` | Contango/backwardation. |
-
-### Signal / Directional
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `momentum_breakout` | Volume + price breakout. | `lookback`, `breakout_threshold_bps` | Trending markets. |
-| `mean_reversion` | Trades SMA deviation. | `window`, `threshold_bps` | Range-bound markets. |
-| `aggressive_taker` | Crosses the spread with directional bias. | `size`, `bias_amplitude` | Strong directional conviction. |
-| `power_law_btc` | Bitcoin Power Law rebalancing — long-term BTC accumulation based on the Power Law model. | See plugin config | Bitcoin believers. |
-| `brent_oil_squeeze` | Oil supply squeeze momentum. | See strategy | Oil macro events. |
-| `oil_liq_sweep` | Oil liquidation sweep. | See strategy | Oil cascade events. |
-| `oil_war_regime` | Oil war regime mean-reversion. | See strategy | Oil geopolitical events. |
-| `oi_divergence` | OI/price divergence signals. | See strategy | Smart money detection. |
-| `trend_follower` | Multi-timeframe trend following. | See strategy | Trending markets. |
-| `risk_multipliers` | Risk-adjusted position sizing. | See strategy | Portfolio overlay. |
-| `simplified_ensemble` | Ensemble of multiple signal sources. | See strategy | Diversified signals. |
-| `funding_momentum` | Funding rate momentum. | See strategy | Funding trends. |
-
-### Infrastructure / Risk
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `hedge_agent` | Reduces excess exposure per deterministic mandate. | `notional_threshold` | Always-on risk overlay. |
-| `rfq_agent` | Block-size dark RFQ liquidity. | `min_size`, `spread_bps` | Institutional flow. |
-| `claude_agent` | Multi-model LLM trading agent (Gemini, Claude, OpenAI). | `model`, `base_size` | Autonomous LLM reasoning. |
-
-### Quoting Engine Pipeline
-
-```
-Market Data -> Composite Fair Value -> Dynamic Spread -> Inventory Skew -> Multi-Level Ladder -> Orders
-               (4-signal blend)       (fee+vol+tox)     (price+size)     (exponential decay)
-```
-
-### LLM Agent (Multi-Model)
-
-| Provider | Models | Env Variable |
-|----------|--------|-------------|
-| Google Gemini | `gemini-2.0-flash`, `gemini-2.5-pro` | `GEMINI_API_KEY` |
-| Anthropic Claude | `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `o3-mini` | `OPENAI_API_KEY` |
-
----
-
-## Skills
-
-Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is self-contained with instructions, scripts, and references.
-
-| Skill | What it does |
-|-------|-------------|
-| **Onboard** | Step-by-step first-time setup — zero to first trade. |
-| **APEX** | Fully autonomous 2-3 slot trading. Composes Radar + Pulse + Guard. |
-| **Radar** | 4-stage funnel screening all HL perps. Scores 0-400. |
-| **Pulse** | Detects sudden capital inflow via OI/volume/funding signals. |
-| **Guard** | 2-phase trailing stop with tiered profit-locking. |
-| **REFLECT** | Nightly self-improvement loop — analyzes trades, generates recommendations. |
-
-### Install Skills
+22 strategies are included. Most are hidden by default to keep things simple.
 
 ```bash
-# Raw URLs
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/onboard/SKILL.md
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/apex/SKILL.md
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/radar/SKILL.md
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/pulse/SKILL.md
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/guard/SKILL.md
-https://raw.githubusercontent.com/Chris0x88/hyperliquid-agent/main/skills/reflect/SKILL.md
-
-# Claude Code
-git clone https://github.com/Chris0x88/hyperliquid-agent.git ~/hyperliquid-agent
-cd ~/hyperliquid-agent && pip install -e .
+hl strategies               # show featured (power_law_btc)
+hl strategies --all         # show featured + standard (oil, momentum, arb)
+hl strategies --advanced    # show everything (MM suite, LLM agent, etc.)
 ```
 
----
+Every strategy works with `hl run <name>` for direct execution, or via the daemon roster for managed execution.
 
-## Autonomous Trading Stack
+**Standard strategies** (oil thesis, momentum, arbitrage):
+`brent_oil_squeeze`, `oil_war_regime`, `oil_liq_sweep`, `mean_reversion`, `trend_follower`, `funding_arb`
 
-### APEX — Autonomous Multi-Slot Strategy
+**Advanced strategies** (market making, institutional, LLM):
+`engine_mm`, `avellaneda_mm`, `regime_mm`, `simple_mm`, `grid_mm`, `liquidation_mm`, `momentum_breakout`, `aggressive_taker`, `hedge_agent`, `rfq_agent`, `claude_agent`, `basis_arb`, `simplified_ensemble`, `funding_momentum`, `oi_divergence`
 
-Top-level orchestrator. Composes Radar + Pulse + Guard into a single autonomous strategy managing 2-3 concurrent positions.
-
-| Preset | Slots | Leverage | Radar Threshold | Daily Loss Limit |
-|--------|-------|----------|-----------------|------------------|
-| `default` | 3 | 10x | 170 | $500 |
-| `conservative` | 2 | 5x | 190 | $250 |
-| `aggressive` | 3 | 15x | 150 | $1,000 |
-
-```bash
-hl apex run --mock --max-ticks 10          # Mock test
-hl apex run                                 # Live testnet
-hl apex run --preset conservative --mainnet # Live mainnet
-```
-
-### Guard — Dynamic Stop Loss
-
-Two phases: **Phase 1** lets the trade breathe with wide retrace. **Phase 2** locks profit through tiered ratcheting.
-
-```bash
-hl guard run -i ETH-PERP --preset tight
-```
-
-### Radar — Opportunity Screening
-
-Multi-factor screening across all HL perps. 4-stage funnel, scores 0-400.
-
-```bash
-hl radar once --mock    # Single scan
-hl radar run --mock     # Continuous
-```
-
-### Pulse — Momentum Detection
-
-Detects sudden capital inflow via OI, volume, funding, and price signals. 5-tier signal taxonomy.
-
-```bash
-hl pulse once --mock    # Single scan
-hl pulse run --mock     # Continuous
-```
-
-### REFLECT — Performance Review
-
-Nightly self-improvement loop. When running inside APEX, REFLECT auto-adjusts parameters based on findings (FDR, win rate, direction imbalance, consecutive losses).
-
-```bash
-hl reflect run --since 2026-03-01
-hl reflect report
-```
-
----
-
-## Production Safety
-
-- **Exchange-Level Stop Loss Sync** — Guard places trigger orders directly on Hyperliquid. If the runner crashes, the exchange-side stop remains active.
-- **Clearinghouse Reconciliation** — Bidirectional reconciliation between APEX slots and HL positions. Detects orphans and size mismatches.
-- **Risk Guardian** — Graduated risk response: OPEN → COOLDOWN → CLOSED with automatic transitions.
-- **Rotation Cooldown** — Anti-churn: 45 min minimum hold, 5 min slot cooldown.
-- **ALO Fee Optimization** — Entry orders default to post-only for maker rebates.
-
----
-
-## Commands
-
-```bash
-# Core trading
-hl run <strategy> [options]       # Start autonomous trading
-hl status [--watch]               # Show positions, PnL, risk
-hl trade <inst> <side> <size>     # Place a single order
-hl account                        # Show HL account state
-hl strategies                     # List all strategies
-
-# Autonomous stack
-hl apex run [options]             # APEX multi-slot orchestrator
-hl apex reconcile [--fix]         # Reconcile state vs exchange
-hl radar run [options]            # Opportunity radar
-hl pulse run [options]            # Pulse momentum detector
-hl guard run -i ETH-PERP [opts]  # Guard trailing stop
-hl reflect run [--since DATE]    # Performance review
-
-# Infrastructure
-hl wallet auto [--save-env]       # Create wallet (agent-friendly)
-hl setup check                    # Validate environment
-hl mcp serve                      # Start MCP server
-```
-
----
-
-## MCP Server
-
-Expose all trading tools via [Model Context Protocol](https://modelcontextprotocol.io) for AI agent integration.
-
-```bash
-hl mcp serve                      # stdio transport (default)
-hl mcp serve --transport sse      # SSE transport
-```
-
-**16 tools:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
-
-**[Full API Reference →](docs/api-reference.md)**
-
----
-
-## Custom Strategies
+### Write Your Own
 
 ```python
 from sdk.strategy_sdk.base import BaseStrategy
 from common.models import MarketSnapshot, StrategyDecision
 
 class MyStrategy(BaseStrategy):
-    def __init__(self, lookback=10, threshold=0.5, size=0.1, **kwargs):
-        super().__init__(strategy_id="my_strategy")
-        self.lookback, self.threshold, self.size = lookback, threshold, size
-        self._prices = []
-
     def on_tick(self, snapshot, context=None):
-        mid = snapshot.mid_price
-        self._prices.append(mid)
-        if len(self._prices) < self.lookback:
-            return []
-
-        pct = (mid - self._prices[-self.lookback]) / self._prices[-self.lookback] * 100
-        if abs(pct) > self.threshold:
-            return [StrategyDecision(
-                action="place_order",
-                instrument=snapshot.instrument,
-                side="buy" if pct > 0 else "sell",
-                size=self.size,
-                limit_price=round(snapshot.ask if pct > 0 else snapshot.bid, 2),
-            )]
-        return []
+        # Your logic here
+        return [StrategyDecision(action="place_order", ...)]
 ```
 
 ```bash
-hl run my_strategies.my_strategy:MyStrategy -i ETH-PERP --tick 10
+hl run my_module:MyStrategy -i ETH-PERP --tick 10
 ```
 
 ---
 
-## Environment Variables
+## AI Agent Integration
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `HL_PRIVATE_KEY` | Yes* | Hyperliquid private key |
-| `HL_KEYSTORE_PASSWORD` | Alt* | Password for encrypted keystore |
-| `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
-| `ANTHROPIC_API_KEY` | No | For `claude_agent` with Claude |
-| `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
-| `OPENAI_API_KEY` | No | For `claude_agent` with OpenAI |
+### OpenClaw / Claude Code
 
-\* Either `HL_PRIVATE_KEY` or a keystore with `HL_KEYSTORE_PASSWORD` is required.
+Pre-configured with `openclaw.json`, workspace files, 6 agent skills, and MCP tools. Point your agent at this repo and it can onboard itself.
+
+```bash
+hl mcp serve                # start MCP server (stdio)
+hl mcp serve --transport sse  # SSE transport
+```
+
+### MCP Tools
+
+| Category | Tools |
+|----------|-------|
+| **Data** | `get_candles`, `fetch_data`, `analyze`, `backtest`, `price_at`, `cache_stats` |
+| **Trading** | `trade`, `run_strategy`, `apex_run` |
+| **Monitoring** | `account`, `status`, `radar_run`, `reflect_run` |
+| **System** | `strategies`, `setup_check`, `wallet_list`, `wallet_auto` |
+| **Intelligence** | `agent_memory`, `trade_journal`, `judge_report` |
+
+### Agent Skills
+
+| Skill | Purpose |
+|-------|---------|
+| **Onboard** | Walk through setup from zero to first trade |
+| **Radar** | Screen all HL perps for opportunities |
+| **Pulse** | Detect sudden capital inflow |
+| **Guard** | Trailing stop management |
+| **REFLECT** | Performance review and parameter tuning |
+| **APEX** | Full autonomous orchestration (legacy, use daemon instead) |
 
 ---
 
-## Architecture
+## Sub-Accounts (Advanced)
 
-```
-cli/           CLI commands and trading engine
-  commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, ...)
-  mcp_server.py  MCP server (16 tools via FastMCP)
-  hl_adapter.py  Direct HL API adapter (live + mock)
-  keystore.py    Encrypted keystore (geth-compatible)
-  strategy_registry.py  Strategy + market definitions
-strategies/    23 trading strategy implementations
-modules/       Pure logic modules (zero I/O)
-skills/        Agent Skills (SKILL.md + runners)
-plugins/       Strategy plugins (power_law_btc)
-sdk/           Strategy base class and model registry
-parent/        HL API proxy, position tracking, risk management
-scripts/       Backtest harness, bootstrap
-tests/         Test suite
+For separate budgets per strategy:
+1. Create sub-account at [app.hyperliquid.xyz](https://app.hyperliquid.xyz/)
+2. Transfer funds to the sub-account
+3. Create a dedicated API wallet for the sub-account
+4. Import: `hl keys import --backend ows`
+
+Sub-account volume counts toward your master account fee tier. HyperLiquid allows 2 named API wallets per sub-account.
+
+---
+
+## Commands Reference
+
+```bash
+# Daemon (primary interface)
+hl daemon start [--tier watch|rebalance|opportunistic] [--tick 60] [--mock] [--mainnet]
+hl daemon stop | status | once
+hl daemon tier [watch|rebalance|opportunistic]
+hl daemon strategies | add | remove | pause | resume
+
+# Direct strategy execution (power users)
+hl run <strategy> -i <instrument> [--tick N] [--mock] [--mainnet]
+
+# Monitoring
+hl status [--watch]
+hl account
+
+# Data & Backtesting
+hl data fetch | stats | export
+hl backtest run -s <strategy> -c <coin> -d <days>
+
+# Key management
+hl keys import | list | migrate
+hl wallet auto [--save-env]
+
+# Scanning
+hl radar once | run
+hl pulse once | run
+hl guard run -i <instrument>
+hl reflect run [--since DATE]
+
+# Infrastructure
+hl setup check
+hl mcp serve
+hl strategies [--all] [--advanced]
+hl markets
+hl journal
 ```
 
 ---
@@ -375,20 +343,11 @@ pytest tests/ -v
 
 ## Heritage
 
-HyperLiquid Agent is forked from [Nunchi's agent-cli](https://github.com/Nunchi-trade/agent-cli). Credit to the Nunchi team for the foundational architecture. We've removed all fees, telemetry, and external dependencies — and we're taking the project in our own direction: fully open, community-first, and continuously improving.
+Forked from [Nunchi's agent-cli](https://github.com/Nunchi-trade/agent-cli) — credit to their team for the strategy engine and CLI framework. We stripped all fees, telemetry, and external dependencies, then built on top: the daemon layer, Bitcoin Power Law strategy, OWS key management, historical data system, oil research strategies, and expanded AI agent tooling.
+
+This is an independent project taking things in its own direction.
 
 See [ATTRIBUTION.md](ATTRIBUTION.md) for full credits.
-
----
-
-## Direction
-
-This is an actively maintained project. The plan:
-- Keep tracking upstream Nunchi for useful updates
-- Add more strategies and improve existing ones
-- Better backtesting and historical data (Hydromancer Reservoir)
-- Deeper AI agent integration
-- Community contributions welcome
 
 ---
 

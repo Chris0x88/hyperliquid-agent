@@ -37,6 +37,7 @@ from cli.commands.keys import keys_app
 from cli.commands.markets import markets_app
 from cli.commands.data import data_app
 from cli.commands.backtest import backtest_app
+from cli.commands.daemon import daemon_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -57,6 +58,7 @@ app.add_typer(keys_app, name="keys", help="Unified key management across backend
 app.add_typer(markets_app, name="markets", help="Browse, search, and filter all HL perpetual contracts")
 app.add_typer(data_app, name="data", help="Historical data — fetch, cache, export")
 app.add_typer(backtest_app, name="backtest", help="Backtest strategies against historical data")
+app.add_typer(daemon_app, name="daemon", help="Daemon — monitoring and trading loop")
 
 
 def main():

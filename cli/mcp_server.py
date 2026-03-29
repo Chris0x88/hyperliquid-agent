@@ -25,7 +25,7 @@ def create_mcp_server():
     """Create and configure the FastMCP server."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("hyperliquid-agent", instructions="Autonomous Hyperliquid trading agent — 23 strategies, APEX orchestrator, REFLECT reviews.")
+    mcp = FastMCP("hyperliquid-agent", instructions="Autonomous Hyperliquid trading daemon — 22 strategies, tiered daemon (watch/rebalance/opportunistic), historical data, backtesting.")
 
     # ------------------------------------------------------------------
     # Fast tools — call Python directly (no subprocess overhead)
@@ -294,5 +294,187 @@ def create_mcp_server():
             return json.dumps({"status": "unavailable", "message": "Obsidian vault not found at ~/obsidian-vault"})
         ctx = reader.read_trading_context()
         return json.dumps(ctx.to_dict(), indent=2)
+
+    # ------------------------------------------------------------------
+    # Historical data & analytics tools
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def get_candles(coin: str, interval: str = "1h", days: int = 30) -> str:
+        """Get historical OHLCV candles. Auto-fetches from HL if not cached.
+
+        Args:
+            coin: Coin symbol (e.g., BTC, ETH)
+            interval: Candle interval (1m, 5m, 15m, 1h, 4h, 1d)
+            days: How many days of history (default: 30)
+        """
+        import time as _time
+        from modules.candle_cache import CandleCache
+        from modules.data_fetcher import DataFetcher
+
+        cache = CandleCache()
+        end_ms = int(_time.time() * 1000)
+        start_ms = end_ms - (days * 86_400_000)
+
+        candles = cache.get_candles(coin.upper(), interval, start_ms, end_ms)
+        if not candles:
+            # Auto-fetch
+            try:
+                fetcher = DataFetcher(cache=cache, testnet=False)
+                fetcher.backfill(coin.upper(), interval, days)
+                candles = cache.get_candles(coin.upper(), interval, start_ms, end_ms)
+            except Exception as e:
+                return json.dumps({"error": f"Failed to fetch: {e}", "candles": []})
+
+        return json.dumps({
+            "coin": coin.upper(),
+            "interval": interval,
+            "count": len(candles),
+            "candles": candles[:500],  # cap response size
+        })
+
+    @mcp.tool()
+    def fetch_data(coin: str, interval: str = "1h", days: int = 90) -> str:
+        """Fetch and cache historical candles from HL API.
+
+        Args:
+            coin: Coin symbol (e.g., BTC, ETH)
+            interval: Candle interval (1m, 5m, 15m, 1h, 4h, 1d)
+            days: How many days to fetch (default: 90)
+        """
+        from modules.candle_cache import CandleCache
+        from modules.data_fetcher import DataFetcher
+
+        cache = CandleCache()
+        fetcher = DataFetcher(cache=cache, testnet=False)
+        try:
+            count = fetcher.backfill(coin.upper(), interval, days)
+            stats = cache.stats()
+            return json.dumps({"coin": coin.upper(), "interval": interval, "fetched": count, "cache_stats": stats})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def backtest(strategy: str, coin: str, interval: str = "1h", days: int = 90, capital: float = 10000) -> str:
+        """Run a strategy backtest against cached historical data.
+
+        Args:
+            strategy: Strategy name from registry (e.g., power_law_btc)
+            coin: Coin to backtest on (e.g., BTC)
+            interval: Candle interval (default: 1h)
+            days: Days of history to backtest (default: 90)
+            capital: Starting capital in USD (default: 10000)
+        """
+        args = ["backtest", "run", "-s", strategy, "-c", coin, "-d", str(days),
+                "--capital", str(capital), "--interval", interval]
+        return _run_hl(*args, timeout=120)
+
+    @mcp.tool()
+    def analyze(coin: str, interval: str = "1h", days: int = 30) -> str:
+        """Technical analysis snapshot — EMA, RSI, trend, volume ratio.
+
+        Args:
+            coin: Coin symbol (e.g., BTC, ETH)
+            interval: Candle interval (default: 1h)
+            days: Days of data to analyze (default: 30)
+        """
+        import time as _time
+        from modules.candle_cache import CandleCache
+        from modules.data_fetcher import DataFetcher
+        from modules.radar_technicals import calc_ema, calc_rsi, classify_hourly_trend, volume_ratio
+
+        cache = CandleCache()
+        end_ms = int(_time.time() * 1000)
+        start_ms = end_ms - (days * 86_400_000)
+
+        candles = cache.get_candles(coin.upper(), interval, start_ms, end_ms)
+        if not candles:
+            try:
+                fetcher = DataFetcher(cache=cache, testnet=False)
+                fetcher.backfill(coin.upper(), interval, days)
+                candles = cache.get_candles(coin.upper(), interval, start_ms, end_ms)
+            except Exception as e:
+                return json.dumps({"error": f"No data available: {e}"})
+
+        if not candles:
+            return json.dumps({"error": "No candle data available"})
+
+        closes = [float(c.get("close", c.get("c", 0))) for c in candles if c]
+        if len(closes) < 14:
+            return json.dumps({"error": f"Insufficient data: {len(closes)} candles (need 14+)"})
+
+        result = {
+            "coin": coin.upper(),
+            "interval": interval,
+            "candles": len(closes),
+            "latest_price": closes[-1],
+            "ema_5": calc_ema(closes, 5),
+            "ema_13": calc_ema(closes, 13),
+            "ema_50": calc_ema(closes, 50) if len(closes) >= 50 else None,
+            "rsi_14": calc_rsi(closes, 14),
+            "volume_ratio": volume_ratio(candles, 5) if len(candles) > 10 else None,
+        }
+
+        try:
+            result["trend"] = classify_hourly_trend(candles)
+        except Exception:
+            result["trend"] = "unknown"
+
+        return json.dumps(result)
+
+    @mcp.tool()
+    def price_at(coin: str, timestamp_ms: int) -> str:
+        """Get the closest candle to a specific timestamp.
+
+        Args:
+            coin: Coin symbol (e.g., BTC)
+            timestamp_ms: Unix timestamp in milliseconds
+        """
+        from modules.candle_cache import CandleCache
+
+        cache = CandleCache()
+        # Search in a 2-hour window around the timestamp
+        window = 3_600_000 * 2
+        candles = cache.get_candles(coin.upper(), "1h", timestamp_ms - window, timestamp_ms + window)
+
+        if not candles:
+            return json.dumps({"error": "No data near that timestamp"})
+
+        # Find closest
+        closest = min(candles, key=lambda c: abs(c.get("timestamp_ms", c.get("t", 0)) - timestamp_ms))
+        return json.dumps({"coin": coin.upper(), "requested_ts": timestamp_ms, "candle": closest})
+
+    @mcp.tool()
+    def cache_stats() -> str:
+        """Show what historical data is cached locally."""
+        from modules.candle_cache import CandleCache
+
+        cache = CandleCache()
+        return json.dumps(cache.stats())
+
+    # ------------------------------------------------------------------
+    # Daemon tools
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def daemon_status() -> str:
+        """Get daemon status — tier, strategies, PnL, risk gate."""
+        return _run_hl("daemon", "status")
+
+    @mcp.tool()
+    def daemon_start(tier: str = "watch", mock: bool = False, max_ticks: Optional[int] = None) -> str:
+        """Start the daemon.
+
+        Args:
+            tier: watch, rebalance, or opportunistic
+            mock: Use simulated data
+            max_ticks: Stop after N ticks (None = run forever)
+        """
+        args = ["daemon", "start", "--tier", tier]
+        if mock:
+            args.append("--mock")
+        if max_ticks is not None:
+            args.extend(["--max-ticks", str(max_ticks)])
+        return _run_hl(*args, timeout=max(60, (max_ticks or 5) * 60 + 30))
 
     return mcp

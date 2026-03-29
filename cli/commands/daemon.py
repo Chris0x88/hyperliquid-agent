@@ -1,0 +1,410 @@
+"""hl daemon — monitoring and trading daemon commands."""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+daemon_app = typer.Typer(no_args_is_help=True)
+
+
+def _setup_logging(data_dir: str, log_json: bool = False):
+    """Configure daemon logging with file rotation."""
+    from logging.handlers import RotatingFileHandler
+
+    log_dir = Path(data_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "daemon.log"
+
+    handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=3)
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    if log_json:
+        fmt = '{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
+    handler.setFormatter(logging.Formatter(fmt))
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+
+    # Also log to stderr
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
+    root.addHandler(console)
+
+
+def _build_adapter(mock: bool, mainnet: bool):
+    """Build the HL adapter (or None for mock mode)."""
+    if mock:
+        return None
+
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.credentials import load_private_key
+    from cli.hl_adapter import DirectHLProxy
+
+    testnet = not mainnet
+    key = load_private_key()
+    if not key:
+        typer.echo("Error: No private key found. Run 'hl keys import' first.", err=True)
+        raise typer.Exit(1)
+
+    proxy = DirectHLProxy(private_key=key, testnet=testnet)
+    return proxy
+
+
+@daemon_app.command("start")
+def daemon_start(
+    tier: str = typer.Option("watch", "--tier", "-t", help="Tier: watch, rebalance, opportunistic"),
+    tick: float = typer.Option(60.0, "--tick", help="Seconds between ticks"),
+    mock: bool = typer.Option(False, "--mock", help="Simulated mode — no network calls"),
+    mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    max_ticks: int = typer.Option(0, "--max-ticks", help="Stop after N ticks (0 = unlimited)"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+    log_json: bool = typer.Option(False, "--log-json", help="Structured JSON logging"),
+    resume: bool = typer.Option(True, "--resume/--fresh", help="Resume from saved state or start fresh"),
+):
+    """Start the daemon monitoring/trading loop."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    _setup_logging(data_dir, log_json)
+
+    from cli.daemon.config import DaemonConfig
+    from cli.daemon.clock import Clock
+    from cli.daemon.roster import Roster
+    from cli.daemon.state import StateStore
+    from cli.daemon.tiers import VALID_TIERS
+
+    if tier not in VALID_TIERS:
+        typer.echo(f"Invalid tier '{tier}'. Valid: {VALID_TIERS}", err=True)
+        raise typer.Exit(1)
+
+    store = StateStore(data_dir)
+
+    # Check if already running
+    if store.is_running():
+        typer.echo(f"Daemon already running (PID {store.read_pid()}). Use 'hl daemon stop' first.", err=True)
+        raise typer.Exit(1)
+
+    config = DaemonConfig(
+        tier=tier,
+        tick_interval=tick,
+        mock=mock,
+        mainnet=mainnet,
+        data_dir=data_dir,
+        max_ticks=max_ticks,
+        log_json=log_json,
+    )
+
+    # Load or create roster
+    roster = Roster(path=f"{data_dir}/roster.json")
+    if resume:
+        roster.load()
+    roster.ensure_default()
+    roster.instantiate_all()
+
+    # Build adapter
+    adapter = _build_adapter(mock, mainnet)
+
+    # Build clock and register iterators
+    clock = Clock(config=config, roster=roster, store=store, adapter=adapter)
+
+    from cli.daemon.iterators.connector import ConnectorIterator
+    from cli.daemon.iterators.risk import RiskIterator
+    from cli.daemon.iterators.guard import GuardIterator
+    from cli.daemon.iterators.rebalancer import RebalancerIterator
+    from cli.daemon.iterators.radar import RadarIterator
+    from cli.daemon.iterators.pulse import PulseIterator
+    from cli.daemon.iterators.journal import JournalIterator
+
+    clock.register(ConnectorIterator(adapter=adapter))
+    clock.register(RiskIterator(mainnet=mainnet))
+    clock.register(GuardIterator())
+    clock.register(RebalancerIterator())
+    clock.register(RadarIterator())
+    clock.register(PulseIterator())
+    clock.register(JournalIterator(data_dir=data_dir))
+
+    mode = "mock" if mock else ("mainnet" if mainnet else "testnet")
+    typer.echo(f"Starting daemon — tier={tier}, tick={tick}s, mode={mode}")
+    typer.echo(f"Strategies: {', '.join(roster.slots.keys())}")
+    typer.echo("Press Ctrl+C to stop.\n")
+
+    clock.run()
+
+
+@daemon_app.command("stop")
+def daemon_stop(data_dir: str = typer.Option("data/daemon", "--data-dir")):
+    """Stop the running daemon."""
+    from cli.daemon.state import StateStore
+
+    store = StateStore(data_dir)
+    pid = store.read_pid()
+
+    if pid is None or not store.is_running():
+        typer.echo("No daemon running.")
+        raise typer.Exit()
+
+    typer.echo(f"Sending SIGTERM to daemon (PID {pid})...")
+    os.kill(pid, signal.SIGTERM)
+
+    # Wait up to 30s
+    for _ in range(30):
+        if not store.is_running():
+            typer.echo("Daemon stopped.")
+            return
+        time.sleep(1)
+
+    typer.echo("Daemon did not stop within 30s. You may need to kill it manually.", err=True)
+
+
+@daemon_app.command("status")
+def daemon_status(data_dir: str = typer.Option("data/daemon", "--data-dir")):
+    """Show daemon status, positions, and active strategies."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.state import StateStore
+    from cli.daemon.roster import Roster
+
+    store = StateStore(data_dir)
+    state = store.load_state()
+
+    running = store.is_running()
+    pid = store.read_pid()
+
+    typer.echo(f"{'Running' if running else 'Stopped'}" + (f" (PID {pid})" if running else ""))
+    typer.echo(f"Tier: {state.tier}")
+    typer.echo(f"Ticks: {state.tick_count}  |  Trades: {state.total_trades}")
+    typer.echo(f"Daily PnL: ${state.daily_pnl:+.2f}  |  Total PnL: ${state.total_pnl:+.2f}")
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    if roster.slots:
+        typer.echo(f"\n{'Strategy':<20} {'Instrument':<12} {'Tick':<8} {'Status':<10}")
+        typer.echo("-" * 52)
+        for s in roster.slots.values():
+            status = "paused" if s.paused else "active"
+            typer.echo(f"{s.name:<20} {s.instrument:<12} {s.tick_interval:<8} {status:<10}")
+    else:
+        typer.echo("\nNo strategies in roster.")
+
+
+@daemon_app.command("once")
+def daemon_once(
+    tier: str = typer.Option("", "--tier", "-t", help="Override tier (default: use persisted)"),
+    mock: bool = typer.Option(False, "--mock"),
+    mainnet: bool = typer.Option(False, "--mainnet"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Run a single daemon tick and exit."""
+    effective_tier = tier if tier else None
+    # Reuse start with max_ticks=1
+    daemon_start(
+        tier=effective_tier or "watch",
+        tick=0,
+        mock=mock,
+        mainnet=mainnet,
+        max_ticks=1,
+        data_dir=data_dir,
+        log_json=False,
+        resume=True,
+    )
+
+
+@daemon_app.command("tier")
+def daemon_tier(
+    new_tier: Optional[str] = typer.Argument(None, help="New tier (omit to show current)"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Show or change the daemon tier."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.state import StateStore
+    from cli.daemon.tiers import VALID_TIERS
+
+    store = StateStore(data_dir)
+
+    if new_tier is None:
+        state = store.load_state()
+        typer.echo(f"Current tier: {state.tier}")
+        return
+
+    if new_tier not in VALID_TIERS:
+        typer.echo(f"Invalid tier '{new_tier}'. Valid: {VALID_TIERS}", err=True)
+        raise typer.Exit(1)
+
+    if store.is_running():
+        store.write_control({"action": "set_tier", "tier": new_tier})
+        typer.echo(f"Sent tier change to running daemon: {new_tier}")
+    else:
+        state = store.load_state()
+        state.tier = new_tier
+        store.save_state(state)
+        typer.echo(f"Tier set to: {new_tier} (will apply on next start)")
+
+
+@daemon_app.command("strategies")
+def daemon_strategies(data_dir: str = typer.Option("data/daemon", "--data-dir")):
+    """List active strategies in the daemon roster."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.roster import Roster
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    if not roster.slots:
+        typer.echo("No strategies in roster. Use 'hl daemon add <name>' to add one.")
+        return
+
+    typer.echo(f"{'Strategy':<20} {'Instrument':<12} {'Tick (s)':<10} {'Status':<10}")
+    typer.echo("-" * 54)
+    for s in roster.slots.values():
+        status = "paused" if s.paused else "active"
+        typer.echo(f"{s.name:<20} {s.instrument:<12} {s.tick_interval:<10} {status:<10}")
+
+
+@daemon_app.command("add")
+def daemon_add(
+    name: str = typer.Argument(..., help="Strategy name from registry"),
+    instrument: str = typer.Option("BTC-PERP", "-i", "--instrument"),
+    tick_interval: int = typer.Option(3600, "-t", "--tick-interval", help="Seconds between strategy ticks"),
+    params: Optional[str] = typer.Option(None, "--params", help="JSON params override"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Add a strategy to the daemon roster."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.roster import Roster
+    from cli.daemon.state import StateStore
+
+    parsed_params = json.loads(params) if params else None
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    try:
+        roster.add(name, instrument=instrument, tick_interval=tick_interval, params=parsed_params)
+        roster.save()
+        typer.echo(f"Added {name} on {instrument} (tick={tick_interval}s)")
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    # If daemon is running, notify via control file
+    store = StateStore(data_dir)
+    if store.is_running():
+        store.write_control({
+            "action": "add_strategy",
+            "name": name,
+            "instrument": instrument,
+            "tick_interval": tick_interval,
+            "params": parsed_params,
+        })
+        typer.echo("Notified running daemon.")
+
+
+@daemon_app.command("remove")
+def daemon_remove(
+    name: str = typer.Argument(..., help="Strategy name to remove"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Remove a strategy from the daemon roster."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.roster import Roster
+    from cli.daemon.state import StateStore
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    try:
+        roster.remove(name)
+        roster.save()
+        typer.echo(f"Removed {name}")
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    store = StateStore(data_dir)
+    if store.is_running():
+        store.write_control({"action": "remove_strategy", "name": name})
+
+
+@daemon_app.command("pause")
+def daemon_pause(
+    name: str = typer.Argument(..., help="Strategy name to pause"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Pause a strategy without removing it."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.roster import Roster
+    from cli.daemon.state import StateStore
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    try:
+        roster.pause(name)
+        roster.save()
+        typer.echo(f"Paused {name}")
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    store = StateStore(data_dir)
+    if store.is_running():
+        store.write_control({"action": "pause_strategy", "name": name})
+
+
+@daemon_app.command("resume")
+def daemon_resume(
+    name: str = typer.Argument(..., help="Strategy name to resume"),
+    data_dir: str = typer.Option("data/daemon", "--data-dir"),
+):
+    """Resume a paused strategy."""
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.daemon.roster import Roster
+    from cli.daemon.state import StateStore
+
+    roster = Roster(path=f"{data_dir}/roster.json")
+    roster.load()
+
+    try:
+        roster.resume(name)
+        roster.save()
+        typer.echo(f"Resumed {name}")
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    store = StateStore(data_dir)
+    if store.is_running():
+        store.write_control({"action": "resume_strategy", "name": name})
