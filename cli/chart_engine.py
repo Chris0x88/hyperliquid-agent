@@ -119,6 +119,14 @@ class ChartEngine:
 
         # Price panel
         ax_price = axes[0]
+
+        # Y-axis padding — 5% margin above highs and below lows
+        price_min = min(lows)
+        price_max = max(highs)
+        price_range = price_max - price_min
+        pad = price_range * 0.08  # 8% padding
+        ax_price.set_ylim(price_min - pad, price_max + pad)
+
         # Candlestick as colored bars
         for i in range(len(times)):
             color = "#3fb950" if closes[i] >= opens[i] else "#f85149"

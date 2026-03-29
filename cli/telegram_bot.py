@@ -228,9 +228,11 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_commands(token: str, chat_id: str, args: str) -> None:
-    from cli.commands.commands import get_commands_text
-    is_long = args.strip() in ("--long", "-l", "long")
-    text = get_commands_text(long=is_long)
+    from cli.commands.commands import get_commands_text, CATEGORIES
+    arg = args.strip().lower()
+    is_long = arg in ("--long", "-l", "long", "all")
+    category = arg if arg in CATEGORIES else None
+    text = get_commands_text(long=is_long, category=category)
     # Telegram has 4096 char limit, split if needed
     if len(text) > 4000:
         parts = text.split("\n\n")
@@ -293,18 +295,14 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
-        "Commands (instant, no AI):\n"
-        "  /status    — full portfolio\n"
-        "  /price     — current prices\n"
-        "  /orders    — open orders\n"
-        "  /pnl       — P&L summary\n"
-        "  /chart     — price chart (/chart BRENTOIL 72)\n"
-        "  /powerlaw  — BTC Power Law model chart\n"
-        "  /commands  — all CLI + Telegram commands\n"
-        "  /help      — this message\n"
-        "\n"
-        "Anything else → forwarded to Claude\n"
-        "(processed on next scheduled check-in)")
+        "/status  — portfolio\n"
+        "/price   — prices\n"
+        "/chart   — chart (/chart OIL 72)\n"
+        "/powerlaw — BTC model\n"
+        "/pnl     — profit & loss\n"
+        "/orders  — open orders\n"
+        "/commands — full CLI list\n"
+        "\nAnything else → Claude")
 
 
 HANDLERS = {
@@ -351,8 +349,19 @@ def run() -> None:
         log.error("Telegram credentials not in Keychain. Run setup first.")
         sys.exit(1)
 
-    # PID file
+    # Kill any existing instance first
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if PID_FILE.exists():
+        try:
+            old_pid = int(PID_FILE.read_text().strip())
+            if old_pid != os.getpid():
+                os.kill(old_pid, signal.SIGTERM)
+                time.sleep(0.5)
+                log.info("Killed previous bot instance (PID %d)", old_pid)
+        except (OSError, ValueError):
+            pass
+        PID_FILE.unlink(missing_ok=True)
+
     PID_FILE.write_text(str(os.getpid()))
 
     running = True

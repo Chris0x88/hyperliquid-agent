@@ -103,16 +103,16 @@ def generate_powerlaw_png() -> bytes:
         logger.error("[Charting] No BTC history available.")
         return b''
     
-    # 1. Setup dark theme aesthetics
+    # 1. Setup dark theme — match price_action chart (GitHub dark)
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
-    fig.patch.set_facecolor('#0f172a') # Tailwind slate-900
-    ax.set_facecolor('#0f172a')
-    
+    fig.patch.set_facecolor('#0d1117')
+    ax.set_facecolor('#0d1117')
+
     # Grid and spines
-    ax.grid(True, color='#334155', linestyle='--', linewidth=0.5, alpha=0.5)
+    ax.grid(True, color='#30363d', linestyle='--', linewidth=0.5, alpha=0.5)
     for spine in ax.spines.values():
-        spine.set_color('#334155')
+        spine.set_color('#30363d')
         
     df = df.copy()
     if 'date' not in df.columns or 'price' not in df.columns:
@@ -165,19 +165,23 @@ def generate_powerlaw_png() -> bytes:
             0.85, 'CRYPTO PEAK WINDOW', transform=ax.get_xaxis_transform(),
             color='#fbbf24', alpha=0.8, ha='center', va='top', fontsize=9, fontweight='bold', rotation=0)
 
-    # 5. Plot Model Corridor (Fill)
-    ax.fill_between(all_dates, 
-                    pd.concat([df['floor'], future_df['floor']]), 
-                    pd.concat([df['ceiling'], future_df['ceiling']]), 
-                    color='#ef4444', alpha=0.15, label='Model Corridor')
-    
-    # Floor (Dashed)
-    ax.plot(all_dates, pd.concat([df['floor'], future_df['floor']]), 
-            color='#ef4444', linewidth=1.2, linestyle=':', alpha=0.6)
-            
+    # 5. Plot Model Corridor (Fill) — neutral blue shading, not red/green
+    ax.fill_between(all_dates,
+                    pd.concat([df['floor'], future_df['floor']]),
+                    pd.concat([df['ceiling'], future_df['ceiling']]),
+                    color='#58a6ff', alpha=0.08, label='Model Corridor')
+
+    # Ceiling (Red line)
+    ax.plot(all_dates, pd.concat([df['ceiling'], future_df['ceiling']]),
+            color='#f85149', linewidth=1.4, linestyle='-', alpha=0.7, label='CEILING')
+
+    # Floor (Green line)
+    ax.plot(all_dates, pd.concat([df['floor'], future_df['floor']]),
+            color='#3fb950', linewidth=1.4, linestyle='-', alpha=0.7, label='FLOOR')
+
     # Model Price (Fair Value)
-    ax.plot(all_dates, pd.concat([df['model_price'], future_df['model_price']]), 
-            color='#a855f7', linewidth=2.0, linestyle='--', alpha=0.8, label='MODEL FAIR VALUE')
+    ax.plot(all_dates, pd.concat([df['model_price'], future_df['model_price']]),
+            color='#d2a8ff', linewidth=2.0, linestyle='--', alpha=0.8, label='FAIR VALUE')
 
     # BTC Market Price (Prominent)
     ax.plot(df['date'], df['price'], color='#06b6d4', linewidth=2.5, alpha=1.0, label='BTC MARKET PRICE')
@@ -220,12 +224,14 @@ def generate_powerlaw_png() -> bytes:
     import matplotlib.ticker as ticker
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f'${int(y/1000)}k' if y >= 1000 else f'${int(y)}'))
     
-    ax.tick_params(axis='both', colors='#94a3b8', labelsize=9)
+    ax.tick_params(axis='both', colors='#8b949e', labelsize=9)
     plt.xticks(rotation=45)
 
     # Legends & Titles
-    ax.legend(loc='upper left', frameon=False, labelcolor='#cbd5e1', fontsize=9, ncol=2)
-    ax.set_title("Bitcoin Power Law Model", color='white', pad=20, fontsize=14, fontweight='bold', loc='left')
+    ax.legend(loc='upper left', facecolor='#161b22', edgecolor='#30363d',
+              labelcolor='#c9d1d9', fontsize=9, ncol=2)
+    ax.set_title("Bitcoin Power Law Model", color='#c9d1d9', pad=20,
+                 fontsize=14, fontweight='bold', loc='left')
 
     out = io.BytesIO()
     plt.tight_layout()

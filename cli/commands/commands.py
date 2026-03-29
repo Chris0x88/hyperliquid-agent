@@ -141,20 +141,40 @@ def _print_long(cmds):
         typer.echo(f"    {desc}")
 
 
-def get_commands_text(long: bool = False) -> str:
+def get_commands_text(long: bool = False, category: Optional[str] = None) -> str:
     """Get commands as text (for Telegram /commands)."""
+    filtered = COMMAND_REGISTRY
+    if category:
+        filtered = [c for c in filtered if c[3] == category.lower()]
+
+    if not long and not category:
+        # Short form: just telegram commands + most-used CLI
+        lines = ["TELEGRAM (instant)"]
+        for tc, td in TELEGRAM_COMMANDS:
+            lines.append(f"  {tc}  —  {td}")
+        lines.append("")
+        lines.append("TOP CLI COMMANDS")
+        top = [c for c in COMMAND_REGISTRY if c[1] is not None]  # only ones with shortcuts
+        for cmd, alias, desc, cat in top:
+            lines.append(f"  {alias}  —  {desc}")
+        lines.append(f"\n/commands long — full list")
+        lines.append(f"/commands <category> — filter")
+        lines.append(f"Categories: {', '.join(CATEGORIES.keys())}")
+        return "\n".join(lines)
+
     lines = []
     current_cat = None
-    for cmd, alias, desc, cat in COMMAND_REGISTRY:
+    for cmd, alias, desc, cat in filtered:
         if cat != current_cat:
             current_cat = cat
             lines.append(f"\n{CATEGORIES.get(cat, cat).upper()}")
         short = f" ({alias})" if alias and long else ""
         lines.append(f"  {cmd}  —  {desc}{short}")
 
-    lines.append(f"\nTELEGRAM COMMANDS")
-    for tc, td in TELEGRAM_COMMANDS:
-        lines.append(f"  {tc}  —  {td}")
+    if not category:
+        lines.append(f"\nTELEGRAM")
+        for tc, td in TELEGRAM_COMMANDS:
+            lines.append(f"  {tc}  —  {td}")
 
-    lines.append(f"\n{len(COMMAND_REGISTRY)} CLI + {len(TELEGRAM_COMMANDS)} Telegram commands")
+    lines.append(f"\n{len(filtered)} commands")
     return "\n".join(lines)
