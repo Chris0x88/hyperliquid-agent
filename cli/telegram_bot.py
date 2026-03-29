@@ -273,6 +273,24 @@ def cmd_chart(token: str, chat_id: str, args: str) -> None:
         tg_send(token, chat_id, f"Chart error: {e}")
 
 
+def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
+    """Generate and send the BTC Power Law chart."""
+    tg_send(token, chat_id, "Generating Power Law chart...")
+    try:
+        from plugins.power_law.charting import generate_powerlaw_png
+        png_bytes = generate_powerlaw_png()
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        import io
+        resp = requests.post(url,
+            data={"chat_id": chat_id, "caption": "BTC Power Law — Floor / Ceiling / Fair Value"},
+            files={"photo": ("powerlaw.png", io.BytesIO(png_bytes), "image/png")},
+            timeout=30)
+        if not resp.json().get("ok"):
+            tg_send(token, chat_id, f"Send failed: {resp.json()}")
+    except Exception as e:
+        tg_send(token, chat_id, f"Power Law chart error: {e}")
+
+
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
         "Commands (instant, no AI):\n"
@@ -281,6 +299,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /orders    — open orders\n"
         "  /pnl       — P&L summary\n"
         "  /chart     — price chart (/chart BRENTOIL 72)\n"
+        "  /powerlaw  — BTC Power Law model chart\n"
         "  /commands  — all CLI + Telegram commands\n"
         "  /help      — this message\n"
         "\n"
@@ -295,6 +314,7 @@ HANDLERS = {
     "/pnl": cmd_pnl,
     "/commands": cmd_commands,
     "/chart": cmd_chart,
+    "/powerlaw": cmd_powerlaw,
     "/help": cmd_help,
     "status": cmd_status,
     "price": cmd_price,
@@ -302,6 +322,7 @@ HANDLERS = {
     "pnl": cmd_pnl,
     "commands": cmd_commands,
     "chart": cmd_chart,
+    "powerlaw": cmd_powerlaw,
     "help": cmd_help,
 }
 
