@@ -318,7 +318,11 @@ def cmd_chart(token: str, chat_id: str, args: str) -> None:
         from cli.chart_engine import ChartEngine
         engine = ChartEngine()
         path = engine.price_action(coin, hours=hours)
-        engine.send_to_telegram(path, caption=f"{display} ({coin}) — {hours}h")
+        # Send directly to this chat (works in both DMs and groups)
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        with open(path, "rb") as f:
+            requests.post(url, data={"chat_id": chat_id, "caption": f"{display} ({coin}) — {hours}h"},
+                         files={"photo": f}, timeout=30)
     except Exception as e:
         tg_send(token, chat_id, f"Chart error: {e}")
 
@@ -358,15 +362,13 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id, "Generating Power Law chart...")
     try:
         from plugins.power_law.charting import generate_powerlaw_png
-        png_bytes = generate_powerlaw_png()
-        url = f"https://api.telegram.org/bot{token}/sendPhoto"
         import io
-        resp = requests.post(url,
+        png_bytes = generate_powerlaw_png()
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendPhoto",
             data={"chat_id": chat_id, "caption": "BTC Power Law — Floor / Ceiling / Fair Value"},
             files={"photo": ("powerlaw.png", io.BytesIO(png_bytes), "image/png")},
             timeout=30)
-        if not resp.json().get("ok"):
-            tg_send(token, chat_id, f"Send failed: {resp.json()}")
     except Exception as e:
         tg_send(token, chat_id, f"Power Law chart error: {e}")
 
@@ -469,23 +471,28 @@ def run() -> None:
             _set_last_update_id(uid)
 
             msg = update.get("message", {})
-            msg_chat_id = str(msg.get("chat", {}).get("id", ""))
+            reply_chat_id = str(msg.get("chat", {}).get("id", ""))
+            sender_id = str(msg.get("from", {}).get("id", ""))
             text = (msg.get("text") or "").strip()
 
-            if msg_chat_id != chat_id or not text:
+            # Authorize by SENDER, not chat — works in both DMs and groups
+            if sender_id != chat_id or not text:
                 continue
 
             cmd = text.split()[0].lower().lstrip("/")
+            # Strip bot username from commands (e.g., /status@MyBot_bot → /status)
+            if "@" in cmd:
+                cmd = cmd.split("@")[0]
             cmd_key = "/" + cmd if ("/" + cmd) in HANDLERS else cmd
 
             if cmd_key in HANDLERS:
-                log.info("Command: %s", cmd_key)
+                log.info("Command: %s (chat=%s)", cmd_key, reply_chat_id)
                 try:
                     args = text[len(text.split()[0]):].strip()
-                    HANDLERS[cmd_key](token, chat_id, args)
+                    HANDLERS[cmd_key](token, reply_chat_id, args)
                 except Exception as e:
                     log.error("Command %s failed: %s", cmd_key, e)
-                    tg_send(token, chat_id, f"Error: {e}")
+                    tg_send(token, reply_chat_id, f"Error: {e}")
             else:
                 # Not a command — silently ignore in group chats
                 # (OpenClaw bot handles free text)
