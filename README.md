@@ -22,7 +22,13 @@
 
 An open-source toolkit that lets you run an **AI trading agent** on [Hyperliquid](https://hyperliquid.xyz) — the onchain perpetual futures exchange. It combines a tick-based trading daemon with Claude Code integration, so your AI agent can monitor positions, execute trades, and improve its own codebase over time.
 
-**What makes it different:** This isn't a black-box bot you deploy and pray. It's designed to work *with* you. You bring the thesis and market knowledge. The agent brings discipline, execution speed, and 24/7 monitoring. You talk to it via Claude Code on your phone or through Telegram. It trades autonomously within the boundaries you set, and gets smarter through a recursive research loop.
+**What makes it different:** This isn't a black-box bot you deploy and pray. It's designed to work *with* you. You bring the thesis and market knowledge. The agent brings discipline, execution speed, and 24/7 monitoring. Three interfaces, each doing what it's best at:
+
+- **Claude Code** (phone or desktop) — your AI trading brain. Deep analysis, code improvement, trade execution, strategy discussions
+- **Telegram bot** — instant dashboard. Portfolio, charts, prices, orders. Fixed Python code, zero AI credits
+- **OpenClaw** (optional) — AI conversation via Telegram DM for quick questions and market chat
+
+The agent trades autonomously within the boundaries you set, and gets smarter through a recursive research loop.
 
 **Currently trading:** Bitcoin Power Law rebalancing (vault), Brent Oil directional (main account). The system supports any Hyperliquid market including trade.xyz perps (oil, gold, equities, etc.).
 
@@ -91,23 +97,32 @@ Get instant trade alerts and send commands from your phone.
    security add-generic-password -s hl-agent-telegram -a chat_id -w "YOUR_CHAT_ID" -U
    ```
 
-Now the daemon sends you trade alerts, and you can send `/status`, `/price`, or any message back.
+Now start the Telegram bot:
+
+```bash
+hl telegram start
+```
+
+Your bot responds to `/status`, `/chart oil 72`, `/watchlist`, `/price`, `/pnl`, `/orders`, `/powerlaw`. All instant, all free — fixed Python code hitting the HyperLiquid API directly. Zero AI credits.
 
 ### Step 5: Set Up Claude Code as Your AI Trader
 
-This is the real power. With Claude Code, the AI agent can:
+This is the real power. Open [Claude Code](https://claude.ai/code) (phone, desktop, or web) and point it at this repo. Claude can:
 - Make autonomous trading decisions
-- Run on a schedule (hourly check-ins)
-- Respond to your Telegram messages
-- Improve its own codebase as it learns
+- Run on a schedule (hourly check-ins via scheduled tasks)
+- Execute trades, manage positions, adjust leverage
+- Improve the codebase as it learns from each trade
+- Send you alerts via Telegram when something happens
 
-```bash
-# In Claude Code, create a scheduled task:
-# The agent wakes up every hour, checks Telegram, scans markets,
-# manages positions, and hunts for opportunities.
-```
+Claude Code is the brain. Telegram is the dashboard. They're separate interfaces — Claude Code doesn't run through Telegram.
 
-The agent's scheduled task polls Telegram, analyzes price action, executes trades, and reports back. You chat with it via Claude Code on your phone for complex decisions, or via Telegram for quick commands.
+### Step 6: Add OpenClaw (Optional — AI Chat via Telegram)
+
+If you want AI conversation in Telegram (not just fixed commands), set up [OpenClaw](https://github.com/openclaw/openclaw) with a separate bot. This gives you a Telegram DM where you can ask questions like "what's the oil thesis?" and get AI responses.
+
+See [docs/openclaw-setup/](docs/openclaw-setup/) for the agent prompt and configuration.
+
+**Note:** OpenClaw and the commands bot run as separate Telegram DMs, not in a group. Multi-bot groups don't work cleanly with Telegram's current architecture (see [docs/TELEGRAM_GROUP_SETUP.md](docs/TELEGRAM_GROUP_SETUP.md) for why).
 
 ---
 
