@@ -120,20 +120,26 @@ def daemon_start(
     clock = Clock(config=config, roster=roster, store=store, adapter=adapter)
 
     from cli.daemon.iterators.connector import ConnectorIterator
+    from cli.daemon.iterators.liquidity import LiquidityIterator
     from cli.daemon.iterators.risk import RiskIterator
     from cli.daemon.iterators.guard import GuardIterator
     from cli.daemon.iterators.rebalancer import RebalancerIterator
     from cli.daemon.iterators.radar import RadarIterator
     from cli.daemon.iterators.pulse import PulseIterator
+    from cli.daemon.iterators.profit_lock import ProfitLockIterator
     from cli.daemon.iterators.journal import JournalIterator
+    from cli.daemon.iterators.telegram import TelegramIterator
 
     clock.register(ConnectorIterator(adapter=adapter))
+    clock.register(LiquidityIterator())
     clock.register(RiskIterator(mainnet=mainnet))
     clock.register(GuardIterator())
     clock.register(RebalancerIterator())
     clock.register(RadarIterator())
     clock.register(PulseIterator())
+    clock.register(ProfitLockIterator(data_dir=data_dir))
     clock.register(JournalIterator(data_dir=data_dir))
+    clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")
     typer.echo(f"Starting daemon — tier={tier}, tick={tick}s, mode={mode}")

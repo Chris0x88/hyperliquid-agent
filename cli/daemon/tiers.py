@@ -4,24 +4,32 @@ from __future__ import annotations
 TIER_ITERATORS = {
     "watch": [
         "connector",
+        "liquidity",
         "risk",
         "journal",
+        "telegram",
     ],
     "rebalance": [
         "connector",
+        "liquidity",
         "risk",
         "guard",
         "rebalancer",
+        "profit_lock",
         "journal",
+        "telegram",
     ],
     "opportunistic": [
         "connector",
+        "liquidity",
         "risk",
         "guard",
         "rebalancer",
         "radar",
         "pulse",
+        "profit_lock",
         "journal",
+        "telegram",
     ],
 }
 
