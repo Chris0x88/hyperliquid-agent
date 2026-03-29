@@ -487,20 +487,23 @@ def run() -> None:
                     log.error("Command %s failed: %s", cmd_key, e)
                     tg_send(token, chat_id, f"Error: {e}")
             else:
-                # Queue for Claude
-                COMMAND_QUEUE.parent.mkdir(parents=True, exist_ok=True)
-                entry = {
-                    "timestamp": int(time.time()),
-                    "message_id": msg.get("message_id"),
-                    "text": text,
-                    "user": msg.get("from", {}).get("first_name", ""),
-                }
-                with open(COMMAND_QUEUE, "a") as f:
-                    f.write(json.dumps(entry) + "\n")
-
-                tg_send(token, chat_id,
-                        f"Got it. Queued for Claude: \"{text[:80]}\"")
-                log.info("Queued for Claude: %s", text[:80])
+                # Not a command — silently ignore in group chats
+                # (OpenClaw bot handles free text)
+                # In DMs, queue for Claude's scheduled check-in
+                is_group = msg.get("chat", {}).get("type", "") in ("group", "supergroup")
+                if is_group:
+                    log.debug("Ignoring free text in group (OpenClaw handles): %s", text[:50])
+                else:
+                    COMMAND_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+                    entry = {
+                        "timestamp": int(time.time()),
+                        "message_id": msg.get("message_id"),
+                        "text": text,
+                        "user": msg.get("from", {}).get("first_name", ""),
+                    }
+                    with open(COMMAND_QUEUE, "a") as f:
+                        f.write(json.dumps(entry) + "\n")
+                    log.info("Queued for Claude: %s", text[:80])
 
         if running:
             time.sleep(POLL_INTERVAL)
