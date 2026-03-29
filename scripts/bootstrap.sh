@@ -55,7 +55,12 @@ else
     pip install -e . --quiet 2>&1 | tail -3
 fi
 
-# 4. Verify
+# 4. Install git hooks (secret leak prevention)
+if [ -d "githooks" ]; then
+    bash scripts/install-hooks.sh
+fi
+
+# 5. Verify
 echo ""
 echo "=== Verification ==="
 python3 -m cli.main setup check

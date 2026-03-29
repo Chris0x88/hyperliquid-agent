@@ -39,5 +39,6 @@ Thumbs.db
 htmlcov/
 .coverage
 
-# Memory (local agent state)
+# Memory / agent state (local only)
 memory/
+.claude/
