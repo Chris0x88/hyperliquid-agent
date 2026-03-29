@@ -133,6 +133,45 @@ def _hl_post(payload: dict) -> dict:
         return {}
 
 
+def _get_all_positions(addr: str) -> list:
+    """Get positions from BOTH native and xyz clearinghouses."""
+    positions = []
+    for dex in ['', 'xyz']:
+        payload = {'type': 'clearinghouseState', 'user': addr}
+        if dex:
+            payload['dex'] = dex
+        state = _hl_post(payload)
+        for p in state.get('assetPositions', []):
+            pos = p.get('position', {})
+            pos['_dex'] = dex or 'native'
+            positions.append(pos)
+    return positions
+
+
+def _get_all_orders(addr: str) -> list:
+    """Get open orders from BOTH native and xyz clearinghouses."""
+    orders = []
+    for dex in ['', 'xyz']:
+        payload = {'type': 'openOrders', 'user': addr}
+        if dex:
+            payload['dex'] = dex
+        orders.extend(_hl_post(payload) or [])
+    return orders
+
+
+def _get_account_values(addr: str) -> dict:
+    """Get account values from both clearinghouses."""
+    result = {'native': 0.0, 'xyz': 0.0}
+    for dex in ['', 'xyz']:
+        payload = {'type': 'clearinghouseState', 'user': addr}
+        if dex:
+            payload['dex'] = dex
+        state = _hl_post(payload)
+        val = float(state.get('marginSummary', {}).get('accountValue', 0))
+        result[dex or 'native'] = val
+    return result
+
+
 def _liquidity_regime() -> str:
     now = datetime.now(timezone.utc)
     weekend = now.weekday() >= 5
@@ -159,22 +198,34 @@ def cmd_status(token: str, chat_id: str, _args: str) -> None:
             coin = b["coin"]
             lines.append(f"  {coin}: ${total:,.2f}" if coin == "USDC" else f"  {coin}: {total:.4f}")
 
-    # Perps
-    perps = _hl_post({"type": "clearinghouseState", "user": MAIN_ADDR})
-    positions = perps.get("assetPositions", [])
+    # ALL perp positions (native + xyz clearinghouses)
+    positions = _get_all_positions(MAIN_ADDR)
     if positions:
-        lines.append("\nMAIN POSITIONS:")
-        for p in positions:
-            pos = p["position"]
-            lines.append(f"  {pos['coin']}: {pos['szi']} @ ${pos['entryPx']} | uPnL: ${pos['unrealizedPnl']}")
+        lines.append("\nPOSITIONS:")
+        for pos in positions:
+            coin = pos.get('coin', '?')
+            size = pos.get('szi', '0')
+            entry = pos.get('entryPx', '0')
+            upnl = pos.get('unrealizedPnl', '0')
+            lev = pos.get('leverage', {})
+            liq = pos.get('liquidationPx', 'N/A')
+            lev_val = lev.get('value', '?') if isinstance(lev, dict) else lev
+            lines.append(f"  {coin}: {size} @ ${entry}")
+            lines.append(f"    uPnL: ${upnl} | {lev_val}x | liq: ${liq}")
 
-    # Orders
-    orders = _hl_post({"type": "openOrders", "user": MAIN_ADDR})
+    # Account values
+    values = _get_account_values(MAIN_ADDR)
+    total_perps = values['native'] + values['xyz']
+    if total_perps > 0:
+        lines.append(f"\nPerps equity: ${total_perps:,.2f}")
+
+    # ALL open orders (native + xyz)
+    orders = _get_all_orders(MAIN_ADDR)
     if orders:
         lines.append(f"\nORDERS ({len(orders)}):")
         for o in orders:
             side = "BUY" if o.get("side") == "B" else "SELL"
-            lines.append(f"  {side} {o['sz']} {o['coin']} @ ${o['limitPx']}")
+            lines.append(f"  {side} {o.get('sz')} {o.get('coin')} @ ${o.get('limitPx')}")
 
     # Vault
     vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
@@ -214,30 +265,30 @@ def cmd_price(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_orders(token: str, chat_id: str, _args: str) -> None:
-    orders = _hl_post({"type": "openOrders", "user": MAIN_ADDR})
+    orders = _get_all_orders(MAIN_ADDR)
     if not orders:
         tg_send(token, chat_id, "No open orders.")
         return
     lines = [f"Open Orders ({len(orders)}):"]
     for o in orders:
         side = "BUY" if o.get("side") == "B" else "SELL"
-        lines.append(f"  {side} {o['sz']} {o['coin']} @ ${o['limitPx']}")
+        lines.append(f"  {side} {o.get('sz')} {o.get('coin')} @ ${o.get('limitPx')}")
     tg_send(token, chat_id, "\n".join(lines))
 
 
 def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
-    perps = _hl_post({"type": "clearinghouseState", "user": MAIN_ADDR})
-    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
-
     lines = ["P&L Summary:"]
 
-    # Main
-    main_val = float(perps.get("marginSummary", {}).get("accountValue", 0))
-    for p in perps.get("assetPositions", []):
-        pos = p["position"]
-        lines.append(f"  Main {pos['coin']}: uPnL ${pos['unrealizedPnl']}")
+    # Main — all positions (native + xyz)
+    positions = _get_all_positions(MAIN_ADDR)
+    values = _get_account_values(MAIN_ADDR)
+    main_val = values['native'] + values['xyz']
+
+    for pos in positions:
+        lines.append(f"  Main {pos.get('coin')}: uPnL ${pos.get('unrealizedPnl')}")
 
     # Vault
+    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
     vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
     for p in vault.get("assetPositions", []):
         pos = p["position"]
