@@ -1,0 +1,36 @@
+{
+  "monday": {
+    "volume_norm": "building",
+    "notes": "Range-setting day after weekend gap. Watch for gap fills.",
+    "key_times_et": {
+      "asia_open": "18:00 (Sun)",
+      "eu_open": "03:00",
+      "us_open": "09:30",
+      "us_close": "16:00"
+    }
+  },
+  "tuesday": {
+    "volume_norm": "normal_to_heavy",
+    "notes": "Typically heaviest volume day. API/EIA inventory days for energy."
+  },
+  "wednesday": {
+    "volume_norm": "heavy",
+    "notes": "EIA inventory 10:30 ET. FOMC when scheduled 14:00 ET."
+  },
+  "thursday": {
+    "volume_norm": "normal",
+    "notes": "Post-EIA positioning. Weekly jobless claims 08:30 ET."
+  },
+  "friday": {
+    "volume_norm": "declining",
+    "notes": "Position squaring before weekend. NFP first Friday 08:30 ET. REDUCE LEVERAGE before close."
+  },
+  "saturday": {
+    "volume_norm": "very_thin",
+    "notes": "Extremely thin. Stop hunts common. Monitor only."
+  },
+  "sunday": {
+    "volume_norm": "thin_to_building",
+    "notes": "Market reopens 6PM ET. Watch for gap opens."
+  }
+}

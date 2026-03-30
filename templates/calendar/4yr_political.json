@@ -1,0 +1,13 @@
+{
+  "cycle": "US 4-year political cycle",
+  "current_phase": "year2_policy_implementation",
+  "phase_pct": 0.35,
+  "description": "Update with current administration analysis.",
+  "implication": "Year 2 typically: policy implementation, higher volatility.",
+  "phases": [
+    {"name": "year1_honeymoon", "description": "Agenda-setting. Market optimism."},
+    {"name": "year2_policy_implementation", "description": "Major policy execution. Higher volatility."},
+    {"name": "year3_pre_election_pump", "description": "Historically strongest market year."},
+    {"name": "year4_election_year", "description": "Uncertainty until election. Resolution rally post-election."}
+  ]
+}

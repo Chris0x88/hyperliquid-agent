@@ -1,0 +1,29 @@
+{
+  "cycle": "Global credit/liquidity cycle",
+  "current_phase": "expansion",
+  "phase_pct": 0.50,
+  "description": "Placeholder. Update with your analysis of where we are in the credit cycle.",
+  "implication": "Adjust asset allocation based on credit regime.",
+  "phases_historical": [
+    {
+      "name": "private_credit_expansion",
+      "description": "Banks lending freely, credit growth high, asset prices rising.",
+      "assets": "Equities > commodities. Growth > value."
+    },
+    {
+      "name": "peak_credit",
+      "description": "Credit standards loosening, leverage maxing, early warnings.",
+      "assets": "Everything goes up. Risk assets peak."
+    },
+    {
+      "name": "credit_contraction",
+      "description": "Banks tighten, defaults rise, liquidity dries up.",
+      "assets": "Cash > everything. Safe havens rally."
+    },
+    {
+      "name": "fiscal_dominance_expansion",
+      "description": "Government becomes marginal spender. Deficits expand. Inflation structural.",
+      "assets": "Commodities, gold, BTC, real assets outperform."
+    }
+  ]
+}

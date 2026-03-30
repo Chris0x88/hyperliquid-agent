@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "name": "Example: FOMC Decision",
+      "date": "2026-05-06",
+      "time": "18:00",
+      "impact": "critical",
+      "market": "macro",
+      "notes": "Rate decision. Add your specific catalysts here."
+    },
+    {
+      "name": "Example: Options expiry",
+      "date": "2026-06-26",
+      "time": "08:00",
+      "impact": "medium",
+      "market": "btc",
+      "notes": "Quarterly options expiry. Add market-specific events."
+    }
+  ]
+}
