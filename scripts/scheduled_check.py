@@ -175,7 +175,20 @@ def main():
     except Exception:
         pass
 
-    # --- 7. HWM + drawdown ---
+    # --- 7. Open issues ---
+    try:
+        from common.issues import get_open_issues
+        open_issues = get_open_issues()
+        if open_issues:
+            result["open_issues"] = [
+                {"severity": i.severity, "category": i.category, "title": i.title}
+                for i in open_issues[:10]  # max 10
+            ]
+            result["open_issues_count"] = len(open_issues)
+    except Exception:
+        pass
+
+    # --- 8. HWM + drawdown ---
     try:
         hwm_file = "data/snapshots/hwm.json"
         if os.path.exists(hwm_file):
