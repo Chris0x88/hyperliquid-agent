@@ -68,7 +68,9 @@ def main():
         oil_pos = None
         for ap in xyz.get("assetPositions", []):
             p = ap.get("position", ap)
-            if p.get("coin") == "BRENTOIL" and float(p.get("szi", 0)) != 0:
+            coin = p.get("coin", "")
+            # API returns "xyz:BRENTOIL" or "BRENTOIL" depending on context
+            if "BRENTOIL" in coin and float(p.get("szi", 0)) != 0:
                 oil_pos = p
                 break
 
@@ -81,15 +83,22 @@ def main():
             leverage = float(lev_data.get("value", 10))
 
             mids = requests.post(url, json={"type": "allMids"}, timeout=10).json()
-            current_price = float(mids.get("BRENTOIL", entry_px))
+            # Try both "BRENTOIL" and "xyz:BRENTOIL" keys
+            current_price = float(mids.get("BRENTOIL", mids.get("xyz:BRENTOIL", entry_px)))
             liq_dist_pct = abs(current_price - liq_px) / current_price * 100 if liq_px > 0 else 999
 
-            has_sl = any(o.get("orderType") == "Stop Market" and o.get("coin") == "BRENTOIL" for o in xyz_orders)
-            has_tp = any(o.get("orderType") == "Take Profit Market" and o.get("coin") == "BRENTOIL" for o in xyz_orders)
+            has_sl = any(
+                o.get("orderType") == "Stop Market" and "BRENTOIL" in o.get("coin", "")
+                for o in xyz_orders
+            )
+            has_tp = any(
+                o.get("orderType") == "Take Profit Market" and "BRENTOIL" in o.get("coin", "")
+                for o in xyz_orders
+            )
 
             existing_sl_price = None
             for o in xyz_orders:
-                if o.get("orderType") == "Stop Market" and o.get("coin") == "BRENTOIL":
+                if o.get("orderType") == "Stop Market" and "BRENTOIL" in o.get("coin", ""):
                     existing_sl_price = float(o.get("triggerPx", o.get("limitPx", 0)))
                     break
 

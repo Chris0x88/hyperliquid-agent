@@ -462,7 +462,7 @@ class DirectHLProxy:
         try:
             result = self._exchange.order(
                 coin, is_buy, sz, trigger_price,
-                order_type={"trigger": {"triggerPx": str(trigger_price), "isMarket": True, "tpsl": "sl"}},
+                order_type={"trigger": {"triggerPx": trigger_price, "isMarket": True, "tpsl": "sl"}},
                 reduce_only=True,
             )
             # Parse OID from response
@@ -485,7 +485,7 @@ class DirectHLProxy:
         try:
             result = self._exchange.order(
                 coin, is_buy, sz, trigger_price,
-                order_type={"trigger": {"triggerPx": str(trigger_price), "isMarket": True, "tpsl": "tp"}},
+                order_type={"trigger": {"triggerPx": trigger_price, "isMarket": True, "tpsl": "tp"}},
                 reduce_only=True,
             )
             statuses = result.get("response", {}).get("data", {}).get("statuses", [])
