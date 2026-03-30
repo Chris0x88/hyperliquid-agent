@@ -3,24 +3,38 @@ from __future__ import annotations
 
 TIER_ITERATORS = {
     "watch": [
+        "account_collector",   # always first — injects live account state
         "connector",
+        "thesis_engine",       # reads AI thesis files into ctx
         "liquidity",
         "risk",
+        "autoresearch",        # learning loop
         "journal",
         "telegram",
     ],
     "rebalance": [
+        "account_collector",
         "connector",
+        "thesis_engine",
+        "execution_engine",    # conviction-based sizing
+        "exchange_protection", # ruin prevention only (SL near liq)
         "liquidity",
         "risk",
         "guard",
         "rebalancer",
         "profit_lock",
+        "funding_tracker",
+        "catalyst_deleverage",
+        "autoresearch",
         "journal",
         "telegram",
     ],
     "opportunistic": [
+        "account_collector",
         "connector",
+        "thesis_engine",
+        "execution_engine",
+        "exchange_protection",
         "liquidity",
         "risk",
         "guard",
@@ -28,6 +42,9 @@ TIER_ITERATORS = {
         "radar",
         "pulse",
         "profit_lock",
+        "funding_tracker",
+        "catalyst_deleverage",
+        "autoresearch",
         "journal",
         "telegram",
     ],

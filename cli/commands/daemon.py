@@ -129,8 +129,27 @@ def daemon_start(
     from cli.daemon.iterators.profit_lock import ProfitLockIterator
     from cli.daemon.iterators.journal import JournalIterator
     from cli.daemon.iterators.telegram import TelegramIterator
+    from cli.daemon.iterators.account_collector import AccountCollectorIterator
+    from cli.daemon.iterators.thesis_engine import ThesisEngineIterator
+    from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
+    from cli.daemon.iterators.exchange_protection import ExchangeProtectionIterator
+    from cli.daemon.iterators.autoresearch import AutoresearchIterator
+    try:
+        from cli.daemon.iterators.funding_tracker import FundingTrackerIterator
+        _has_funding = True
+    except ImportError:
+        _has_funding = False
+    try:
+        from cli.daemon.iterators.catalyst_deleverage import CatalystDeleverageIterator
+        _has_catalyst = True
+    except ImportError:
+        _has_catalyst = False
 
+    clock.register(AccountCollectorIterator(adapter=adapter))
     clock.register(ConnectorIterator(adapter=adapter))
+    clock.register(ThesisEngineIterator())
+    clock.register(ExecutionEngineIterator(adapter=adapter))
+    clock.register(ExchangeProtectionIterator(adapter=adapter))
     clock.register(LiquidityIterator())
     clock.register(RiskIterator(mainnet=mainnet))
     clock.register(GuardIterator())
@@ -138,6 +157,11 @@ def daemon_start(
     clock.register(RadarIterator())
     clock.register(PulseIterator())
     clock.register(ProfitLockIterator(data_dir=data_dir))
+    if _has_funding:
+        clock.register(FundingTrackerIterator(data_dir=data_dir))
+    if _has_catalyst:
+        clock.register(CatalystDeleverageIterator(data_dir=data_dir))
+    clock.register(AutoresearchIterator())
     clock.register(JournalIterator(data_dir=data_dir))
     clock.register(TelegramIterator(data_dir=data_dir))
 

@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Protocol
 from parent.position_tracker import Position
 from parent.risk_manager import RiskGate
 
+# ThesisState imported lazily to avoid circular imports — use Any type hint here
+
 
 @dataclass
 class OrderIntent:
@@ -86,6 +88,14 @@ class TickContext:
 
     # Roster (set by Clock before tick)
     active_strategies: Dict[str, StrategySlot] = field(default_factory=dict)
+
+    # Two-layer architecture: thesis state from AI (written by scheduled task)
+    thesis_states: Dict[str, Any] = field(default_factory=dict)  # market -> ThesisState
+
+    # Account collector outputs
+    snapshot_ref: str = ""              # filename of current account snapshot
+    account_drawdown_pct: float = 0.0   # current drawdown from high water mark
+    high_water_mark: float = 0.0        # peak account equity observed
 
 
 class Iterator(Protocol):

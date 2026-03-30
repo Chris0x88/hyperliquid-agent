@@ -56,12 +56,47 @@ class ConnectorIterator:
             except Exception as e:
                 log.warning("Failed to fetch snapshot for %s: %s", inst, e)
 
-        # Fetch positions
+        # Fetch positions (native HL perps)
         try:
             if hasattr(self._adapter, 'get_positions'):
                 ctx.positions = self._adapter.get_positions()
         except Exception as e:
             log.warning("Failed to fetch positions: %s", e)
+
+        # Merge xyz dex positions (BRENTOIL and other commodity perps)
+        try:
+            if hasattr(self._adapter, 'get_xyz_state'):
+                xyz = self._adapter.get_xyz_state()
+                if xyz:
+                    from parent.position_tracker import Position
+                    from decimal import Decimal as _D
+                    for ap in xyz.get("assetPositions", []):
+                        p = ap.get("position", ap)
+                        coin = p.get("coin", "")
+                        szi = float(p.get("szi", 0))
+                        if szi == 0:
+                            continue
+                        inst = f"xyz:{coin}"
+                        entry_px = float(p.get("entryPx", 0))
+                        liq_px = float(p.get("liquidationPx") or 0)
+                        leverage_val = float((p.get("leverage") or {}).get("value", 1))
+
+                        # Find or create position entry in ctx.positions
+                        existing = next((x for x in ctx.positions if x.instrument == inst), None)
+                        if existing is None:
+                            existing = Position(instrument=inst)
+                            ctx.positions.append(existing)
+
+                        existing.net_qty = _D(str(szi))
+                        existing.avg_entry_price = _D(str(entry_px))
+                        existing.liquidation_price = _D(str(liq_px))
+                        existing.leverage = _D(str(leverage_val))
+
+                    log.debug("Merged %d xyz positions into ctx.positions",
+                              len([ap for ap in xyz.get("assetPositions", [])
+                                   if float(ap.get("position", ap).get("szi", 0)) != 0]))
+        except Exception as e:
+            log.warning("Failed to merge xyz positions: %s", e)
 
         # Fetch all markets (for radar/pulse)
         try:

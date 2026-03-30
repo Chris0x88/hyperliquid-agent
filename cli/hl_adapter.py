@@ -509,6 +509,38 @@ class DirectHLProxy:
             log.warning("Failed to cancel trigger order %s: %s", oid, e)
             return False
 
+    def get_xyz_state(self) -> Dict:
+        """Fetch clearinghouse state for the xyz dex (BRENTOIL and other commodity perps).
+
+        xyz is a separate clearinghouse from the main HL perps — all calls require dex='xyz'.
+        Returns the raw API response including assetPositions, marginSummary, openOrders.
+        """
+        try:
+            import requests
+            base_url = self._hl._info.base_url
+            state_resp = requests.post(
+                f"{base_url}/info",
+                json={"type": "clearinghouseState", "user": self._address, "dex": "xyz"},
+                timeout=10,
+            )
+            state_resp.raise_for_status()
+            state = state_resp.json()
+
+            # Fetch open trigger orders on xyz dex
+            orders_resp = requests.post(
+                f"{base_url}/info",
+                json={"type": "openOrders", "user": self._address, "dex": "xyz"},
+                timeout=10,
+            )
+            orders_resp.raise_for_status()
+            orders = orders_resp.json()
+
+            state["open_orders"] = orders
+            return state
+        except Exception as e:
+            log.error("Failed to get xyz clearinghouse state: %s", e)
+            return {}
+
 
 class DirectMockProxy:
     """Mock adapter for dry-run / testing — no real HL connection."""

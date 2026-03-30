@@ -27,6 +27,10 @@ class Position:
     total_sell_qty: Decimal = ZERO
     num_fills: int = 0
 
+    # Live data from exchange (populated by account_collector, not from fills)
+    liquidation_price: Decimal = ZERO  # exchange-reported liquidation price
+    leverage: Decimal = ZERO           # current leverage from exchange
+
     @property
     def notional(self) -> Decimal:
         """Absolute notional exposure at average entry."""
@@ -101,6 +105,10 @@ class Position:
             "total_sell_qty": str(self.total_sell_qty),
             "num_fills": self.num_fills,
         }
+        if self.liquidation_price != ZERO:
+            d["liquidation_price"] = str(self.liquidation_price)
+        if self.leverage != ZERO:
+            d["leverage"] = str(self.leverage)
         if mark_price is not None:
             d["unrealized_pnl"] = str(self.unrealized_pnl(mark_price))
             d["total_pnl"] = str(self.total_pnl(mark_price))
@@ -116,6 +124,8 @@ class Position:
             total_buy_qty=Decimal(data.get("total_buy_qty", "0")),
             total_sell_qty=Decimal(data.get("total_sell_qty", "0")),
             num_fills=data.get("num_fills", 0),
+            liquidation_price=Decimal(data.get("liquidation_price", "0")),
+            leverage=Decimal(data.get("leverage", "0")),
         )
 
 
