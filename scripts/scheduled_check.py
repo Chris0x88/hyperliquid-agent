@@ -51,8 +51,30 @@ def main():
         xyz = requests.post(url, json={"type": "clearinghouseState", "user": addr, "dex": "xyz"}, timeout=10).json()
         xyz_equity = float(xyz.get("marginSummary", {}).get("accountValue", 0))
 
-        # xyz open orders
-        xyz_orders = requests.post(url, json={"type": "openOrders", "user": addr, "dex": "xyz"}, timeout=10).json()
+        # xyz open orders — use frontendOpenOrders which correctly includes
+        # orderType for trigger orders (openOrders shows them as plain "limit")
+        xyz_orders = requests.post(url, json={"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}, timeout=10).json()
+
+        # xyz market data: metaAndAssetCtxs gives us markPx, funding, OI in one call
+        # NOTE: allMids does NOT include xyz markets. This is the correct endpoint.
+        xyz_meta = requests.post(url, json={"type": "metaAndAssetCtxs", "dex": "xyz"}, timeout=10).json()
+        xyz_universe = xyz_meta[0].get("universe", []) if isinstance(xyz_meta, list) and len(xyz_meta) > 0 and isinstance(xyz_meta[0], dict) else []
+        xyz_asset_ctxs = xyz_meta[1] if isinstance(xyz_meta, list) and len(xyz_meta) > 1 else []
+
+        # Build name→index lookup for xyz markets
+        xyz_prices = {}   # coin_name -> markPx
+        xyz_funding = {}  # coin_name -> funding rate
+        for i, asset_info in enumerate(xyz_universe):
+            name = asset_info.get("name", "")   # e.g. "xyz:BRENTOIL"
+            short_name = name.replace("xyz:", "")  # e.g. "BRENTOIL"
+            if i < len(xyz_asset_ctxs):
+                ctx = xyz_asset_ctxs[i]
+                mark = float(ctx.get("markPx", 0))
+                fund = float(ctx.get("funding", 0))
+                xyz_prices[name] = mark
+                xyz_prices[short_name] = mark
+                xyz_funding[name] = fund
+                xyz_funding[short_name] = fund
 
         total_equity = native_equity + xyz_equity + spot_usdc
 
@@ -82,9 +104,8 @@ def main():
             lev_data = oil_pos.get("leverage") or {}
             leverage = float(lev_data.get("value", 10))
 
-            mids = requests.post(url, json={"type": "allMids"}, timeout=10).json()
-            # Try both "BRENTOIL" and "xyz:BRENTOIL" keys
-            current_price = float(mids.get("BRENTOIL", mids.get("xyz:BRENTOIL", entry_px)))
+            # Use xyz_prices from metaAndAssetCtxs (allMids does NOT include xyz markets)
+            current_price = xyz_prices.get("BRENTOIL", xyz_prices.get("xyz:BRENTOIL", entry_px))
             liq_dist_pct = abs(current_price - liq_px) / current_price * 100 if liq_px > 0 else 999
 
             has_sl = any(
@@ -102,6 +123,7 @@ def main():
                     existing_sl_price = float(o.get("triggerPx", o.get("limitPx", 0)))
                     break
 
+            funding = xyz_funding.get("BRENTOIL", xyz_funding.get("xyz:BRENTOIL", 0))
             result["brentoil"] = {
                 "size": szi,
                 "entry": entry_px,
@@ -114,6 +136,9 @@ def main():
                 "sl_price": existing_sl_price,
                 "target_sl": round(liq_px * 1.02, 2) if liq_px > 0 else None,
                 "has_tp": has_tp,
+                "funding_rate": funding,
+                "funding_annualized_pct": round(funding * 8760 * 100, 2),
+                "funding_direction": "longs earn" if funding < 0 else "longs pay",
             }
 
             # CRITICAL ALERTS
@@ -134,17 +159,11 @@ def main():
             result["brentoil"] = None
             result["alerts"] = []
 
-        # --- 4. Funding rate ---
-        try:
-            meta = requests.post(url, json={"type": "metaAndAssetCtxs", "dex": "xyz"}, timeout=10).json()
-            # Find BRENTOIL in the asset contexts
-            if isinstance(meta, list) and len(meta) > 1:
-                for asset_ctx in meta[1]:
-                    if isinstance(asset_ctx, dict) and asset_ctx.get("coin") == "BRENTOIL":
-                        result["brentoil_funding"] = float(asset_ctx.get("funding", 0))
-                        break
-        except Exception:
-            pass
+        # --- 4. Funding rate (already fetched from xyz_meta above) ---
+        brentoil_funding = xyz_funding.get("BRENTOIL", xyz_funding.get("xyz:BRENTOIL"))
+        if brentoil_funding is not None:
+            result["brentoil_funding"] = brentoil_funding
+            result["brentoil_funding_annualized_pct"] = round(brentoil_funding * 8760 * 100, 2)
 
     except Exception as e:
         result["account_error"] = str(e)

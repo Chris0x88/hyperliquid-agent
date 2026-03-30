@@ -526,10 +526,11 @@ class DirectHLProxy:
             state_resp.raise_for_status()
             state = state_resp.json()
 
-            # Fetch open trigger orders on xyz dex
+            # Fetch open orders on xyz dex — frontendOpenOrders includes orderType
+            # for trigger orders (openOrders shows triggers as plain "limit")
             orders_resp = requests.post(
                 f"{base_url}/info",
-                json={"type": "openOrders", "user": self._address, "dex": "xyz"},
+                json={"type": "frontendOpenOrders", "user": self._address, "dex": "xyz"},
                 timeout=10,
             )
             orders_resp.raise_for_status()

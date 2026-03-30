@@ -76,7 +76,8 @@ class ConnectorIterator:
                         szi = float(p.get("szi", 0))
                         if szi == 0:
                             continue
-                        inst = f"xyz:{coin}"
+                        # coin is already "xyz:BRENTOIL" from API — don't double-prefix
+                        inst = coin if coin.startswith("xyz:") else f"xyz:{coin}"
                         entry_px = float(p.get("entryPx", 0))
                         liq_px = float(p.get("liquidationPx") or 0)
                         leverage_val = float((p.get("leverage") or {}).get("value", 1))
