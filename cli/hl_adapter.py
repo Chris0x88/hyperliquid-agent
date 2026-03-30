@@ -477,6 +477,28 @@ class DirectHLProxy:
             log.warning("Failed to place trigger SL for %s: %s", instrument, e)
             return None
 
+    def place_tp_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
+        """Place a trigger take-profit order on the exchange. Returns order ID or None."""
+        coin = self._to_coin(instrument)
+        is_buy = side.lower() == "buy"
+        sz = self._round_size(coin, size)
+        try:
+            result = self._exchange.order(
+                coin, is_buy, sz, trigger_price,
+                order_type={"trigger": {"triggerPx": str(trigger_price), "isMarket": True, "tpsl": "tp"}},
+                reduce_only=True,
+            )
+            statuses = result.get("response", {}).get("data", {}).get("statuses", [])
+            if statuses and "resting" in statuses[0]:
+                return str(statuses[0]["resting"]["oid"])
+            if statuses and "filled" in statuses[0]:
+                return str(statuses[0]["filled"]["oid"])
+            log.warning("Trigger TP order placed but no OID in response: %s", result)
+            return None
+        except Exception as e:
+            log.warning("Failed to place trigger TP for %s: %s", instrument, e)
+            return None
+
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
         """Cancel a trigger order. Returns True if successful."""
         coin = self._to_coin(instrument)
@@ -553,6 +575,16 @@ class DirectMockProxy:
         self._trigger_orders[oid] = {
             "instrument": instrument, "side": side, "size": size,
             "trigger_price": trigger_price,
+        }
+        return oid
+
+    def place_tp_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
+        """Place a mock trigger take-profit order. Returns OID."""
+        oid = str(self._next_trigger_oid)
+        self._next_trigger_oid += 1
+        self._trigger_orders[oid] = {
+            "instrument": instrument, "side": side, "size": size,
+            "trigger_price": trigger_price, "tpsl": "tp",
         }
         return oid
 

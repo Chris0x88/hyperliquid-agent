@@ -81,5 +81,9 @@ class VenueAdapter(ABC):
                             trigger_price: float) -> Optional[str]:
         raise NotImplementedError("Trigger orders not supported by this venue")
 
+    def place_tp_trigger_order(self, instrument: str, side: str, size: float,
+                               trigger_price: float) -> Optional[str]:
+        raise NotImplementedError("TP trigger orders not supported by this venue")
+
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
         raise NotImplementedError("Trigger orders not supported by this venue")

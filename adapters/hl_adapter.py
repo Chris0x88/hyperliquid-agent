@@ -93,5 +93,9 @@ class HLVenueAdapter(VenueAdapter):
                             trigger_price: float) -> Optional[str]:
         return self._proxy.place_trigger_order(instrument, side, size, trigger_price)
 
+    def place_tp_trigger_order(self, instrument: str, side: str, size: float,
+                               trigger_price: float) -> Optional[str]:
+        return self._proxy.place_tp_trigger_order(instrument, side, size, trigger_price)
+
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
         return self._proxy.cancel_trigger_order(instrument, oid)

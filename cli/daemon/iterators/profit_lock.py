@@ -20,7 +20,7 @@ import logging
 import time
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from cli.daemon.context import Alert, OrderIntent, TickContext
 
@@ -36,14 +36,16 @@ class ProfitLockIterator:
     def __init__(
         self,
         sweep_pct: float = 0.25,       # Lock 25% of profits
-        min_profit_usd: float = 50.0,   # Don't bother below $50
+        min_profit_usd: float = 10.0,   # Don't bother below $10
         check_interval: int = 300,       # Check every 5 minutes
         data_dir: str = "data/daemon",
+        adapter: Any = None,             # HL adapter for direct order placement
     ):
         self._sweep_pct = Decimal(str(sweep_pct))
         self._min_profit_usd = Decimal(str(min_profit_usd))
         self._check_interval = check_interval
         self._ledger_path = Path(data_dir) / "profit_locks.jsonl"
+        self._adapter = adapter
         self._last_check: int = 0
         self._locked_total: Decimal = ZERO
         self._last_equity: Decimal = ZERO  # Track starting equity for session profit calc
@@ -144,3 +146,12 @@ class ProfitLockIterator:
         self._session_locked += lock_amount
         log.info("Profit lock: $%.2f locked (session: $%.2f, total: $%.2f)",
                  float(lock_amount), float(self._session_locked), float(self._locked_total))
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return current profit lock status for reporting."""
+        return {
+            "locked_total_usd": float(self._locked_total),
+            "session_locked_usd": float(self._session_locked),
+            "sweep_pct": float(self._sweep_pct) * 100,
+            "min_profit_threshold_usd": float(self._min_profit_usd),
+        }
