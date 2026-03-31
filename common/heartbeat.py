@@ -815,7 +815,7 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     main_equity = 0.0
     vault_equity = 0.0
 
-    # 1. Fetch main account (oil trades)
+    # 1. Fetch main account (oil trades) — check both default and xyz clearinghouses + spot
     try:
         hl_main = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
         proxy_main = DirectHLProxy(hl_main)
@@ -823,6 +823,39 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
         if raw_main:
             main_equity = float(raw_main.get("account_value", 0))
             all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
+
+        # Also check spot balances (USDC may be in spot, not perp margin)
+        try:
+            import requests as _req
+            spot_resp = _req.post("https://api.hyperliquid.xyz/info", json={
+                "type": "spotClearinghouseState", "user": MAIN_ACCOUNT
+            }, timeout=10)
+            spot_data = spot_resp.json()
+            for bal in spot_data.get("balances", []):
+                if bal.get("coin") == "USDC" and float(bal.get("total", 0)) > 0:
+                    spot_usdc = float(bal["total"])
+                    main_equity = max(main_equity, main_equity + spot_usdc)
+                    log.info("Main account spot USDC: $%.2f", spot_usdc)
+        except Exception as e:
+            log.debug("Spot balance query failed: %s", e)
+
+        # Check xyz clearinghouse separately (oil positions may be there)
+        try:
+            import requests as _req
+            xyz_resp = _req.post("https://api.hyperliquid.xyz/info", json={
+                "type": "clearinghouseState", "user": MAIN_ACCOUNT, "dex": "xyz"
+            }, timeout=10)
+            xyz_data = xyz_resp.json()
+            xyz_equity = float(xyz_data.get("marginSummary", {}).get("accountValue", 0))
+            if xyz_equity > 0:
+                main_equity += xyz_equity
+            xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
+            all_positions.extend(xyz_positions)
+            if xyz_positions:
+                log.info("Found %d xyz position(s)", len(xyz_positions))
+        except Exception as e:
+            log.debug("XYZ clearinghouse query failed: %s", e)
+
     except Exception as e:
         log.warning("Failed to fetch main account state: %s", e)
 
