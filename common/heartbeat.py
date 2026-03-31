@@ -750,8 +750,8 @@ def run_heartbeat(
                 else:
                     hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
                 hl._ensure_client()
-                hl_coin = coin.replace("xyz:", "") if coin.startswith("xyz:") else coin
-                hl._exchange.update_leverage(int(target_lev), hl_coin, is_cross=True)
+                # xyz markets need the full "xyz:COIN" format for the SDK
+                hl._exchange.update_leverage(int(target_lev), coin, is_cross=True)
                 actions.append({
                     "market": coin, "action": "deleverage",
                     "prev_leverage": lev, "new_leverage": target_lev,

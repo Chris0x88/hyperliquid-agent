@@ -14,10 +14,10 @@ log = logging.getLogger("heartbeat.config")
 
 @dataclass
 class EscalationConfig:
-    liq_L1_alert_pct: float = 10
-    liq_L2_deleverage_pct: float = 8
+    liq_L1_alert_pct: float = 6
+    liq_L2_deleverage_pct: float = 4
     liq_L2_deleverage_amount: float = 1
-    liq_L3_emergency_pct: float = 5
+    liq_L3_emergency_pct: float = 2
     liq_L3_target_leverage: float = 3
     liq_L2_cooldown_min: int = 30
     liq_L3_cooldown_min: int = 60
