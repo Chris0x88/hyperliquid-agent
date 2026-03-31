@@ -23,6 +23,45 @@ Three simple, independently reliable systems that compose into a financial copil
 
 ---
 
+## Relationship to Existing Code
+
+### Schema coexistence
+
+Existing tables (`events`, `learnings`, `summaries`) remain untouched. New tables (`observations`, `action_log`, `execution_traces`) serve different purposes:
+- `events` = human/AI-written geopolitical events → keep using via `log_event()`
+- `learnings` = human/AI-written lessons → keep using via `log_learning()`
+- `observations` = programmatic state snapshots with temporal validity → new, automated
+- `action_log` = system actions with reasoning → new, replaces ad-hoc logging
+
+No migration needed. Both old and new tables coexist in the same SQLite DB.
+
+### Risk management coexistence
+
+The existing `RiskManager` + `RiskGate` runs INSIDE the TradingEngine during daemon strategy execution. The heartbeat's escalation runs OUTSIDE the daemon as an independent watchdog. They do not conflict because:
+- `RiskManager` gates strategy decisions during tick loop (prevents bad entries)
+- Heartbeat audits positions after the fact (adds stops, checks leverage, takes profit)
+- If both want to deleverage, the first one to execute succeeds; the second sees the already-reduced leverage and skips
+- The heartbeat NEVER places new entries — it only protects and reduces
+
+### GuardBridge coexistence
+
+`GuardBridge` manages trailing stops for positions opened by the daemon. The heartbeat adds stops only when NO stop exists on exchange. Check flow:
+1. Heartbeat reads open orders from HL API for the position
+2. If any trigger order (stop-loss) exists → skip, respect existing stop
+3. If zero stop-loss orders exist → add one at ATR-based level
+4. GuardBridge's exchange-level stops are visible to the API → heartbeat sees them and skips
+
+### Market identifier mapping
+
+| Canonical ID | HL API instrument | HL API dex param | Wallet |
+|-------------|-------------------|------------------|--------|
+| `xyz:BRENTOIL` | `BRENTOIL` | `dex='xyz'` | Main 0x80B5... |
+| `BTC-PERP` | `BTC` | (none — default) | Vault 0x9da9... |
+
+The heartbeat maps canonical IDs to the correct API call format. For xyz markets, all API calls pass `dex='xyz'`. This mapping lives in `data/config/market_config.json`.
+
+---
+
 ## Phase 1: The Heartbeat (protects money today)
 
 Pure Python. launchd. No AI dependency. No human dependency.
@@ -32,25 +71,30 @@ Pure Python. launchd. No AI dependency. No human dependency.
 Reads all open positions from HyperLiquid API. For each position:
 
 **Stop-loss enforcement:**
-- If position has NO stop-loss set on exchange → add one
-- Stop placement: 3x ATR below entry for longs, above for shorts
-- Never place stop within 2% of current price (avoid getting swept on noise)
+- If position has NO stop-loss order on exchange → add one
+- ATR calculation: 14-period ATR on 4-hour candles (fetched from HL candle API). Cached for 1 hour (ATR doesn't change fast).
+- Stop placement: 3x ATR below average entry price for longs, above for shorts
+- "Average entry price" = weighted average from HL account state API (the exchange tracks this natively)
+- Never place stop within 2% of current price (avoid noise sweep)
 - Never place stop tighter than liquidation price + 3% buffer
+- If computed stop is below liq price + 3% → place at liq price + 3% and alert "stop is very tight"
 - Telegram: "🛡️ Added stop on BRENTOIL: 20 contracts long, stop @ $103.50 (3x ATR)"
 
 **Profit-taking:**
-- If position is up >5% in <30 minutes → take 25% off
-- If position is up >10% in <2 hours → take another 25% off
+- If unrealized PnL% > threshold AND position age < time window → take partial profit
+- Position age: computed from HL account state `entryTime` field (the exchange tracks this)
+- If `entryTime` is unavailable: use first `action_log` entry for this market as fallback, or skip profit-taking check (safe default — no action on missing data)
 - Configurable per-market in `data/config/profit_rules.json`
 - Telegram: "💰 Took 25% profit on BRENTOIL: 5 contracts @ $113.20 (+5.2% in 22min)"
 
 **Liquidation distance monitor:**
 - <10% → Telegram alert (L1)
-- <8% → reduce leverage by 1x (L2), Telegram alert
-- <5% → reduce leverage to 3x (L3), Telegram urgent alert
+- <8% → reduce leverage by 1x, minimum floor of 1x (if already 1x, alert only) (L2)
+- <5% → reduce leverage to 3x or to current-1x, whichever is lower, minimum floor of 1x (L3)
 - Cool-down: L2 max once per 30min, L3 max once per 1h
 
 **Drawdown monitor:**
+- "Session peak" = highest account equity since heartbeat first run, stored in `working_state.json` as `session_peak_equity`. Reset daily at 00:00 AEST.
 - >5% from session peak → Telegram alert
 - >8% → reduce position 25%, alert
 - >12% → reduce position 50%, urgent alert
@@ -59,23 +103,25 @@ Reads all open positions from HyperLiquid API. For each position:
 - If hourly funding >0.1% for 3 consecutive periods → alert with daily drag cost
 - If cumulative funding drag >1% of position → alert
 
+**Oil trading hours awareness:**
+- Oil market: Sun 6PM ET — Fri 5PM ET
+- Outside trading hours: skip stop placement (can't place orders on closed market), suppress "no position" alerts, continue monitoring existing stops and liq distance (exchange still tracks these)
+
 ### 1B. BTC Vault Autonomous Trader
 
-The existing `power_law_btc` strategy runs via daemon, enhanced with:
+The existing `power_law_btc` strategy runs via daemon. The heartbeat monitors it and reports to Telegram.
 
-**Fee-aware execution:**
-- Track cumulative fees paid vs. position gains
-- If fees are eating >30% of gross profit → observation logged, AI can investigate
-- Prefer limit orders over market orders where possible (maker vs taker fees)
+**Trade detection (heartbeat monitors, doesn't execute):**
+- Each heartbeat run, compare current BTC vault position to last known (from `working_state.json`)
+- If position size changed → a rebalance happened → log to `action_log` and send Telegram
+- Telegram: "₿ BTC Vault rebalance detected: position changed from 0.10→0.11 BTC (bought 0.01 @ $68,420)"
+- This approach requires no changes to `power_law_btc.py` — the heartbeat just observes
 
-**Funding-cost-aware holding:**
+**Fee + funding tracking:**
+- Track cumulative fees from HL account state API
 - Track daily funding costs as % of position
-- If holding cost >X% annualized → log observation for AI review
-- Power Law rebalancer already handles entry/exit — just needs cost tracking
-
-**Trade reporting:**
-- Every rebalance action → Telegram: "₿ BTC Vault rebalance: bought 0.01 BTC @ $68,420 (Power Law signal: undervalued)"
-- Daily summary → Telegram: "₿ BTC Vault daily: +$120 (+0.03%), fees: $8, funding: -$3"
+- If fees >30% of gross profit or funding drag >X% annualized → log observation for AI review
+- Daily summary → Telegram: "₿ BTC Vault daily: equity $X, PnL +$120, fees: $8, funding: -$3"
 
 ### 1C. Telegram Reporter (pure Python, direct Bot API)
 
@@ -155,6 +201,19 @@ One process. Simple.
 
 Single entry point. Single PID file. Single log file. Reads config, checks positions, takes action, reports, exits.
 
+**PID enforcement (per `feedback_single_instance.md`):**
+1. PID file at `data/memory/pids/heartbeat.pid`
+2. On startup: read PID file → `os.kill(pid, 0)` to check alive
+3. If alive → exit immediately (previous run still going)
+4. If dead or no file → write own PID, proceed
+5. On exit (including exceptions) → delete PID file via `atexit` + `try/finally`
+
+**Path resolution:**
+All file paths resolved via `PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent` (from `scripts/` → `agent-cli/`). Never use `os.getcwd()`.
+
+**Working state atomic writes:**
+Write to `working_state.json.tmp`, then `os.rename()` to `working_state.json`. This is atomic on POSIX — the file is always either the old version or the new version, never partial.
+
 ### 1F. Edge Cases
 
 | Scenario | Behavior |
@@ -168,7 +227,8 @@ Single entry point. Single PID file. Single log file. Reads config, checks posit
 | Position opened between cycles | Caught on next 5-min cycle — max 5 min unprotected |
 | Telegram API down | Log locally, retry next cycle — non-critical |
 | Config file missing | Use hardcoded defaults (conservative) |
-| Weekend / off-hours | Same behavior — oil has specific hours, BTC is 24/7 |
+| Weekend / off-hours | Oil: skip stop placement when market closed, continue liq monitoring. BTC: 24/7 |
+| Leverage already at floor (1x) | L2/L3 deleverage skips, alerts only — can't go below 1x |
 | Chris manually closes position | Auditor sees no position, does nothing, logs "position closed" |
 | Chris manually sets a stop | Auditor sees stop exists, skips, respects Chris's level |
 
@@ -240,19 +300,37 @@ The heartbeat (Phase 1) writes to memory every run:
 - **action_log**: every trade, stop placement, profit-take, deleverage, alert sent
 - **observations**: significant state changes (position change, regime shift, escalation)
 
-The reflector (30-min cron) compacts observations and backfills outcomes.
+### 2C. Reflector (Phase 2 — built after heartbeat is stable)
 
-### 2C. Working State File
+Separate launchd process, runs every 30 minutes. Pure Python, no AI.
 
-`data/memory/working_state.json` — written atomically every heartbeat:
+- Compacts old observations (5+ metrics in 6h → one range summary)
+- Backfills outcomes on action_log entries >24h old
+- Expires stale observations (priority 3 >7 days, priority 2 >30 days)
+- Detects patterns across action_log (repeated errors, escalation frequency)
+
+Spec for reflector will be detailed when Phase 2 is built. For Phase 1, the heartbeat writes to memory tables but no reflector runs.
+
+### 2D. Working State File
+
+`data/memory/working_state.json` — written atomically every heartbeat (tmp + rename):
 
 ```json
 {
     "last_updated_ms": 1711800000000,
-    "positions": { ... },
-    "escalation": { "current_level": "L0" },
+    "session_peak_equity": 775000,
+    "session_peak_reset_date": "2026-03-31",
+    "positions": {
+        "xyz:BRENTOIL": {"size": 20, "side": "long", "entry": 107.65, "mark": 108.10, "upnl": 8500, "leverage": 10, "liq_price": 99.36, "liq_distance_pct": 7.7},
+        "BTC-PERP": {"size": 0.11, "side": "long", "entry": 68200, "mark": 68420, "upnl": 24.20, "leverage": 1}
+    },
+    "escalation": {"current_level": "L0", "last_l2_ms": null, "last_l3_ms": null},
     "last_ai_checkin_ms": null,
-    "heartbeat_consecutive_failures": 0
+    "heartbeat_consecutive_failures": 0,
+    "atr_cache": {
+        "xyz:BRENTOIL": {"value": 1.85, "cached_at_ms": 1711796000000},
+        "BTC-PERP": {"value": 1420, "cached_at_ms": 1711796000000}
+    }
 }
 ```
 
@@ -315,14 +393,15 @@ agent-cli/
 │   ├── memory.py              # EXISTING — add new tables
 │   ├── heartbeat.py           # NEW — position auditor + escalation
 │   ├── memory_telegram.py     # NEW — direct Telegram Bot API
-│   └── memory_context.py      # NEW — context builder for AI
+│   └── memory_context.py      # NEW — context builder for AI (Phase 2/3, not Phase 1)
 ├── cli/commands/
 │   └── memory.py              # NEW — hl memory CLI
 ├── cli/mcp_server.py          # EXISTING — add memory_* tools
 ├── data/
 │   ├── config/
 │   │   ├── profit_rules.json  # NEW
-│   │   └── escalation_config.json # NEW
+│   │   ├── escalation_config.json # NEW
+│   │   └── market_config.json # NEW — canonical ID → API mapping
 │   ├── memory/
 │   │   ├── memory.db          # EXISTING — extended
 │   │   ├── working_state.json # NEW
