@@ -184,7 +184,64 @@ def main():
     except Exception as e:
         result["thesis_error"] = str(e)
 
-    # --- 6. Recent learnings ---
+    # --- 6. Market research context (README + recent notes + memory timeline) ---
+    # This is the "memory" layer — ensures temporal accuracy and accumulated knowledge
+    # are always in context. Prevents errors like confusing "military campaign duration"
+    # with "strait closure duration" because the README explicitly states key dates.
+    try:
+        import glob as _glob
+        from pathlib import Path
+
+        market_context = {}
+
+        markets_dir = Path("data/research/markets")
+        if markets_dir.exists():
+            for market_dir in sorted(markets_dir.iterdir()):
+                if not market_dir.is_dir():
+                    continue
+                market_name = market_dir.name  # e.g. "xyz_brentoil", "btc"
+                ctx_parts = []
+
+                # Load README (key thesis, dates, physical facts)
+                readme = market_dir / "README.md"
+                if readme.exists():
+                    content = readme.read_text()
+                    ctx_parts.append(f"### {market_name.upper()} README\n{content[:3000]}")
+
+                # Load recent notes (last 7 days by filename date prefix YYYY-MM-DD)
+                notes_dir = market_dir / "notes"
+                if notes_dir.exists():
+                    # Sort by filename — YYYY-MM-DD prefix gives chronological order
+                    note_files = sorted(notes_dir.glob("*.md"), reverse=True)[:3]
+                    for nf in reversed(note_files):
+                        note_content = nf.read_text()
+                        ctx_parts.append(
+                            f"### NOTE: {nf.name}\n{note_content[:1500]}"
+                        )
+
+                if ctx_parts:
+                    market_context[market_name] = "\n\n".join(ctx_parts)
+
+        if market_context:
+            result["market_research"] = market_context
+
+    except Exception as e:
+        result["market_research_error"] = str(e)
+
+    # --- 6b. SQLite memory timeline ---
+    try:
+        from common.memory import get_market_context as _mem_ctx
+        mem = {}
+        for mk in ["xyz:BRENTOIL", "BTC-PERP"]:
+            ctx = _mem_ctx(mk, days=60)
+            if ctx:
+                mem[mk] = ctx
+        if mem:
+            result["memory_context"] = mem
+    except Exception:
+        pass
+
+    # --- 6c. Recent operational learnings (markdown log) ---
     try:
         lf = "data/research/learnings.md"
         if os.path.exists(lf):

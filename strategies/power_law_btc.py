@@ -139,7 +139,8 @@ class PowerLawBTCStrategy(BaseStrategy):
             cfg = TradingConfig()
             key = cfg.get_private_key()
             testnet = os.environ.get("HL_TESTNET", "true").lower() != "false"
-            hl = HLProxy(private_key=key, testnet=testnet)
+            vault_address = os.environ.get("HL_VAULT_ADDRESS", "")
+            hl = HLProxy(private_key=key, testnet=testnet, vault_address=vault_address or None)
             return DirectHLProxy(hl)
         except Exception as e:
             log.error("[PowerLawBTC] Could not build proxy: %s", e)

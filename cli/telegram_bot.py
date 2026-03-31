@@ -432,8 +432,105 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "/powerlaw  — BTC model\n"
         "/pnl       — profit & loss\n"
         "/orders    — open orders\n"
+        "/rebalancer start|stop|status — vault daemon control\n"
+        "/rebalance — force immediate BTC rebalance\n"
         "/commands  — full CLI list\n"
         "/help      — this message")
+
+
+# ── Vault rebalancer daemon control ─────────────────────────────────────
+
+_LAUNCHD_LABEL = "com.hl-bot.vault-rebalancer"
+
+
+def _rebalancer_is_running() -> bool:
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", _LAUNCHD_LABEL],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def cmd_rebalancer(token: str, chat_id: str, args: str) -> None:
+    action = args.strip().lower()
+
+    if action == "start":
+        if _rebalancer_is_running():
+            tg_send(token, chat_id, "Vault rebalancer is already running.")
+            return
+        try:
+            subprocess.run(
+                ["launchctl", "load", "-w",
+                 str(Path.home() / "Library/LaunchAgents" / f"{_LAUNCHD_LABEL}.plist")],
+                check=True, timeout=10,
+            )
+            tg_send(token, chat_id, "Vault rebalancer started.")
+        except Exception as e:
+            tg_send(token, chat_id, f"Start failed: {e}")
+
+    elif action == "stop":
+        try:
+            subprocess.run(
+                ["launchctl", "unload", "-w",
+                 str(Path.home() / "Library/LaunchAgents" / f"{_LAUNCHD_LABEL}.plist")],
+                check=True, timeout=10,
+            )
+            tg_send(token, chat_id, "Vault rebalancer stopped.")
+        except Exception as e:
+            tg_send(token, chat_id, f"Stop failed: {e}")
+
+    else:
+        running = _rebalancer_is_running()
+        status = "RUNNING" if running else "STOPPED"
+        pid_file = Path("data/vault_rebalancer.pid")
+        pid = pid_file.read_text().strip() if pid_file.exists() else "—"
+        tg_send(token, chat_id,
+                f"Vault rebalancer: {status}\n"
+                f"PID: {pid}\n"
+                f"Vault: {VAULT_ADDR}\n"
+                f"Tick: 1h | Max leverage: 1x")
+
+
+def cmd_rebalance(token: str, chat_id: str, _args: str) -> None:
+    """Force an immediate BTC rebalance in the vault, ignoring the threshold."""
+    tg_send(token, chat_id, "Running immediate vault rebalance...")
+    try:
+        import sys as _sys
+        _sys.path.insert(0, PROJECT_ROOT)
+        import os as _os
+        _os.environ["POWER_LAW_SIMULATE"] = "false"
+        _os.environ["HL_TESTNET"] = "false"
+
+        from common.credentials import resolve_private_key
+        from parent.hl_proxy import HLProxy
+        from cli.hl_adapter import DirectHLProxy
+        from plugins.power_law.bot import PowerLawBot
+        from plugins.power_law.config import PowerLawConfig
+
+        key = resolve_private_key(venue="hl")
+        hl = HLProxy(private_key=key, testnet=False, vault_address=VAULT_ADDR)
+        proxy = DirectHLProxy(hl)
+        # threshold=0 forces rebalance regardless of current deviation
+        cfg = PowerLawConfig(max_leverage=1, threshold_percent=0, simulate=False)
+        bot = PowerLawBot(proxy=proxy, config=cfg)
+        result = bot.check_and_rebalance()
+
+        if result.get("traded"):
+            tg_send(token, chat_id,
+                    f"Rebalanced: {result['direction']} "
+                    f"${result.get('amount_usd', 0):.2f} "
+                    f"@ ${result.get('fill_price', 0):,.0f}\n"
+                    f"Target: {result.get('target_btc_pct', 0):.1f}% BTC")
+        else:
+            tg_send(token, chat_id,
+                    f"No trade needed — {result.get('reason', 'already at target')}\n"
+                    f"Current: {result.get('current_btc_pct', 0):.1f}% | "
+                    f"Target: {result.get('target_btc_pct', 0):.1f}%")
+    except Exception as e:
+        tg_send(token, chat_id, f"Rebalance error: {e}")
 
 
 HANDLERS = {
@@ -446,6 +543,8 @@ HANDLERS = {
     "/watchlist": cmd_watchlist,
     "/w": cmd_watchlist,
     "/powerlaw": cmd_powerlaw,
+    "/rebalancer": cmd_rebalancer,
+    "/rebalance": cmd_rebalance,
     "/help": cmd_help,
     "status": cmd_status,
     "price": cmd_price,
@@ -456,6 +555,8 @@ HANDLERS = {
     "watchlist": cmd_watchlist,
     "w": cmd_watchlist,
     "powerlaw": cmd_powerlaw,
+    "rebalancer": cmd_rebalancer,
+    "rebalance": cmd_rebalance,
     "help": cmd_help,
 }
 

@@ -104,6 +104,9 @@ class HLPowerLawAdapter:
 
             account_value = float(state.get("account_value", 0))
             if account_value <= 0:
+                # Unified account: spot USDC serves as perp margin
+                account_value = float(state.get("spot_usdc", 0))
+            if account_value <= 0:
                 log.error("[PowerLaw] Account value is zero")
                 return None
 
@@ -118,8 +121,10 @@ class HLPowerLawAdapter:
             long_notional = max(0.0, btc_position) * btc_price  # only count longs
             btc_percent = (long_notional / account_value) / self.max_leverage * 100
 
-            # Free collateral: withdrawable margin
-            usdc_free = float(state.get("withdrawable", account_value))
+            # Free collateral: withdrawable margin (spot USDC for unified accounts)
+            usdc_free = float(state.get("withdrawable", 0))
+            if usdc_free <= 0:
+                usdc_free = float(state.get("spot_usdc", account_value))
 
             return PortfolioState(
                 btc_position=btc_position,
