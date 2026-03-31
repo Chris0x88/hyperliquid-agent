@@ -752,9 +752,15 @@ VAULT_ADDRESS = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
 
 
 def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
-    """Parse position dicts from raw HL API account state response."""
+    """Parse position dicts from raw HL clearinghouseState response.
+
+    Follows Hummingbot's parsing pattern:
+    - Side from sign of `szi` (positive=long, negative=short)
+    - Leverage from `leverage.value`
+    - Cumulative funding from `cumFunding`
+    """
     positions = []
-    for ap in raw.get("positions", []):
+    for ap in raw.get("assetPositions", raw.get("positions", [])):
         pos_data = ap.get("position", ap) if isinstance(ap, dict) else ap
         szi = float(pos_data.get("szi", 0))
         if abs(szi) < 1e-9:
@@ -781,6 +787,11 @@ def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
 
         upnl_pct = (upnl / (abs(szi) * entry_px) * 100) if (abs(szi) * entry_px) > 0 else 0
 
+        # Cumulative funding from position data
+        cum_funding = pos_data.get("cumFunding", {})
+        cum_funding_all_time = float(cum_funding.get("allTime", 0)) if isinstance(cum_funding, dict) else 0.0
+        cum_funding_since_open = float(cum_funding.get("sinceOpen", 0)) if isinstance(cum_funding, dict) else 0.0
+
         positions.append({
             "coin": coin,
             "side": "long" if szi > 0 else "short",
@@ -792,10 +803,83 @@ def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
             "upnl_pct": round(upnl_pct, 2),
             "leverage": leverage_val,
             "notional": abs(notional),
-            "funding_rate": 0.0,
+            "funding_rate": 0.0,  # current rate filled from metaAndAssetCtxs
+            "cum_funding_since_open": cum_funding_since_open,
+            "cum_funding_all_time": cum_funding_all_time,
+            "margin_used": float(pos_data.get("marginUsed", 0)),
+            "return_on_equity": float(pos_data.get("returnOnEquity", 0)),
             "account": account_label,
         })
     return positions
+
+
+def _get_equity_from_state(raw: dict) -> float:
+    """Extract account equity from clearinghouseState, using crossMarginSummary
+    (total including cross margin) with fallback to marginSummary."""
+    cross = raw.get("crossMarginSummary", {})
+    if cross and float(cross.get("accountValue", 0)) > 0:
+        return float(cross["accountValue"])
+    margin = raw.get("marginSummary", {})
+    return float(margin.get("accountValue", 0))
+
+
+def _fetch_open_trigger_orders(address: str, dex: str = None) -> list[dict]:
+    """Fetch open trigger orders (stops, take-profits) from HL frontendOpenOrders.
+
+    This is the API that returns trigger orders — `openOrders` only returns limit orders.
+    """
+    import requests as _req
+    payload: dict = {"type": "frontendOpenOrders", "user": address}
+    if dex:
+        payload["dex"] = dex
+    try:
+        resp = _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10)
+        orders = resp.json()
+        if not isinstance(orders, list):
+            return []
+        # Filter for trigger orders (stop-loss / take-profit)
+        trigger_orders = []
+        for order in orders:
+            # Trigger orders have orderType containing "Trigger" or have triggerCondition
+            order_type = order.get("orderType", "")
+            if "Trigger" in str(order_type) or "trigger" in str(order_type).lower():
+                trigger_orders.append(order)
+            # Also check for tpsl field
+            elif order.get("tpsl"):
+                trigger_orders.append(order)
+        return trigger_orders
+    except Exception as e:
+        log.debug("frontendOpenOrders query failed: %s", e)
+        return []
+
+
+def _fetch_funding_rates(dex: str = None) -> dict[str, float]:
+    """Fetch current funding rates from metaAndAssetCtxs.
+
+    Returns {coin: funding_rate} dict.
+    """
+    import requests as _req
+    payload: dict = {"type": "metaAndAssetCtxs"}
+    if dex:
+        payload["dex"] = dex
+    try:
+        resp = _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10)
+        data = resp.json()
+        # Response is [meta_dict, [asset_ctx_list]]
+        if isinstance(data, list) and len(data) >= 2:
+            meta = data[0]
+            asset_ctxs = data[1]
+            universe = meta.get("universe", [])
+            rates = {}
+            for i, ctx in enumerate(asset_ctxs):
+                if i < len(universe):
+                    coin = universe[i].get("name", "")
+                    funding = float(ctx.get("funding", 0))
+                    rates[coin] = funding
+            return rates
+    except Exception as e:
+        log.debug("metaAndAssetCtxs query failed: %s", e)
+    return {}
 
 
 def _fetch_account_state(config: HeartbeatConfig) -> dict:
@@ -815,58 +899,85 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     main_equity = 0.0
     vault_equity = 0.0
 
-    # 1. Fetch main account (oil trades) — check both default and xyz clearinghouses + spot
+    import requests as _req
+
+    # 1. Fetch main account — default clearinghouse
     try:
-        hl_main = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
-        proxy_main = DirectHLProxy(hl_main)
-        raw_main = proxy_main.get_account_state()
-        if raw_main:
-            main_equity = float(raw_main.get("account_value", 0))
-            all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
-
-        # Also check spot balances (USDC may be in spot, not perp margin)
-        try:
-            import requests as _req
-            spot_resp = _req.post("https://api.hyperliquid.xyz/info", json={
-                "type": "spotClearinghouseState", "user": MAIN_ACCOUNT
-            }, timeout=10)
-            spot_data = spot_resp.json()
-            for bal in spot_data.get("balances", []):
-                if bal.get("coin") == "USDC" and float(bal.get("total", 0)) > 0:
-                    spot_usdc = float(bal["total"])
-                    main_equity = max(main_equity, main_equity + spot_usdc)
-                    log.info("Main account spot USDC: $%.2f", spot_usdc)
-        except Exception as e:
-            log.debug("Spot balance query failed: %s", e)
-
-        # Check xyz clearinghouse separately (oil positions may be there)
-        try:
-            import requests as _req
-            xyz_resp = _req.post("https://api.hyperliquid.xyz/info", json={
-                "type": "clearinghouseState", "user": MAIN_ACCOUNT, "dex": "xyz"
-            }, timeout=10)
-            xyz_data = xyz_resp.json()
-            xyz_equity = float(xyz_data.get("marginSummary", {}).get("accountValue", 0))
-            if xyz_equity > 0:
-                main_equity += xyz_equity
-            xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
-            all_positions.extend(xyz_positions)
-            if xyz_positions:
-                log.info("Found %d xyz position(s)", len(xyz_positions))
-        except Exception as e:
-            log.debug("XYZ clearinghouse query failed: %s", e)
-
+        resp = _req.post("https://api.hyperliquid.xyz/info", json={
+            "type": "clearinghouseState", "user": MAIN_ACCOUNT
+        }, timeout=10)
+        raw_main = resp.json()
+        main_equity = _get_equity_from_state(raw_main)
+        all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
     except Exception as e:
-        log.warning("Failed to fetch main account state: %s", e)
+        log.warning("Main account default clearinghouse failed: %s", e)
 
-    # 2. Fetch vault (BTC Power Law)
+    # 2. Fetch main account — xyz clearinghouse (oil positions)
     try:
-        hl_vault = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
-        proxy_vault = DirectHLProxy(hl_vault)
-        raw_vault = proxy_vault.get_account_state()
-        if raw_vault:
-            vault_equity = float(raw_vault.get("account_value", 0))
-            all_positions.extend(_parse_positions_from_raw(raw_vault, "vault"))
+        resp = _req.post("https://api.hyperliquid.xyz/info", json={
+            "type": "clearinghouseState", "user": MAIN_ACCOUNT, "dex": "xyz"
+        }, timeout=10)
+        xyz_data = resp.json()
+        xyz_equity = _get_equity_from_state(xyz_data)
+        if xyz_equity > 0:
+            main_equity += xyz_equity
+        xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
+        all_positions.extend(xyz_positions)
+        if xyz_positions:
+            log.info("Found %d xyz position(s)", len(xyz_positions))
+    except Exception as e:
+        log.debug("XYZ clearinghouse query failed: %s", e)
+
+    # 3. Fetch spot balances (USDC may be idle in spot)
+    try:
+        resp = _req.post("https://api.hyperliquid.xyz/info", json={
+            "type": "spotClearinghouseState", "user": MAIN_ACCOUNT
+        }, timeout=10)
+        spot_data = resp.json()
+        spot_usdc = 0.0
+        for bal in spot_data.get("balances", []):
+            if bal.get("coin") == "USDC":
+                spot_usdc = float(bal.get("total", 0))
+        if spot_usdc > 0:
+            main_equity += spot_usdc
+            log.info("Main spot USDC: $%.2f", spot_usdc)
+    except Exception as e:
+        log.debug("Spot balance query failed: %s", e)
+
+    # 4. Fetch trigger orders for stop-loss detection (main + xyz)
+    main_triggers = _fetch_open_trigger_orders(MAIN_ACCOUNT)
+    xyz_triggers = _fetch_open_trigger_orders(MAIN_ACCOUNT, dex="xyz")
+    all_triggers = main_triggers + xyz_triggers
+
+    # 5. Fetch funding rates
+    default_rates = _fetch_funding_rates()
+    xyz_rates = _fetch_funding_rates(dex="xyz")
+
+    # Attach funding rates to positions
+    for pos in all_positions:
+        coin = pos["coin"]
+        if pos["account"] == "main_xyz":
+            pos["funding_rate"] = xyz_rates.get(coin, 0.0)
+        else:
+            pos["funding_rate"] = default_rates.get(coin, 0.0)
+
+    # 6. Fetch vault (BTC Power Law)
+    try:
+        resp = _req.post("https://api.hyperliquid.xyz/info", json={
+            "type": "clearinghouseState", "user": VAULT_ADDRESS
+        }, timeout=10)
+        raw_vault = resp.json()
+        vault_equity = _get_equity_from_state(raw_vault)
+        vault_positions = _parse_positions_from_raw(raw_vault, "vault")
+        all_positions.extend(vault_positions)
+
+        # Attach funding rates to vault positions
+        for pos in vault_positions:
+            pos["funding_rate"] = default_rates.get(pos["coin"], 0.0)
+
+        # Fetch vault trigger orders
+        vault_triggers = _fetch_open_trigger_orders(VAULT_ADDRESS)
+        all_triggers.extend(vault_triggers)
     except Exception as e:
         log.warning("Failed to fetch vault state: %s", e)
 
@@ -878,6 +989,8 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
         "main_equity": main_equity,
         "vault_equity": vault_equity,
         "positions": all_positions,
+        "trigger_orders": all_triggers,
+        "funding_rates": {**default_rates, **xyz_rates},
     }
 
 
