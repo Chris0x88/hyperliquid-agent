@@ -30,6 +30,11 @@ from collections import deque
 from typing import List, Optional
 
 from common.models import MarketSnapshot, StrategyDecision
+from common.position_risk import (
+    DipAddGateConfig,
+    PositionSnapshot,
+    evaluate_dip_add_gate,
+)
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 # --- Configurable parameters ---
@@ -258,10 +263,12 @@ class BrentOilSqueezeStrategy(BaseStrategy):
 
         should_enter = False
         entry_reason = ""
+        is_dip_signal = False  # Track if this is a dip-add vs fresh entry
 
-        # Signal 1: EMA crossover (fresh trend confirmation)
+        # Signal 1: EMA crossover (fresh trend confirmation — only when NOT in position)
         if bullish_emas and above_support and not_overextended and not in_position:
             should_enter = True
+            is_dip_signal = False
             entry_reason = f"ema_cross_bullish | ema9={ema_fast:.2f} > ema21={ema_mid:.2f} > ema50={ema_slow:.2f}"
 
         # Signal 2: Dip buy — price pulls back near 21-EMA support while trend intact
@@ -269,19 +276,55 @@ class BrentOilSqueezeStrategy(BaseStrategy):
             dist_to_mid_ema = abs(mid - ema_mid)
             if dist_to_mid_ema < DIP_THRESHOLD_ATR * atr and mid >= ema_mid * 0.995:
                 should_enter = True
+                is_dip_signal = True
                 entry_reason = f"dip_buy_21ema | dist={dist_to_mid_ema:.2f} < {DIP_THRESHOLD_ATR * atr:.2f}"
 
         # Signal 3: Deep dip to 50-EMA — strong support bounce
         if mid > ema_slow and abs(mid - ema_slow) < DIP_THRESHOLD_ATR * atr:
             if rsi > 45:  # slightly higher RSI floor for deep dips
                 should_enter = True
+                is_dip_signal = True
                 entry_reason = f"dip_buy_50ema | near major support ema50={ema_slow:.2f}"
 
         # Signal 4: Strong momentum — RSI rising from 50s, all EMAs aligned
         if bullish_emas and above_support and 55 < rsi < 72:
             if ema_fast > ema_mid > ema_slow:  # perfect alignment
                 should_enter = True
+                is_dip_signal = in_position  # Only a dip-add if we're already in
                 entry_reason = f"momentum_aligned | ema9>ema21>ema50, rsi={rsi:.1f}"
+
+        # ── POSITION RISK GATE — applied to all dip-adds ────────────────────
+        # Fresh entries (not in position) bypass the gate.
+        # Any add-to-existing-position MUST pass the gate.
+        gate_result = None
+        if should_enter and is_dip_signal and in_position and context:
+            liq_price = context.meta.get("liquidation_price", 0.0)
+            last_add_ts = context.meta.get("last_add_timestamp", 0.0)
+            n_adds = context.meta.get("num_adds_this_session", self._num_entries)
+            daily_dd = context.meta.get("daily_drawdown_pct", 0.0)
+            cum_funding = context.meta.get("cumulative_funding_pct", 0.0)
+
+            pos_snap = PositionSnapshot(
+                symbol=snapshot.instrument,
+                side="long" if context.position_qty > 0 else "short",
+                position_qty=abs(context.position_qty),
+                position_notional=current_notional,
+                entry_price=self._entry_price,
+                current_price=mid,
+                liquidation_price=liq_price,
+                account_equity=equity,
+                margin_used=context.meta.get("margin_used", current_notional / max(context.meta.get("leverage", 5.0), 1.0)),
+                num_adds_this_session=n_adds,
+                last_add_timestamp=last_add_ts,
+                daily_drawdown_pct=daily_dd,
+                cumulative_funding_pct=cum_funding,
+            )
+
+            gate_result = evaluate_dip_add_gate(pos_snap)
+            gate_result.log_it()
+
+            if gate_result.decision.is_blocked:
+                should_enter = False  # Gate blocked — skip this add
 
         if should_enter and self._num_entries < SCALE_IN_LEVELS:
             # ATR-adjusted sizing: smaller when volatile, bigger when calm
@@ -294,17 +337,22 @@ class BrentOilSqueezeStrategy(BaseStrategy):
             # Scale down subsequent entries
             scale_factor = 1.0 / (1 + self._num_entries * 0.5)
 
-            size_usd = equity * self.base_size_pct * vol_adj * scale_factor
+            # Apply gate-recommended size reduction (e.g. 0.5 when near liq warning zone)
+            gate_scale = gate_result.recommended_size_pct if gate_result else 1.0
+
+            size_usd = equity * self.base_size_pct * vol_adj * scale_factor * gate_scale
             size = size_usd / mid if mid > 0 else 0.0
 
             if size > 0:
+                gate_note = f" gate={gate_result.decision.value}" if gate_result else ""
                 decisions.append(StrategyDecision(
                     action="place_order",
                     side="long",
                     size=size,
                     price=mid,
                     reason=f"LONG: {entry_reason} | rsi={rsi:.1f} atr={atr:.2f} "
-                           f"size={size:.4f} vol_adj={vol_adj:.2f} entry#{self._num_entries + 1}",
+                           f"size={size:.4f} vol_adj={vol_adj:.2f} entry#{self._num_entries + 1}"
+                           f"{gate_note}",
                 ))
 
                 if not in_position:
