@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.hyperliquid.heartbeat</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/.venv/bin/python</string>
+		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/scripts/run_heartbeat.py</string>
+	</array>
+
+	<key>StartInterval</key>
+	<integer>120</integer>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+
+	<key>StandardOutPath</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/memory/logs/heartbeat_launchd.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/memory/logs/heartbeat_launchd_err.log</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PYTHONPATH</key>
+		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>KeepAlive</key>
+	<false/>
+</dict>
+</plist>
