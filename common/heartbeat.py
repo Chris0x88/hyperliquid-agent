@@ -385,6 +385,51 @@ def is_oil_market_open(dt: Optional[datetime] = None) -> bool:
 # 9. resolve_escalation
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def account_risk_adjusted_escalation(
+    raw_level: str,
+    margin_used: float,
+    account_equity: float,
+    min_risk_pct: float = 15.0,
+) -> str:
+    """Downgrade escalation if the position is small relative to the account.
+
+    If losing the entire margin would cost less than ``min_risk_pct`` of
+    account equity, the position is not account-threatening and escalation
+    is downgraded.
+
+    Example: $50 margin on $600 account = 8.3% at risk.
+    Even if liq distance is 5% (raw L3), losing the position is only 8.3%
+    of equity — downgrade to L1 (alert only, don't panic-deleverage).
+
+    Args:
+        raw_level: The escalation level from liq_distance or drawdown check.
+        margin_used: Margin allocated to this position in USD.
+        account_equity: Total account equity in USD.
+        min_risk_pct: Minimum account-risk % to keep the escalation level.
+            Positions risking less than this get downgraded.
+
+    Returns:
+        Adjusted escalation level (may be lower than raw_level).
+    """
+    if account_equity <= 0 or margin_used <= 0:
+        return raw_level
+
+    risk_pct = (margin_used / account_equity) * 100
+
+    if risk_pct >= min_risk_pct:
+        return raw_level  # position IS material to the account — keep level
+
+    # Downgrade: small position, don't panic
+    downgrade = {"L3": "L1", "L2": "L1", "L1": "L0", "L0": "L0"}
+    adjusted = downgrade.get(raw_level, raw_level)
+    if adjusted != raw_level:
+        log.info(
+            "Escalation downgraded %s→%s: margin $%.0f is only %.1f%% of $%.0f equity",
+            raw_level, adjusted, margin_used, risk_pct, account_equity,
+        )
+    return adjusted
+
+
 def resolve_escalation(levels: list[str]) -> str:
     """Return the highest escalation level from a list.
 

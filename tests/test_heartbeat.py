@@ -421,3 +421,42 @@ class TestFetchWithRetry:
 
         result = fetch_with_retry(always_fail, retries=3, delay_ms=0)
         assert result is None
+
+
+class TestAccountRiskAdjustedEscalation:
+    """Escalation should be downgraded when position is small vs account."""
+
+    def test_large_position_keeps_escalation(self):
+        """$200 margin on $600 account (33%) — keep L3."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L3", margin_used=200, account_equity=600) == "L3"
+
+    def test_small_position_downgrades_l3(self):
+        """$50 margin on $600 account (8%) — downgrade L3 to L1."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L3", margin_used=50, account_equity=600) == "L1"
+
+    def test_small_position_downgrades_l2(self):
+        """$50 margin on $600 account (8%) — downgrade L2 to L1."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L2", margin_used=50, account_equity=600) == "L1"
+
+    def test_small_position_downgrades_l1(self):
+        """$50 margin on $600 account (8%) — downgrade L1 to L0."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L1", margin_used=50, account_equity=600) == "L0"
+
+    def test_l0_stays_l0(self):
+        """L0 can't go lower."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L0", margin_used=50, account_equity=600) == "L0"
+
+    def test_borderline_keeps_escalation(self):
+        """$90 margin on $600 account (15%) — exactly at threshold, keep level."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L3", margin_used=90, account_equity=600) == "L3"
+
+    def test_zero_equity_keeps_escalation(self):
+        """Zero equity — can't calculate risk, keep raw level."""
+        from common.heartbeat import account_risk_adjusted_escalation
+        assert account_risk_adjusted_escalation("L3", margin_used=50, account_equity=0) == "L3"
