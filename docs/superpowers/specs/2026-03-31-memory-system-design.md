@@ -16,8 +16,8 @@ Three simple, independently reliable systems that compose into a financial copil
 
 | Market | Mode | Who trades | System's role |
 |--------|------|-----------|---------------|
-| **xyz:BRENTOIL** | Manual + Middle Office | Chris picks trades | Protect positions: stops, profit-taking, liq monitoring, alerts |
-| **BTC-PERP** (Vault) | Fully Autonomous | Power Law strategy | Trade, manage risk, record, optimize — full stack testbed |
+| **xyz:BRENTOIL** | Manual + Middle Office | Chris picks trades | Protect positions: stops, profit-taking, spike/dip detection, stop-hunt defense, liq monitoring, alerts |
+| **BTC-PERP** (Vault) | Fully Autonomous | Enhanced Power Law | Trade, manage risk, record, optimize for HL perps fees/funding — full stack testbed |
 
 **All trades and risk actions reported to Telegram (chat_id: 5219304680).**
 
@@ -51,6 +51,27 @@ The existing `RiskManager` + `RiskGate` runs INSIDE the TradingEngine during dae
 3. If zero stop-loss orders exist → add one at ATR-based level
 4. GuardBridge's exchange-level stops are visible to the API → heartbeat sees them and skips
 
+### What the heartbeat adds that RiskManager / GuardBridge DON'T do
+
+The existing risk infrastructure has gaps. Here's what each system handles:
+
+| Concern | RiskManager | GuardBridge | **Heartbeat (new)** |
+|---------|:-----------:|:-----------:|:-------------------:|
+| Daily drawdown limit | ✅ | — | ✅ (with Telegram alerts) |
+| Leverage ratio enforcement | ✅ | — | ✅ (with progressive deleverage) |
+| Trailing stops on active trades | — | ✅ | — (defers to Guard) |
+| **Stop-loss on ALL positions** | — | Only daemon trades | ✅ **Manual trades too** |
+| **Liquidation distance monitoring** | — | — | ✅ **With auto-deleverage** |
+| **Profit-taking on spikes** | — | — | ✅ |
+| **Stop-hunt detection** | — | — | ✅ |
+| **Funding rate cost tracking** | — | — | ✅ |
+| **Telegram alerts for everything** | — | — | ✅ |
+| **BTC rebalance failure recovery** | — | — | ✅ |
+| **Position-exists-without-stop audit** | — | — | ✅ |
+| **Cross-market monitoring** | — | — | ✅ (oil + BTC) |
+
+Key gap the heartbeat fills: **Chris's manual oil trades have NO automated protection today.** RiskManager only runs inside the TradingEngine daemon. GuardBridge only wraps daemon-opened positions. If Chris opens a 10x leveraged oil position manually on HyperLiquid and walks away, nothing monitors it. The heartbeat fixes this.
+
 ### Market identifier mapping
 
 | Canonical ID | HL API instrument | HL API dex param | Wallet |
@@ -66,7 +87,7 @@ The heartbeat maps canonical IDs to the correct API call format. For xyz markets
 
 Pure Python. launchd. No AI dependency. No human dependency.
 
-### 1A. Position Auditor (runs every 5 minutes)
+### 1A. Position Auditor (runs every 2 minutes)
 
 Reads all open positions from HyperLiquid API. For each position:
 
@@ -103,25 +124,76 @@ Reads all open positions from HyperLiquid API. For each position:
 - If hourly funding >0.1% for 3 consecutive periods → alert with daily drag cost
 - If cumulative funding drag >1% of position → alert
 
+**Spike/dip detection + stop-hunt defense:**
+
+The heartbeat tracks price movement between cycles (every 2 minutes). On each run, compare current price to last known price (from `working_state.json`).
+
+*Spike detection (profit-taking opportunity):*
+- If price moved >2% in Chris's favor since last check → "spike detected"
+- If spike >3% in <10 minutes (tracked across consecutive runs) → take 15-25% profit
+- Reasoning: fast spikes in oil often reverse. Free money if thesis is intact.
+- Telegram: "📈 Spike detected: BRENTOIL +3.2% in 8min. Took 15% profit (4 contracts @ $111.50)"
+
+*Dip detection (potential add opportunity):*
+- If price dropped >2% against position AND no thesis invalidation conditions are met → evaluate as potential add
+- Check: is this a stop-hunt pattern? Indicators:
+  - Large wick forming (price dropped then recovering within same candle period)
+  - Volume spike (>2x avg) with price already bouncing back
+  - Price touched a round number or known liquidation cluster then reversed
+- If stop-hunt pattern detected AND current position is below max size → add small amount (10% of current position)
+- If NOT a stop-hunt (sustained selling, no bounce) → do NOT add, just alert
+- Telegram (stop-hunt add): "🎯 Stop-hunt detected: BRENTOIL wicked to $105.20, bounced to $106.80. Added 2 contracts."
+- Telegram (sustained dip): "⚠️ BRENTOIL down 2.5% — not a stop-hunt pattern, monitoring."
+
+*Safety constraints on spike/dip actions:*
+- Never add if liq distance <12% (need buffer for the add itself)
+- Never add if daily drawdown already >3% (don't average into a losing day)
+- Never take more than 25% profit in a single spike (preserve core position)
+- Max one add per 2 hours (don't get caught adding into a waterfall)
+- All actions respect Chris's direction: LONG or NEUTRAL only, never short
+
 **Oil trading hours awareness:**
 - Oil market: Sun 6PM ET — Fri 5PM ET
 - Outside trading hours: skip stop placement (can't place orders on closed market), suppress "no position" alerts, continue monitoring existing stops and liq distance (exchange still tracks these)
 
 ### 1B. BTC Vault Autonomous Trader
 
-The existing `power_law_btc` strategy runs via daemon. The heartbeat monitors it and reports to Telegram.
+The existing `power_law_btc` strategy is a cycle-based rebalancer optimized for SaucerSwap spot. On HL perps it has known weaknesses: IOC failures go unrecovered, no funding cost awareness, no slippage control, no liquidation distance checks, and a 15% deviation threshold that allows excessive drift. The heartbeat wraps around it to fix these gaps.
 
-**Trade detection (heartbeat monitors, doesn't execute):**
-- Each heartbeat run, compare current BTC vault position to last known (from `working_state.json`)
-- If position size changed → a rebalance happened → log to `action_log` and send Telegram
-- Telegram: "₿ BTC Vault rebalance detected: position changed from 0.10→0.11 BTC (bought 0.01 @ $68,420)"
-- This approach requires no changes to `power_law_btc.py` — the heartbeat just observes
+**What the heartbeat does for BTC (monitor + enhance, minimal changes to strategy code):**
 
-**Fee + funding tracking:**
-- Track cumulative fees from HL account state API
-- Track daily funding costs as % of position
-- If fees >30% of gross profit or funding drag >X% annualized → log observation for AI review
+*Trade detection and reporting:*
+- Each heartbeat run, compare BTC vault position to last known (from `working_state.json`)
+- If position size changed → rebalance happened → log to `action_log`, send Telegram
+- Telegram: "₿ BTC Vault rebalance: 0.10→0.11 BTC (bought 0.01 @ $68,420)"
+
+*Execution failure recovery:*
+- Track ticks since last successful rebalance vs. current allocation deviation
+- If deviation >20% AND no successful rebalance in >3 hours → alert: "₿ BTC rebalance stuck, deviation 23%"
+- If deviation >30% AND no rebalance in >6 hours → force rebalance attempt via adapter directly
+- Log all recovery attempts to `action_log`
+
+*Funding cost tracking:*
+- Track hourly funding rate from HL API
+- Compute rolling 30-day annualized funding cost
+- If annualized cost >5% → Telegram alert: "₿ BTC funding drag: -X% annualized"
+- Store daily funding costs in observations for AI review (Phase 3 optimization target)
+
+*Liquidation distance check (pre-rebalance gate):*
+- Before any rebalance that INCREASES position: check liq distance
+- If liq distance <15% after proposed increase → block the increase, alert
+- This prevents the Power Law strategy from leveraging into danger
+
+*Fee tracking:*
+- Track cumulative taker/maker fees from HL account state
+- If fees >30% of gross profit → observation logged for AI
 - Daily summary → Telegram: "₿ BTC Vault daily: equity $X, PnL +$120, fees: $8, funding: -$3"
+
+*What we DON'T change in Phase 1 (leave for AI autoresearch in Phase 3):*
+- Deviation threshold (15%) — could be optimized but not urgent
+- IOC vs limit order choice — needs careful backtesting
+- Allocation signal parameters — these are the model's core, AI should tune them
+- Slippage estimation — needs order book data, more complex
 
 ### 1C. Telegram Reporter (pure Python, direct Bot API)
 
@@ -197,7 +269,7 @@ One process. Simple.
 
 | Process | Interval | What it does |
 |---------|----------|-------------|
-| `run_heartbeat.py` | 5 min | Position audit + BTC vault check + escalation + Telegram |
+| `run_heartbeat.py` | 2 min (StartInterval 120) | Position audit + BTC vault check + escalation + Telegram |
 
 Single entry point. Single PID file. Single log file. Reads config, checks positions, takes action, reports, exits.
 
@@ -224,7 +296,11 @@ Write to `working_state.json.tmp`, then `os.rename()` to `working_state.json`. T
 | Price gapped through stop level | Stop already triggered on exchange, auditor detects position closed, reports |
 | Profit-take would leave <1 contract | Don't take — minimum position size |
 | Multiple escalation triggers same cycle | Highest level wins |
-| Position opened between cycles | Caught on next 5-min cycle — max 5 min unprotected |
+| Position opened between cycles | Caught on next 2-min cycle — max 2 min unprotected |
+| Spike detected but position is tiny | Skip profit-take if <2 contracts (not worth the fee) |
+| Stop-hunt detected but already at max size | Skip add, just alert |
+| BTC rebalance stuck >6h | Force rebalance attempt, alert on success/failure |
+| BTC liq distance too low for rebalance | Block increase, allow decrease, alert |
 | Telegram API down | Log locally, retry next cycle — non-critical |
 | Config file missing | Use hardcoded defaults (conservative) |
 | Weekend / off-hours | Oil: skip stop placement when market closed, continue liq monitoring. BTC: 24/7 |
