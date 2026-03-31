@@ -774,9 +774,14 @@ def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
 
         upnl = float(pos_data.get("unrealizedPnl", 0))
         notional = float(pos_data.get("positionValue", abs(szi) * entry_px))
-        mark_px = entry_px
-        if abs(szi) > 0 and entry_px > 0:
+
+        # Mark price: prefer positionValue / size (more accurate than uPnL back-calc)
+        if notional > 0 and abs(szi) > 0:
+            mark_px = notional / abs(szi)
+        elif abs(szi) > 0 and entry_px > 0:
             mark_px = entry_px + (upnl / abs(szi)) if szi > 0 else entry_px - (upnl / abs(szi))
+        else:
+            mark_px = entry_px
 
         liq_distance_pct = 0.0
         if liq_px > 0 and mark_px > 0:
@@ -785,29 +790,41 @@ def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
             else:
                 liq_distance_pct = (liq_px - mark_px) / mark_px * 100
 
-        upnl_pct = (upnl / (abs(szi) * entry_px) * 100) if (abs(szi) * entry_px) > 0 else 0
+        # PnL% relative to POSITION (entry notional), not account equity
+        # This is what HL shows: (mark - entry) / entry * 100 * leverage_direction
+        entry_notional = abs(szi) * entry_px
+        upnl_pct = (upnl / entry_notional * 100) if entry_notional > 0 else 0
+        # Also compute ROE (return on equity/margin used)
+        margin = float(pos_data.get("marginUsed", 0))
+        roe_pct = (upnl / margin * 100) if margin > 0 else 0
 
         # Cumulative funding from position data
+        # NOTE: HL's cumFunding is from the exchange's perspective (opposite sign).
+        # cumFunding.sinceOpen = -0.047 means the USER received +$0.047.
+        # We negate to show the user's perspective: positive = you earned, negative = you paid.
         cum_funding = pos_data.get("cumFunding", {})
-        cum_funding_all_time = float(cum_funding.get("allTime", 0)) if isinstance(cum_funding, dict) else 0.0
-        cum_funding_since_open = float(cum_funding.get("sinceOpen", 0)) if isinstance(cum_funding, dict) else 0.0
+        raw_all_time = float(cum_funding.get("allTime", 0)) if isinstance(cum_funding, dict) else 0.0
+        raw_since_open = float(cum_funding.get("sinceOpen", 0)) if isinstance(cum_funding, dict) else 0.0
+        cum_funding_all_time = -raw_all_time  # negate: user's perspective
+        cum_funding_since_open = -raw_since_open  # negate: user's perspective
 
         positions.append({
             "coin": coin,
             "side": "long" if szi > 0 else "short",
             "entry_price": entry_px,
             "size": abs(szi),
-            "current_price": round(mark_px, 4),
+            "current_price": round(mark_px, 2),
             "liq_price": liq_px,
             "liq_distance_pct": round(liq_distance_pct, 2),
-            "upnl_pct": round(upnl_pct, 2),
+            "upnl": round(upnl, 2),
+            "upnl_pct": round(upnl_pct, 2),  # PnL% vs position entry (not vs account)
+            "roe_pct": round(roe_pct, 2),     # return on margin (what HL shows as ROE)
             "leverage": leverage_val,
-            "notional": abs(notional),
+            "notional": round(abs(notional), 2),
             "funding_rate": 0.0,  # current rate filled from metaAndAssetCtxs
-            "cum_funding_since_open": cum_funding_since_open,
-            "cum_funding_all_time": cum_funding_all_time,
-            "margin_used": float(pos_data.get("marginUsed", 0)),
-            "return_on_equity": float(pos_data.get("returnOnEquity", 0)),
+            "cum_funding_since_open": round(cum_funding_since_open, 6),
+            "cum_funding_all_time": round(cum_funding_all_time, 6),
+            "margin_used": round(float(pos_data.get("marginUsed", 0)), 2),
             "account": account_label,
         })
     return positions
