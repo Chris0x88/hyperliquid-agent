@@ -746,52 +746,37 @@ def should_send_status_summary(
 
 # ── Internal helpers (used only by run_heartbeat) ─────────────────────────────
 
-def _fetch_account_state(config: HeartbeatConfig) -> dict:
-    """Fetch account state from HL API using DirectHLProxy.
+# Wallet addresses for multi-account monitoring
+MAIN_ACCOUNT = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
+VAULT_ADDRESS = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
 
-    Returns a dict with keys: equity, positions (list of position dicts).
-    Each position dict has: coin, side, entry_price, size, current_price,
-    liq_price, upnl_pct, leverage, liq_distance_pct, funding_rate.
-    """
-    from parent.hl_proxy import HLProxy
-    from cli.hl_adapter import DirectHLProxy
 
-    # Create proxy — credentials resolved automatically via resolve_private_key()
-    hl = HLProxy(testnet=False)
-    proxy = DirectHLProxy(hl)
-    raw = proxy.get_account_state()
-
-    if not raw:
-        raise RuntimeError("Empty account state from HL API")
-
-    equity = float(raw.get("account_value", 0))
+def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
+    """Parse position dicts from raw HL API account state response."""
     positions = []
-
     for ap in raw.get("positions", []):
         pos_data = ap.get("position", ap) if isinstance(ap, dict) else ap
         szi = float(pos_data.get("szi", 0))
         if abs(szi) < 1e-9:
-            continue  # skip empty positions
+            continue
 
         entry_px = float(pos_data.get("entryPx", 0))
         coin = pos_data.get("coin", "")
         leverage_info = pos_data.get("leverage", {})
         leverage_val = float(leverage_info.get("value", 1)) if isinstance(leverage_info, dict) else float(leverage_info or 1)
         liq_px = float(pos_data.get("liquidationPx", 0) or 0)
-        mark_px = entry_px  # will be updated below
 
-        # Get current price from position's unrealized PnL calculation
         upnl = float(pos_data.get("unrealizedPnl", 0))
         notional = float(pos_data.get("positionValue", abs(szi) * entry_px))
+        mark_px = entry_px
         if abs(szi) > 0 and entry_px > 0:
             mark_px = entry_px + (upnl / abs(szi)) if szi > 0 else entry_px - (upnl / abs(szi))
 
-        # Compute liq distance
         liq_distance_pct = 0.0
         if liq_px > 0 and mark_px > 0:
-            if szi > 0:  # long
+            if szi > 0:
                 liq_distance_pct = (mark_px - liq_px) / mark_px * 100
-            else:  # short
+            else:
                 liq_distance_pct = (liq_px - mark_px) / mark_px * 100
 
         upnl_pct = (upnl / (abs(szi) * entry_px) * 100) if (abs(szi) * entry_px) > 0 else 0
@@ -801,16 +786,66 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
             "side": "long" if szi > 0 else "short",
             "entry_price": entry_px,
             "size": abs(szi),
-            "current_price": mark_px,
+            "current_price": round(mark_px, 4),
             "liq_price": liq_px,
             "liq_distance_pct": round(liq_distance_pct, 2),
             "upnl_pct": round(upnl_pct, 2),
             "leverage": leverage_val,
             "notional": abs(notional),
-            "funding_rate": 0.0,  # fetched separately if needed
+            "funding_rate": 0.0,
+            "account": account_label,
         })
+    return positions
 
-    return {"equity": equity, "positions": positions}
+
+def _fetch_account_state(config: HeartbeatConfig) -> dict:
+    """Fetch account state from BOTH wallets on HL API.
+
+    Checks:
+      - Main account (0x80B5...) — oil positions
+      - Vault (0x9da9...) — BTC positions
+
+    Returns a dict with keys: main_equity, vault_equity, total_equity,
+    positions (combined list from both accounts).
+    """
+    from parent.hl_proxy import HLProxy
+    from cli.hl_adapter import DirectHLProxy
+
+    all_positions = []
+    main_equity = 0.0
+    vault_equity = 0.0
+
+    # 1. Fetch main account (oil trades)
+    try:
+        hl_main = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+        proxy_main = DirectHLProxy(hl_main)
+        raw_main = proxy_main.get_account_state()
+        if raw_main:
+            main_equity = float(raw_main.get("account_value", 0))
+            all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
+    except Exception as e:
+        log.warning("Failed to fetch main account state: %s", e)
+
+    # 2. Fetch vault (BTC Power Law)
+    try:
+        hl_vault = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+        proxy_vault = DirectHLProxy(hl_vault)
+        raw_vault = proxy_vault.get_account_state()
+        if raw_vault:
+            vault_equity = float(raw_vault.get("account_value", 0))
+            all_positions.extend(_parse_positions_from_raw(raw_vault, "vault"))
+    except Exception as e:
+        log.warning("Failed to fetch vault state: %s", e)
+
+    if not all_positions and main_equity == 0 and vault_equity == 0:
+        raise RuntimeError("Empty account state from both HL wallets")
+
+    return {
+        "equity": main_equity + vault_equity,
+        "main_equity": main_equity,
+        "vault_equity": vault_equity,
+        "positions": all_positions,
+    }
 
 
 def _find_canonical_id(coin: str, config: HeartbeatConfig) -> str:
