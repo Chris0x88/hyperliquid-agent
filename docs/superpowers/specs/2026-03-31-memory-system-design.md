@@ -106,6 +106,42 @@ CREATE TABLE action_log (
 CREATE INDEX idx_action_market_time ON action_log(market, timestamp_ms);
 ```
 
+### 1.4 action_log detail schemas
+
+The `detail` JSON field in `action_log` has a defined schema per `action_type`:
+
+```python
+# action_type: "open" / "close" / "add" / "reduce"
+{"side": "long", "size": 5, "price": 107.65, "leverage": 10, "prev_size": 20, "new_size": 25}
+
+# action_type: "thesis_update"
+{"direction": "long", "prev_conviction": 0.7, "new_conviction": 0.85, "prev_leverage": 8, "new_leverage": 10}
+
+# action_type: "alert"
+{"alert_type": "liq_distance", "value": 7.7, "threshold": 10.0}
+```
+
+This enables the Reflector to programmatically determine predicted direction and magnitude for outcome backfill.
+
+### 1.5 Market identifier convention
+
+Canonical market identifiers used throughout the memory system:
+
+| Market | Canonical ID | ThesisState file slug | Notes |
+|--------|--------------|-----------------------|-------|
+| Brent Oil | `xyz:BRENTOIL` | `xyz_brentoil` | xyz perps need `dex='xyz'` |
+| Bitcoin | `BTC-PERP` | `btc-perp` | Main vault, Power Law |
+| Portfolio-wide | `PORTFOLIO` | N/A | Cross-market observations only |
+
+All memory tables use the canonical ID. The Observer maps from ThesisState file slugs (colons replaced with underscores) to canonical IDs on read.
+
+### 1.6 Schema migration
+
+New tables are added to the existing `_init()` method in `common/memory.py` using `CREATE TABLE IF NOT EXISTS`, matching the existing pattern for `events` and `learnings` tables. No separate migration framework. This is safe because:
+- `IF NOT EXISTS` is idempotent — running on an existing DB adds nothing
+- New tables have no foreign keys to existing tables
+- Existing tables and data are untouched
+
 ### Design decisions
 
 - **Append-only with soft invalidation**: observations never deleted, only `valid_until` set and `superseded_by` linked. Full audit trail.
@@ -113,7 +149,6 @@ CREATE INDEX idx_action_market_time ON action_log(market, timestamp_ms);
 - **Action log captures reasoning at decision time**: not reconstructed after the fact.
 - **All timestamps in milliseconds**: matches existing `events` table convention.
 - **`market = "PORTFOLIO"`**: for cross-market observations.
-- **Schema migration**: new tables added alongside existing `events` and `learnings` tables. No data loss on migration.
 
 ## 2. Programmatic Observer
 
@@ -124,7 +159,7 @@ Python module that runs every 5 minutes via launchd. Reads raw data sources, pro
 1. **HyperLiquid API** → current positions, PnL, funding, liquidation distance
 2. **ThesisState JSON** (`data/thesis/{market}_state.json`) → current conviction, direction, evidence
 3. **SQLite events table** → recent events not yet captured as observations
-4. **Research signals** (`data/research/markets/*/signals.jsonl`) → latest signals
+4. **Research signals** (`data/research/markets/*/signals.jsonl`) → latest signals (written by OpenClaw research skill; gracefully skipped if file missing or empty)
 
 ### Observation rules
 
@@ -142,8 +177,16 @@ Python module that runs every 5 minutes via launchd. Reads raw data sources, pro
 
 Before writing an observation:
 1. Query active observations (valid_until IS NULL) with same market + category
-2. If data hasn't materially changed (position same, PnL within 1%, conviction same) → skip
-3. If data changed → supersede old observation (set valid_until + superseded_by), write new one
+2. Check if data has materially changed using per-category thresholds:
+   - **position**: size changed by any amount, OR entry price changed
+   - **metric** (PnL): absolute change >1% of account equity
+   - **metric** (liq distance): change >0.5 percentage points
+   - **metric** (funding): change >0.02%
+   - **thesis**: conviction change >=0.05, OR direction change, OR evidence list length changed
+   - **event**: always new (events are unique by nature)
+   - **pattern**: title differs from existing active pattern observation
+3. If below threshold → skip (no observation created)
+4. If above threshold → supersede old observation (set valid_until + superseded_by), write new one
 
 ### Working Memory State File
 
@@ -181,7 +224,7 @@ Written atomically every Observer run to `data/memory/working_state.json`:
 ### Edge cases
 
 - **API timeout**: catch exception, write warning observation "API unreachable", use last working_state.json
-- **ThesisState file missing**: conviction defaults to 0.3 (existing stale behavior)
+- **ThesisState file missing**: conviction defaults to 0.3. Note: in existing `thesis.py`, `is_stale` (>24h) and `is_very_stale` (>6h) have inverted naming. The Observer uses `is_stale` (>24h) as the threshold for the `stale` field in working_state.json and for generating "thesis needs re-evaluation" open questions
 - **First run ever**: creates baseline observations for all current state, no "change" observations
 - **Multiple markets**: each processed independently, plus PORTFOLIO-level if cross-market metrics warrant
 
@@ -191,7 +234,7 @@ Runs every 30 minutes. Garbage collection, pattern detection, belief drift track
 
 ### Job 1: Observation Compaction
 
-- 5+ `metric` observations for same market within 6 hours → compact into one range summary
+- 5+ `metric` observations for same market within a rolling 6-hour window from current time → compact into one range summary
 - Supersede individuals, point to compacted observation
 - Priority 1 (critical) observations **never compacted**
 - Cap: max ~50 active observations. If over, compact oldest priority 3 first
@@ -215,9 +258,10 @@ Query `belief_states` for last 7 days per market:
 ### Job 4: Outcome Backfill
 
 Check `action_log` entries where `outcome IS NULL`:
-- Trade opened 24h+ ago → compute current PnL, fill outcome
-- Thesis update 48h+ ago → did price move in predicted direction?
-- Alert sent → was risk condition resolved?
+- **Trade actions** (open/close/add/reduce) older than 24h → compute current PnL from position tracker, fill outcome: `"position +4.2% after 24h"` or `"position closed, realized +$1200"`
+- **Thesis updates** older than 48h → read `detail.direction` and `detail.new_conviction` from the action's JSON detail field (see section 1.4), compare against price movement since `timestamp_ms`. Outcome: `"thesis confirmed, price +$3.20 in direction"` or `"thesis unconfirmed, price flat"`
+- **Alerts** older than 6h → re-check the condition (e.g., liq distance). Outcome: `"resolved, liq distance now 12%"` or `"persisting, liq distance still 8%"`
+- **Skip** any action_log entries modified in the last 60 seconds (avoid race with Observer)
 
 ### Job 5: Cross-Market Pattern Detection
 
@@ -275,7 +319,7 @@ Python detects discrepancies and poses them as questions for OpenClaw:
 
 ### Truncation
 
-Context block capped at 4000 chars (Telegram limit). Truncation order: contextual first, then relevant, never critical.
+Context block capped at 8000 chars (OpenClaw prompt budget — not the Telegram limit which is separate). The Telegram report is a distinct downstream output, not the context block itself. Truncation order: contextual first, then relevant, never critical.
 
 ### Changed OpenClaw flow
 
@@ -285,7 +329,11 @@ New:
 1. `memory_health()` → confirm GREEN
 2. `memory_context()` → pre-compressed context with full history
 3. OpenClaw reasons about open questions
-4. `memory_observe()` → log new observations
+4. `memory_observe()` → log new observations. OpenClaw writes observations with `source: "openclaw"` and typically uses:
+   - `category: "event"` for new geopolitical/market events discovered during web search
+   - `category: "thesis"` for thesis re-evaluations with updated reasoning
+   - `category: "pattern"` for cross-referencing patterns the programmatic system can't detect
+   - `priority: 1` for thesis-altering insights, `priority: 2` for supplementary context
 5. ThesisState update (existing flow)
 6. Telegram report (existing flow)
 
@@ -317,17 +365,20 @@ Two plists in `~/Library/LaunchAgents/`:
 - `com.hyperliquid.reflector.plist` — StartInterval 1800 (30 min)
 
 Both use:
-- WorkingDirectory: project root
-- StandardOutPath/StandardErrorPath: `data/memory/logs/`
+- WorkingDirectory: `/Users/cdi/Developer/HyperLiquid_Bot/agent-cli` (absolute path, never relative)
+- StandardOutPath/StandardErrorPath: absolute paths to `data/memory/logs/`
 - KeepAlive: false (run and exit)
-- EnvironmentVariables: PYTHONPATH, PATH (Python 3.13)
+- EnvironmentVariables: PYTHONPATH=`.`, PATH includes `/opt/homebrew/bin` (Python 3.13)
+
+**Critical: all file paths in the codebase use `pathlib.Path(__file__).parent` relative resolution, NOT `os.getcwd()`.** This prevents the silent "second database" bug where launchd's WorkingDirectory doesn't match expectations. The `common/memory.py` `_DB_PATH` is resolved relative to the project root via `__file__`, not the process CWD.
 
 ### Failure recovery
 
 | Failure | Behavior | Recovery |
 |---------|----------|---------|
 | HL API down | Warning observation, use last state | Next run retries |
-| SQLite locked | Retry 3x, 100ms backoff | Skip run if still locked |
+| SQLite locked | Retry 3x, 100ms backoff | Skip run if still locked. WAL mode enabled on DB open for concurrent read support |
+| Observer/Reflector write race | Reflector skips observations with `created_at` within last 60 seconds | Prevents superseding an observation the Observer is about to update |
 | working_state.json corrupt | Atomic write (tmp + rename) | Always valid |
 | Observer crash mid-run | Stale PID file | Next run detects, cleans up |
 | Mac sleep | launchd queues, fires on wake | PID prevents stacking |
@@ -373,13 +424,52 @@ hl memory export --days N            # Dump as JSON
 
 ### MCP tools (added to mcp_server.py)
 
+Following existing tool patterns (docstring with `Args:` section, return type annotation):
+
 ```python
-memory_status()    → working state JSON
-memory_context()   → full context block (markdown)
-memory_observe()   → write observation
-memory_health()    → GREEN/YELLOW/RED
-memory_beliefs()   → belief trajectory
-memory_actions()   → recent action log
+def memory_status() -> str:
+    """Get current working memory state (positions, equity, theses).
+    Returns: JSON string of working_state.json contents."""
+
+def memory_context() -> str:
+    """Get full pre-compressed trading memory context block.
+    Returns: Markdown-formatted context with observations, beliefs, patterns, open questions."""
+
+def memory_observe(title: str, market: str, priority: int = 2, body: str = "", category: str = "event") -> str:
+    """Write a new observation to the memory system.
+    Args:
+        title: One-line summary of the observation.
+        market: Canonical market ID (xyz:BRENTOIL, BTC-PERP, PORTFOLIO).
+        priority: 1=critical, 2=relevant, 3=contextual. Default 2.
+        body: Full detail text. Optional.
+        category: One of: position, thesis, event, pattern, metric. Default event.
+    Returns: Confirmation with observation ID."""
+
+def memory_learn(title: str, lesson: str, topic: str, market: str = "") -> str:
+    """Log a learning to the memory system (delegates to existing learnings table).
+    Args:
+        title: Short title for the learning.
+        lesson: What was learned.
+        topic: Topic tag (oil, btc, risk, execution, etc.).
+        market: Optional canonical market ID.
+    Returns: Confirmation with learning ID."""
+
+def memory_health() -> str:
+    """Check memory system health.
+    Returns: GREEN, YELLOW, or RED with reason."""
+
+def memory_beliefs(market: str = "", days: int = 7) -> str:
+    """Get belief/conviction trajectory for a market.
+    Args:
+        market: Canonical market ID. Empty string for all markets.
+        days: Lookback period. Default 7.
+    Returns: JSON array of belief_state snapshots."""
+
+def memory_actions(days: int = 1) -> str:
+    """Get recent action log with reasoning and outcomes.
+    Args:
+        days: Lookback period. Default 1.
+    Returns: JSON array of action_log entries."""
 ```
 
 ### File layout
@@ -393,9 +483,9 @@ agent-cli/
 │   ├── memory_context.py      # NEW
 │   └── memory_health.py       # NEW
 ├── cli/commands/
-│   └── memory_cmd.py          # NEW
+│   └── memory.py              # NEW (follows convention: daemon.py, journal.py, etc.)
 ├── cli/mcp_server.py          # EXISTING — add memory_* tools
-├── cli/main.py                # EXISTING — register memory subcommand
+├── cli/main.py                # EXISTING — add: app.add_typer(memory_app, name="memory")
 ├── data/memory/
 │   ├── memory.db              # EXISTING — extended
 │   ├── working_state.json     # NEW
@@ -429,7 +519,7 @@ agent-cli/
 - Outcome backfill: 24h trade gets PnL
 
 **memory_context.py:**
-- Output under 4000 chars with 50 observations
+- Output under 8000 chars with 50 observations
 - Truncation order: contextual → relevant → never critical
 - Empty DB → valid context with "no observations yet"
 - Open questions from data discrepancies
