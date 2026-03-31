@@ -22,6 +22,14 @@ def tmp_keystore(tmp_path):
         yield ks_dir
 
 
+@pytest.fixture(autouse=True)
+def _isolate_credentials(monkeypatch):
+    """Ensure OWS and Keychain don't leak real keys into tests."""
+    from common.credentials import OWSBackend, MacOSKeychainBackend
+    monkeypatch.setattr(OWSBackend, "available", lambda self: False)
+    monkeypatch.setattr(MacOSKeychainBackend, "available", lambda self: False)
+
+
 class TestKeystoreCreateLoad:
     def test_create_and_load_roundtrip(self, tmp_keystore):
         from cli.keystore import create_keystore, load_keystore

@@ -135,13 +135,36 @@ def main() -> None:
 
         from common.heartbeat_config import load_config
         from common.heartbeat import run_heartbeat
+        from common.trajectory import TrajectoryLogger
+        from common.telemetry import TelemetryRecorder
 
         config = load_config()
-        result = run_heartbeat(config)
-        log.info("Heartbeat complete: escalation=%s actions=%d errors=%d",
-                 result.get("escalation", "?"),
-                 len(result.get("actions", [])),
-                 len(result.get("errors", [])))
+
+        # Phase 1 harness: trajectory + telemetry
+        traj = TrajectoryLogger("heartbeat")
+        tel = TelemetryRecorder("heartbeat")
+
+        try:
+            tel.start_cycle()
+            traj.log("heartbeat_start", details={"pid": os.getpid()})
+
+            result = run_heartbeat(config)
+
+            traj.log("heartbeat_complete", details={
+                "escalation": result.get("escalation", "?"),
+                "actions": len(result.get("actions", [])),
+                "errors": len(result.get("errors", [])),
+            })
+            log.info("Heartbeat complete: escalation=%s actions=%d errors=%d",
+                     result.get("escalation", "?"),
+                     len(result.get("actions", [])),
+                     len(result.get("errors", [])))
+        except Exception as inner_exc:
+            traj.log("heartbeat_error", details={"error": str(inner_exc)}, status="error")
+            raise
+        finally:
+            tel.end_cycle()
+            traj.close()
 
     except Exception as exc:
         # Try to send Telegram crash alert

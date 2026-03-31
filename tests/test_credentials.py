@@ -276,9 +276,10 @@ class TestFlatFileBackend:
 
 class TestResolvePrivateKey:
     def test_resolver_uses_first_available_backend(self):
-        from common.credentials import resolve_private_key, MacOSKeychainBackend
+        from common.credentials import resolve_private_key, MacOSKeychainBackend, OWSBackend
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=True), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=True), \
              patch.object(MacOSKeychainBackend, "get_key", return_value="0xkeychain_key"):
             result = resolve_private_key()
             assert result == "0xkeychain_key"
@@ -288,9 +289,11 @@ class TestResolvePrivateKey:
             resolve_private_key,
             MacOSKeychainBackend,
             EncryptedKeystoreBackend,
+            OWSBackend,
         )
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=False), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=False), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value="0xkeystore_key"):
             result = resolve_private_key()
@@ -301,9 +304,11 @@ class TestResolvePrivateKey:
             resolve_private_key,
             MacOSKeychainBackend,
             EncryptedKeystoreBackend,
+            OWSBackend,
         )
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=True), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=True), \
              patch.object(MacOSKeychainBackend, "get_key", return_value=None), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value="0xfallback"):
@@ -317,9 +322,11 @@ class TestResolvePrivateKey:
             EncryptedKeystoreBackend,
             RailwayEnvBackend,
             FlatFileBackend,
+            OWSBackend,
         )
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=False), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=False), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value=None), \
              patch.object(RailwayEnvBackend, "available", return_value=False), \
@@ -336,9 +343,11 @@ class TestResolvePrivateKey:
             EncryptedKeystoreBackend,
             RailwayEnvBackend,
             FlatFileBackend,
+            OWSBackend,
         )
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=False), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=False), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value=None), \
              patch.object(RailwayEnvBackend, "available", return_value=False), \
@@ -356,9 +365,11 @@ class TestResolvePrivateKey:
             EncryptedKeystoreBackend,
             RailwayEnvBackend,
             FlatFileBackend,
+            OWSBackend,
         )
 
-        with patch.object(MacOSKeychainBackend, "available", return_value=False), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=False), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value=None), \
              patch.object(RailwayEnvBackend, "available", return_value=False), \
@@ -376,10 +387,12 @@ class TestResolvePrivateKey:
             EncryptedKeystoreBackend,
             RailwayEnvBackend,
             FlatFileBackend,
+            OWSBackend,
         )
 
         # All backends available and have keys — keychain should win
-        with patch.object(MacOSKeychainBackend, "available", return_value=True), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=True), \
              patch.object(MacOSKeychainBackend, "get_key", return_value="0xkeychain"), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value="0xkeystore"), \
@@ -390,7 +403,8 @@ class TestResolvePrivateKey:
             assert resolve_private_key() == "0xkeychain"
 
         # Keychain returns None — keystore should win
-        with patch.object(MacOSKeychainBackend, "available", return_value=True), \
+        with patch.object(OWSBackend, "available", return_value=False), \
+             patch.object(MacOSKeychainBackend, "available", return_value=True), \
              patch.object(MacOSKeychainBackend, "get_key", return_value=None), \
              patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
              patch.object(EncryptedKeystoreBackend, "get_key", return_value="0xkeystore"), \

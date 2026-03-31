@@ -5,7 +5,17 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from typing import Any, Dict, Optional
+
 from cli.config import TradingConfig
+
+
+@pytest.fixture(autouse=True)
+def _isolate_credentials(monkeypatch):
+    """Ensure OWS and Keychain don't leak real keys into tests."""
+    from common.credentials import OWSBackend, MacOSKeychainBackend
+    monkeypatch.setattr(OWSBackend, "available", lambda self: False)
+    monkeypatch.setattr(MacOSKeychainBackend, "available", lambda self: False)
 
 
 class TestDefaults:

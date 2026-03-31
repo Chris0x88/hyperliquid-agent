@@ -12,6 +12,9 @@ from cli.daemon.context import Alert, Iterator, OrderIntent, TickContext
 from cli.daemon.roster import Roster
 from cli.daemon.state import DaemonState, StateStore
 from cli.daemon.tiers import iterators_for_tier
+from common.middleware import run_with_middleware
+from common.telemetry import TelemetryRecorder
+from common.trajectory import TrajectoryLogger
 from parent.risk_manager import RiskGate
 
 log = logging.getLogger("daemon.clock")
@@ -47,6 +50,10 @@ class Clock:
         self._running = False
         self._consecutive_failures: Dict[str, int] = {}
 
+        # Phase 1 harness: middleware telemetry + trajectory
+        self.telemetry = TelemetryRecorder("daemon")
+        self.trajectory: Optional[TrajectoryLogger] = None
+
     # ── Iterator management ──────────────────────────────────
 
     def register(self, iterator: Iterator) -> None:
@@ -69,6 +76,7 @@ class Clock:
         """Block until max_ticks reached or signal received."""
         self._running = True
         self.store.write_pid()
+        self.trajectory = TrajectoryLogger("daemon")
 
         # Signal handling
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -109,20 +117,30 @@ class Clock:
         # Check control file for runtime commands
         self._process_control(ctx)
 
-        # Run iterators
+        # Run iterators with middleware
+        self.telemetry.start_cycle()
         active = self._rebuild_active_set()
         for it in active:
-            try:
-                it.tick(ctx)
+            mw = run_with_middleware(
+                it.name, it.tick, ctx,
+                timeout_s=getattr(self.config, 'iterator_timeout_s', 10),
+                telemetry=self.telemetry,
+            )
+
+            if mw.status == "ok":
                 self._consecutive_failures[it.name] = 0
-            except Exception as e:
+            else:
                 failures = self._consecutive_failures.get(it.name, 0) + 1
                 self._consecutive_failures[it.name] = failures
                 log.error("[%s] tick failed (%d/%d): %s",
-                          it.name, failures, self.config.max_consecutive_failures, e)
+                          it.name, failures, self.config.max_consecutive_failures,
+                          mw.error)
 
                 if it.name == "connector":
                     log.warning("Connector failed — skipping rest of tick")
+                    if self.trajectory:
+                        self.trajectory.log("connector_failed", details={"error": mw.error}, status="error")
+                    self.telemetry.end_cycle()
                     return
 
                 if failures >= self.config.max_consecutive_failures:
@@ -148,6 +166,16 @@ class Clock:
         # Persist
         self.store.save_state(self.state)
         self.roster.save()
+
+        # Finalize telemetry + trajectory for this tick
+        self.telemetry.end_cycle()
+        if self.trajectory:
+            self.trajectory.log("tick_complete", details={
+                "tick": self.state.tick_count,
+                "tier": self.state.tier,
+                "strategies": len(self.roster.slots),
+                "orders": len(ctx.order_queue),
+            })
 
         # Tick summary
         n_orders = len(ctx.order_queue)
@@ -297,4 +325,10 @@ class Clock:
         self.store.save_state(self.state)
         self.roster.save()
         self.store.remove_pid()
+        if self.trajectory:
+            self.trajectory.log("daemon_shutdown", details={
+                "ticks": self.state.tick_count,
+                "trades": self.state.total_trades,
+            })
+            self.trajectory.close()
         log.info("Daemon stopped. Ticks=%d, Trades=%d", self.state.tick_count, self.state.total_trades)
