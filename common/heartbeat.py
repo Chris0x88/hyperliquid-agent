@@ -665,6 +665,85 @@ def run_heartbeat(
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. detect_btc_trade
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_btc_trade(current_position: dict, last_position: dict) -> dict:
+    """Detect if BTC vault position changed between heartbeat runs.
+
+    Args:
+        current_position: Current position dict with at least ``size``.
+        last_position: Previous position dict with at least ``size``.
+
+    Returns:
+        Dict with ``trade_detected`` bool and, if True, ``direction``,
+        ``delta``, ``new_size``, ``entry``, ``mark``.
+    """
+    current_size = current_position.get("size", 0)
+    last_size = last_position.get("size", 0)
+    if abs(current_size - last_size) < 0.0001:
+        return {"trade_detected": False}
+    delta = current_size - last_size
+    return {
+        "trade_detected": True,
+        "direction": "buy" if delta > 0 else "sell",
+        "delta": abs(delta),
+        "new_size": current_size,
+        "entry": current_position.get("entry", 0),
+        "mark": current_position.get("mark", 0),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 13. btc_liq_gate
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def btc_liq_gate(
+    liq_distance_pct: float,
+    direction: str,
+    min_liq_pct: float = 15.0,
+) -> bool:
+    """Gate BTC rebalance increases by liq distance. Reductions always allowed.
+
+    Args:
+        liq_distance_pct: Current distance to liquidation (%).
+        direction: ``"buy"`` (position increase) or ``"sell"`` (reduction).
+        min_liq_pct: Minimum liq distance required for buys.
+
+    Returns:
+        ``True`` if the trade is permitted.
+    """
+    if direction == "sell":
+        return True  # reductions always ok
+    return liq_distance_pct >= min_liq_pct
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 14. should_send_status_summary
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def should_send_status_summary(
+    last_summary_ms: int,
+    now_ms: int,
+    interval_hours: int = 6,
+) -> bool:
+    """True if it's been >= interval_hours since last status summary.
+
+    Args:
+        last_summary_ms: Epoch-ms of last summary sent. 0 means never sent.
+        now_ms: Current epoch-ms.
+        interval_hours: Minimum hours between summaries.
+
+    Returns:
+        ``True`` if a summary is due.
+    """
+    if last_summary_ms == 0:
+        return True
+    elapsed_ms = now_ms - last_summary_ms
+    return elapsed_ms >= interval_hours * 3600 * 1000
+
+
 # ── Internal helpers (used only by run_heartbeat) ─────────────────────────────
 
 def _fetch_account_state(config: HeartbeatConfig) -> dict:
