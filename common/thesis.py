@@ -65,6 +65,7 @@ class ThesisState:
     recommended_leverage: float = 5.0
     recommended_size_pct: float = 0.10   # fraction of account
     weekend_leverage_cap: float = 3.0    # reduced during thin liquidity
+    take_profit_price: Optional[float] = None  # thesis-based TP (e.g. gold→$10k). None = no TP.
 
     # Tactical trade guidance
     allow_tactical_trades: bool = True   # if True, execution_engine may enter/exit intraday
@@ -85,17 +86,37 @@ class ThesisState:
         return (time.time() * 1000 - self.last_evaluation_ts) / 3_600_000
 
     @property
-    def is_stale(self) -> bool:
+    def needs_review(self) -> bool:
+        """True after 24h — triggers Telegram reminder, but doesn't reduce conviction."""
         return self.age_hours > 24.0
 
     @property
+    def is_stale(self) -> bool:
+        """True after 7 days — starts tapering conviction."""
+        return self.age_hours > 168.0  # 7 days
+
+    @property
     def is_very_stale(self) -> bool:
-        return self.age_hours > 6.0
+        """True after 14 days — full defensive mode."""
+        return self.age_hours > 336.0  # 14 days
 
     def effective_conviction(self) -> float:
-        """Runtime conviction — clamps to 0.3 if stale (prevents autonomous over-trading on old data)."""
-        if self.is_stale:
+        """Runtime conviction with tiered staleness.
+
+        - < 7 days: full conviction (thesis holds for weeks/months)
+        - 7-14 days: taper linearly from conviction → 0.3
+        - > 14 days: clamp to 0.3 (defensive)
+
+        Thesis-driven trades hold for weeks. 24h hard clamp was killing the edge.
+        Now: 24h sends a review reminder (handled by heartbeat), 7d starts tapering.
+        """
+        if self.is_very_stale:
             return min(self.conviction, 0.3)
+        if self.is_stale:
+            # Linear taper: at 7d = full conviction, at 14d = 0.3
+            hours_past_stale = self.age_hours - 168.0
+            taper = max(0.0, min(1.0, hours_past_stale / 168.0))
+            return self.conviction - taper * (self.conviction - 0.3)
         return self.conviction
 
     def market_slug(self) -> str:
@@ -119,6 +140,7 @@ class ThesisState:
             "weekend_leverage_cap": self.weekend_leverage_cap,
             "allow_tactical_trades": self.allow_tactical_trades,
             "tactical_notes": self.tactical_notes,
+            "take_profit_price": self.take_profit_price,
             "last_evaluation_ts": self.last_evaluation_ts,
             "snapshot_ref": self.snapshot_ref,
             "notes": self.notes,
@@ -151,6 +173,7 @@ class ThesisState:
                 weekend_leverage_cap=float(data.get("weekend_leverage_cap", 3.0)),
                 allow_tactical_trades=data.get("allow_tactical_trades", True),
                 tactical_notes=data.get("tactical_notes", ""),
+                take_profit_price=data.get("take_profit_price"),
                 last_evaluation_ts=int(data.get("last_evaluation_ts", 0)),
                 snapshot_ref=data.get("snapshot_ref", ""),
                 notes=data.get("notes", ""),

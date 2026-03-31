@@ -16,10 +16,13 @@ def send_telegram(
     message: str,
     bot_token: str | None = None,
     chat_id: str | None = None,
+    parse_mode: str | None = None,
 ) -> bool:
     """Send a message via the Telegram Bot API.
 
     Returns True on success, False on any failure.  Never raises.
+    parse_mode defaults to None (plain text) — pass "Markdown" only when
+    the message actually contains Markdown formatting.
     """
     try:
         token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -32,15 +35,10 @@ def send_telegram(
 
         for chunk in chunks:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
-            resp = requests.post(
-                url,
-                json={
-                    "chat_id": chat,
-                    "text": chunk,
-                    "parse_mode": "Markdown",
-                },
-                timeout=10,
-            )
+            payload: dict = {"chat_id": chat, "text": chunk}
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
+            resp = requests.post(url, json=payload, timeout=10)
             if resp.status_code != 200:
                 log.error("Telegram send failed: %s %s", resp.status_code, resp.text)
                 return False

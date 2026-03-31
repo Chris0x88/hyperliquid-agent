@@ -533,6 +533,14 @@ def run_heartbeat(
     from common.memory_telegram import send_telegram, format_position_summary
     import requests as _req
     from common.heartbeat_state import compute_atr
+    from common.thesis import ThesisState
+    from common.conviction_engine import (
+        conviction_to_target_pct,
+        modulate_dip_add_pct,
+        modulate_spike_take_pct,
+        is_near_roll_window,
+        can_execute_add,
+    )
 
     start_ms = int(time.time() * 1000)
     errors: list[str] = []
@@ -576,6 +584,37 @@ def run_heartbeat(
     for trig in trigger_orders:
         tcoin = trig.get("coin", "")
         existing_stops.setdefault(tcoin, []).append(trig)
+
+    # ── Conviction Engine: load thesis states ────────────────────────────────
+    conviction_enabled = config.conviction_bands.enabled
+    thesis_states: dict = {}
+    if conviction_enabled:
+        try:
+            thesis_states = ThesisState.load_all()
+            state.last_thesis_load_ms = now_ms
+            if thesis_states:
+                log.info("Conviction engine: loaded %d thesis(es) — %s",
+                         len(thesis_states),
+                         ", ".join(f"{m}={t.effective_conviction():.2f}" for m, t in thesis_states.items()))
+            # Thesis review reminders (once every 6h, not every cycle)
+            review_cooldown_ms = 6 * 3600 * 1000
+            last_review_alert = getattr(state, '_last_thesis_review_ms', 0)
+            if now_ms - last_review_alert > review_cooldown_ms:
+                for market, ts in thesis_states.items():
+                    if ts.needs_review and not ts.is_stale:
+                        age_d = ts.age_hours / 24
+                        try:
+                            send_telegram(
+                                f"[Thesis Review] {market}: conviction {ts.conviction:.2f}, "
+                                f"last reviewed {age_d:.1f}d ago. "
+                                f"Run /thesis to confirm or update."
+                            )
+                            state._last_thesis_review_ms = now_ms
+                        except Exception:
+                            pass
+        except Exception as e:
+            log.warning("Failed to load thesis states: %s", e)
+            conviction_enabled = False
 
     # 3. For each position
     positions = account_state.get("positions", [])
@@ -631,6 +670,13 @@ def run_heartbeat(
             except Exception as e:
                 log.debug("ATR fetch failed for %s: %s", coin, e)
 
+        # ── Thesis lookup (needed for TP placement below) ─────────────────
+        canonical_id = _find_canonical_id(coin, config)
+        # Try coin first (e.g. "xyz:GOLD"), then canonical_id (e.g. "BTC-PERP" for vault "BTC")
+        thesis = None
+        if conviction_enabled:
+            thesis = thesis_states.get(coin) or thesis_states.get(canonical_id)
+
         # Check if stop-loss already exists on exchange
         has_stop = bool(existing_stops.get(coin))
         pos_summary["has_stop"] = has_stop
@@ -681,6 +727,59 @@ def run_heartbeat(
         elif has_stop:
             pos_summary["existing_stop"] = "yes"
 
+        # Take-profit order placement
+        # - With thesis + TP price: use thesis target (e.g. gold→$10k)
+        # - With thesis + no TP price: thesis controls exit, no mechanical TP
+        # - No thesis at all: ALWAYS place mechanical TP (5x ATR above entry)
+        tp_price = None
+        tp_reason = ""
+        if thesis and thesis.take_profit_price:
+            tp_price = thesis.take_profit_price
+            tp_reason = f"Thesis TP: {thesis.thesis_summary[:60]}"
+        elif not thesis and atr_val > 0:
+            # No thesis = unmanaged position. Set mechanical TP at 5x ATR from entry.
+            if side == "long":
+                tp_price = entry + (5.0 * atr_val)
+            else:
+                tp_price = entry - (5.0 * atr_val)
+            tp_reason = f"Mechanical TP (no thesis): 5x ATR=${atr_val:.2f}"
+
+        if tp_price and not dry_run:
+            # Check if TP already exists for this coin (trigger above entry for longs)
+            existing_tps = [
+                t for t in existing_stops.get(coin, [])
+                if (side == "long" and float(t.get("triggerPx", 0)) > entry)
+                or (side != "long" and float(t.get("triggerPx", 0)) < entry)
+            ]
+            if not existing_tps:
+                valid_tp = (side == "long" and tp_price > entry) or (side != "long" and tp_price < entry)
+                if valid_tp:
+                    try:
+                        from parent.hl_proxy import HLProxy
+                        from cli.hl_adapter import DirectHLProxy
+                        if account_label == "vault":
+                            hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                        else:
+                            hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                        proxy = DirectHLProxy(hl)
+                        tp_side = "sell" if side == "long" else "buy"
+                        tp_oid = proxy.place_tp_trigger_order(
+                            instrument=coin, side=tp_side,
+                            size=size, trigger_price=round(tp_price, 2),
+                        )
+                        if tp_oid:
+                            actions.append({
+                                "market": coin, "action": "tp_placed",
+                                "tp_price": round(tp_price, 2), "oid": tp_oid,
+                                "reason": tp_reason,
+                            })
+                            log.info("Placed TP on %s: %s @ $%.2f (OID %s)", coin, tp_side, tp_price, tp_oid)
+                    except Exception as e:
+                        errors.append(f"TP placement failed for {coin}: {e}")
+                        log.warning("Failed to place TP for %s: %s", coin, e, exc_info=True)
+            else:
+                pos_summary["existing_tp"] = "yes"
+
         # Spike/dip detection
         last_price = state.last_prices.get(coin, current_price)
         spike_dip = detect_spike_or_dip(
@@ -692,13 +791,90 @@ def run_heartbeat(
         state.last_prices[coin] = current_price
 
         # Profit check (spike-based quick profit)
-        canonical_id = _find_canonical_id(coin, config)
         profit_rules = config.get_profit_rules(canonical_id)
-        profit_check = should_take_profit(upnl_pct, 0, profit_rules, current_size=size)
+        # min_size: for high-value instruments (>$1000/contract), allow full close.
+        # For cheap instruments (oil, silver), keep at least 1 contract.
+        instrument_min_size = 0 if current_price > 1000 else 1
+        profit_check = should_take_profit(upnl_pct, 0, profit_rules, current_size=size, min_size=instrument_min_size)
         pos_summary["profit_check"] = profit_check
 
+        # ── Conviction Engine: modulation (thesis already loaded above) ────
+        effective_conv = thesis.effective_conviction() if thesis else 0.0
+        thesis_direction = thesis.direction if thesis else "flat"
+        allow_tactical = thesis.allow_tactical_trades if thesis else False
+        pos_summary["conviction"] = effective_conv
+        pos_summary["thesis_direction"] = thesis_direction
+
+        # Modulate thresholds by conviction
+        adj_spike_take_pct = config.spike_config.spike_take_pct
+        adj_dip_add_pct = config.spike_config.dip_add_pct
+        if thesis and effective_conv > 0 and conviction_enabled:
+            adj_spike_take_pct = modulate_spike_take_pct(config.spike_config.spike_take_pct, effective_conv)
+            adj_dip_add_pct = modulate_dip_add_pct(config.spike_config.dip_add_pct, effective_conv)
+
+        # Roll window: BRENTOIL monthly roll between 5th-10th bday
+        near_roll = False
+        if "BRENTOIL" in coin and is_near_roll_window():
+            near_roll = True
+            adj_dip_add_pct *= 0.5
+            adj_spike_take_pct = min(adj_spike_take_pct * 1.5, 30.0)
+            pos_summary["near_roll"] = True
+
+        # Profit-take: fires for ALL positions when should_take_profit triggers.
+        # With thesis: conviction modulates take size. Without thesis: uses base take_pct.
+        if profit_check["take"] and not dry_run:
+            mod_take_pct = modulate_spike_take_pct(profit_check["take_pct"], effective_conv) if (thesis and effective_conv > 0) else profit_check["take_pct"]
+            take_size = round(size * mod_take_pct / 100, 6)
+
+            if account_label == "vault" and not allow_tactical:
+                pos_summary["profit_take_blocked"] = "vault tactical disabled"
+            elif take_size >= 0.001:
+                try:
+                    from parent.hl_proxy import HLProxy
+                    from cli.hl_adapter import DirectHLProxy
+                    if account_label == "vault":
+                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                    else:
+                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                    proxy = DirectHLProxy(hl)
+                    close_side = "sell" if side == "long" else "buy"
+                    fill = proxy.place_order(
+                        instrument=coin, side=close_side, size=take_size,
+                        price=current_price, tif="Ioc",
+                    )
+                    if fill:
+                        actions.append({
+                            "market": coin, "action": "conviction_profit_take",
+                            "size_closed": take_size, "price": current_price,
+                            "conviction": effective_conv,
+                            "reason": profit_check["reason"],
+                        })
+                        state.conviction_at_last_action[canonical_id] = effective_conv
+                        log.info("Conviction profit-take %s: %.4f @ $%.2f (conv=%.2f)", coin, take_size, current_price, effective_conv)
+                except Exception as e:
+                    errors.append(f"Conviction profit take failed for {coin}: {e}")
+
+        # Underweight flag (informational only)
+        if conviction_enabled and thesis and effective_conv > 0.3:
+            target_pct = conviction_to_target_pct(effective_conv, config.conviction_bands)
+            target_notional = equity * target_pct
+            current_notional = abs(size * current_price)
+            if current_notional < target_notional * 0.7:
+                pos_summary["underweight"] = True
+                pos_summary["target_notional"] = round(target_notional, 2)
+                pos_summary["current_notional"] = round(current_notional, 2)
+            state.position_target_cache[canonical_id] = round(target_notional, 2)
+
+        # Funding signal
+        funding_rate = pos.get("funding_rate", 0.0)
+        if thesis and funding_rate != 0:
+            if thesis_direction == "long" and funding_rate < 0:
+                pos_summary["funding_signal"] = "confirming"
+            elif thesis_direction == "long" and funding_rate > 0.0005:
+                pos_summary["funding_signal"] = "warning_carry_cost"
+
         if spike_dip["type"] == "spike" and spike_dip["pct"] >= config.spike_config.spike_profit_threshold_pct:
-            take_pct = config.spike_config.spike_take_pct
+            take_pct = adj_spike_take_pct  # conviction-modulated
             take_size = round(size * take_pct / 100, 6)
             if take_size >= 0.001 and not dry_run:
                 try:
@@ -724,16 +900,75 @@ def run_heartbeat(
                 except Exception as e:
                     errors.append(f"Spike profit-take failed for {coin}: {e}")
 
-        # Dip add check
+        # Dip add check — conviction engine activates actual execution
         if spike_dip["type"] == "dip":
             dd_pct = (state.session_peak_equity - equity) / max(state.session_peak_equity, 1) * 100
             last_add = state.last_add_ms.get(coin, 0)
             if should_add_on_dip(liq_dist, dd_pct, last_add, now_ms, config.spike_config):
                 pos_summary["dip_add"] = True
-                if not dry_run:
+
+                if conviction_enabled and not dry_run:
+                    # Compute add size (conviction-modulated, capped at base dip_add_pct)
+                    add_size = round(size * adj_dip_add_pct / 100, 6)
+                    max_add = size * config.spike_config.dip_add_pct / 100
+                    add_size = min(add_size, round(max_add, 6))
+                    add_notional = add_size * current_price
+
+                    # Total notional across all positions
+                    total_notional = sum(
+                        abs(p.get("size", 0) * p.get("current_price", 0))
+                        for p in positions
+                    )
+
+                    current_esc = resolve_escalation(escalation_levels)
+                    is_oil = "BRENTOIL" in coin or "OIL" in coin
+                    is_vault_no_tac = (account_label == "vault" and not allow_tactical)
+
+                    ok, block = can_execute_add(
+                        thesis_exists=thesis is not None,
+                        effective_conv=effective_conv,
+                        escalation=current_esc,
+                        is_oil=is_oil,
+                        thesis_direction=thesis_direction,
+                        is_vault_no_tactical=is_vault_no_tac,
+                        total_notional=total_notional,
+                        add_notional=add_notional,
+                        equity=equity,
+                        max_notional_pct=config.conviction_bands.max_total_notional_pct,
+                    )
+
+                    if ok and add_size >= 0.001:
+                        try:
+                            from parent.hl_proxy import HLProxy
+                            from cli.hl_adapter import DirectHLProxy
+                            hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                            proxy = DirectHLProxy(hl)
+                            add_side = "buy" if side == "long" else "sell"
+                            fill = proxy.place_order(
+                                instrument=coin, side=add_side, size=add_size,
+                                price=current_price, tif="Ioc",
+                            )
+                            if fill:
+                                actions.append({
+                                    "market": coin, "action": "conviction_dip_add",
+                                    "size_added": add_size, "price": current_price,
+                                    "conviction": effective_conv,
+                                    "reason": f"Dip add: conv={effective_conv:.2f}, adj_pct={adj_dip_add_pct:.1f}%",
+                                })
+                                state.last_add_ms[coin] = now_ms
+                                state.conviction_at_last_action[canonical_id] = effective_conv
+                                log.info("Conviction dip-add %s: +%.4f @ $%.2f (conv=%.2f)",
+                                         coin, add_size, current_price, effective_conv)
+                        except Exception as e:
+                            errors.append(f"Conviction dip add failed for {coin}: {e}")
+                    else:
+                        pos_summary["dip_add_blocked"] = block or "size too small"
+                elif not conviction_enabled and not dry_run:
+                    # Phase 1 fallback: log but don't trade
                     actions.append({
-                        "market": coin, "action": "dip_add",
+                        "market": coin, "action": "dip_add_signal",
                         "add_pct": config.spike_config.dip_add_pct,
+                        "reason": "Conviction engine disabled — signal only",
                     })
                     state.last_add_ms[coin] = now_ms
 
@@ -1028,15 +1263,18 @@ def _fetch_open_trigger_orders(address: str, dex: str = None) -> list[dict]:
         orders = resp.json()
         if not isinstance(orders, list):
             return []
-        # Filter for trigger orders (stop-loss / take-profit)
+        # Filter for trigger orders (stop-loss / take-profit).
+        # HL returns orderType="Stop Market" with isTrigger=True — NOT "Trigger" in orderType.
         trigger_orders = []
         for order in orders:
-            # Trigger orders have orderType containing "Trigger" or have triggerCondition
             order_type = order.get("orderType", "")
-            if "Trigger" in str(order_type) or "trigger" in str(order_type).lower():
-                trigger_orders.append(order)
-            # Also check for tpsl field
-            elif order.get("tpsl"):
+            if (
+                order.get("isTrigger")
+                or order.get("triggerCondition")
+                or order.get("tpsl")
+                or "Trigger" in str(order_type)
+                or "Stop" in str(order_type)
+            ):
                 trigger_orders.append(order)
         return trigger_orders
     except Exception as e:

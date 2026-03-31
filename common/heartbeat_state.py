@@ -32,6 +32,11 @@ class WorkingState:
     last_add_ms: dict = field(default_factory=dict)
     last_status_summary_ms: int = 0
 
+    # Conviction engine tracking
+    last_thesis_load_ms: int = 0
+    conviction_at_last_action: dict = field(default_factory=dict)   # market → conviction
+    position_target_cache: dict = field(default_factory=dict)       # market → target notional
+
     def maybe_reset_peak(self, today_str: str, current_equity: float) -> None:
         """Reset peak if date changed; update peak if new high."""
         if self.session_peak_reset_date != today_str:

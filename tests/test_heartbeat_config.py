@@ -54,7 +54,7 @@ def test_load_config_from_files(tmp_path: Path):
     assert cfg.escalation.liq_L1_alert_pct == 15
     assert cfg.escalation.drawdown_L1_pct == 7
     # Non-overridden values keep defaults
-    assert cfg.escalation.liq_L2_deleverage_pct == 8
+    assert cfg.escalation.liq_L2_deleverage_pct == 4  # widened from 8 to 4 (2026-03-31)
 
     # Profit rules: overridden field + defaults for rest
     oil_pr = cfg.profit_rules["xyz:BRENTOIL"]
@@ -153,5 +153,5 @@ def test_corrupt_json_uses_defaults(tmp_path: Path):
     (tmp_path / "escalation_config.json").write_text("{invalid json!!!")
     cfg = load_config(config_dir=tmp_path)
     # Should still get valid defaults
-    assert cfg.escalation.liq_L1_alert_pct == 10
+    assert cfg.escalation.liq_L1_alert_pct == 6  # widened from 10 to 6 (2026-03-31)
     assert isinstance(cfg.escalation, EscalationConfig)

@@ -51,6 +51,31 @@ class SpikeConfig:
 
 
 @dataclass
+class ConvictionBands:
+    """Maps thesis conviction (0.0-1.0) to target position size (% of equity).
+
+    The conviction engine linearly interpolates within each band.
+    Set ``enabled = False`` to disable all conviction-driven execution
+    (kill switch — reverts to Phase 1 middle-office only).
+    """
+    enabled: bool = True
+
+    # Band boundaries: conviction -> target size as fraction of equity
+    defensive_max: float = 0.3       # below this: no new entries
+    small_range: tuple = (0.3, 0.5)  # conviction range
+    small_size: tuple = (0.05, 0.10) # 5-10% of equity
+    medium_range: tuple = (0.5, 0.7)
+    medium_size: tuple = (0.10, 0.20)
+    large_range: tuple = (0.7, 0.9)
+    large_size: tuple = (0.20, 0.35)
+    max_range: tuple = (0.9, 1.0)
+    max_size: tuple = (0.35, 0.50)
+
+    # Account-level cap
+    max_total_notional_pct: float = 0.50  # never exceed 50% of equity in total notional
+
+
+@dataclass
 class MarketMapping:
     canonical_id: str
     hl_coin: str
@@ -99,6 +124,7 @@ class HeartbeatConfig:
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
     profit_rules: dict[str, ProfitRules] = field(default_factory=_default_profit_rules)
     spike_config: SpikeConfig = field(default_factory=SpikeConfig)
+    conviction_bands: ConvictionBands = field(default_factory=ConvictionBands)
     markets: dict[str, MarketMapping] = field(default_factory=_default_markets)
     atr_interval: str = "4h"
     atr_period: int = 14
@@ -188,4 +214,14 @@ def load_config(config_dir: Path | None = None) -> HeartbeatConfig:
     if mkt_data:
         _apply_markets(cfg, mkt_data)
 
+    conv_data = _read_json(config_dir / "conviction_bands.json")
+    if conv_data:
+        _apply_conviction_bands(cfg, conv_data)
+
     return cfg
+
+
+def _apply_conviction_bands(cfg: HeartbeatConfig, data: dict) -> None:
+    for k, v in data.items():
+        if hasattr(cfg.conviction_bands, k):
+            setattr(cfg.conviction_bands, k, v)
