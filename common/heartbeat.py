@@ -84,15 +84,23 @@ def compute_stop_price(
             stop = max(stop, min_dist_stop)
 
     # Liquidation buffer constraint: stop must stay away from liq price
-    if liq_price is not None:
+    if liq_price is not None and liq_price > 0:
         if is_long:
-            # Stop must NOT be below this floor
             liq_floor = liq_price * (1 + liq_buffer_pct / 100)
-            stop = max(stop, liq_floor)
+            # Only apply if the floor is still below entry — never push stop above entry
+            if liq_floor < entry:
+                stop = max(stop, liq_floor)
         else:
-            # Stop must NOT be above this ceiling
             liq_ceil = liq_price * (1 - liq_buffer_pct / 100)
-            stop = min(stop, liq_ceil)
+            if liq_ceil > entry:
+                stop = min(stop, liq_ceil)
+
+    # Final safety: NEVER place stop on the wrong side of entry
+    if is_long and stop >= entry:
+        # Stop above entry for a long = instant close. Skip stop placement.
+        return 0.0  # Caller should check for 0 and skip
+    if not is_long and stop <= entry:
+        return 0.0
 
     return stop
 
@@ -635,7 +643,11 @@ def run_heartbeat(
             )
             pos_summary["computed_stop"] = stop
 
-            if not dry_run:
+            if stop <= 0:
+                # Stop would be on wrong side of entry — position too close to liq for ATR stop
+                log.info("Skipping stop for %s: ATR stop would be above entry (liq too close)", coin)
+                pos_summary["stop_skipped"] = "liq_too_close_for_atr_stop"
+            elif not dry_run:
                 # Place the stop via HL Exchange API
                 try:
                     from parent.hl_proxy import HLProxy
