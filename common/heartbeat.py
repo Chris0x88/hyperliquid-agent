@@ -1153,11 +1153,12 @@ def should_send_status_summary(
     return elapsed_ms >= interval_hours * 3600 * 1000
 
 
-# ── Internal helpers (used only by run_heartbeat) ─────────────────────────────
+# Wallet addresses — resolved from environment/config, never hardcoded
+# Set HL_MAIN_WALLET and HL_VAULT_ADDRESS in your .env file
+from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
 
-# Wallet addresses for multi-account monitoring
-MAIN_ACCOUNT = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-VAULT_ADDRESS = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+MAIN_ACCOUNT = resolve_main_wallet(required=False) or ""
+VAULT_ADDRESS = _resolve_vault(required=False) or ""
 
 
 def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:

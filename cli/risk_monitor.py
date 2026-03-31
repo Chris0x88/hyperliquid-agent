@@ -30,8 +30,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [risk]
 log = logging.getLogger("risk_monitor")
 
 HL_API = "https://api.hyperliquid.xyz/info"
-ADDR = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-VAULT = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+
+from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
+ADDR = resolve_main_wallet(required=True)
+VAULT = _resolve_vault(required=False) or ""
+
 POLL_INTERVAL = 30
 PID_FILE = Path("data/daemon/risk_monitor.pid")
 SIGNAL_LOG = Path("data/research/markets/xyz_brentoil/signals.jsonl")

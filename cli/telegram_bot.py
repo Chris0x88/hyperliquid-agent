@@ -38,8 +38,9 @@ logging.basicConfig(
 log = logging.getLogger("telegram_bot")
 
 HL_API = "https://api.hyperliquid.xyz/info"
-MAIN_ADDR = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-VAULT_ADDR = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
+MAIN_ADDR = resolve_main_wallet(required=True)
+VAULT_ADDR = _resolve_vault(required=False) or ""
 POLL_INTERVAL = 2.0  # seconds
 COMMAND_QUEUE = Path("data/daemon/telegram_commands.jsonl")
 PID_FILE = Path("data/daemon/telegram_bot.pid")

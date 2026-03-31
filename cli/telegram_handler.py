@@ -80,8 +80,9 @@ def _get_portfolio_status(token: str, chat_id: str) -> str:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
     url = "https://api.hyperliquid.xyz/info"
-    addr = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-    vault_addr = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+    from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
+    addr = resolve_main_wallet(required=True)
+    vault_addr = _resolve_vault(required=False) or ""
 
     lines = []
     now = datetime.now(timezone.utc)

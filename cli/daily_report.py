@@ -25,8 +25,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [report] %(message)s
 log = logging.getLogger("daily_report")
 
 HL_API = "https://api.hyperliquid.xyz/info"
-ADDR = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-VAULT = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
+ADDR = resolve_main_wallet(required=True)
+VAULT = _resolve_vault(required=False) or ""
 REPORT_DIR = Path("data/reports")
 
 
