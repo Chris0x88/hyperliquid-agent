@@ -747,15 +747,70 @@ def should_send_status_summary(
 # ── Internal helpers (used only by run_heartbeat) ─────────────────────────────
 
 def _fetch_account_state(config: HeartbeatConfig) -> dict:
-    """Fetch account state from HL API. Placeholder for real implementation.
+    """Fetch account state from HL API using DirectHLProxy.
 
     Returns a dict with keys: equity, positions (list of position dicts).
     Each position dict has: coin, side, entry_price, size, current_price,
-    liq_price, upnl_pct, position_age_min, notional, atr.
+    liq_price, upnl_pct, leverage, liq_distance_pct, funding_rate.
     """
-    # This will be wired to the real HL adapter in a later task.
-    # For now, raise so that fetch_with_retry returns None in tests.
-    raise NotImplementedError("HL API adapter not yet wired")
+    from parent.hl_proxy import HLProxy
+    from cli.hl_adapter import DirectHLProxy
+
+    # Create proxy — credentials resolved automatically via resolve_private_key()
+    hl = HLProxy(testnet=False)
+    proxy = DirectHLProxy(hl)
+    raw = proxy.get_account_state()
+
+    if not raw:
+        raise RuntimeError("Empty account state from HL API")
+
+    equity = float(raw.get("account_value", 0))
+    positions = []
+
+    for ap in raw.get("positions", []):
+        pos_data = ap.get("position", ap) if isinstance(ap, dict) else ap
+        szi = float(pos_data.get("szi", 0))
+        if abs(szi) < 1e-9:
+            continue  # skip empty positions
+
+        entry_px = float(pos_data.get("entryPx", 0))
+        coin = pos_data.get("coin", "")
+        leverage_info = pos_data.get("leverage", {})
+        leverage_val = float(leverage_info.get("value", 1)) if isinstance(leverage_info, dict) else float(leverage_info or 1)
+        liq_px = float(pos_data.get("liquidationPx", 0) or 0)
+        mark_px = entry_px  # will be updated below
+
+        # Get current price from position's unrealized PnL calculation
+        upnl = float(pos_data.get("unrealizedPnl", 0))
+        notional = float(pos_data.get("positionValue", abs(szi) * entry_px))
+        if abs(szi) > 0 and entry_px > 0:
+            mark_px = entry_px + (upnl / abs(szi)) if szi > 0 else entry_px - (upnl / abs(szi))
+
+        # Compute liq distance
+        liq_distance_pct = 0.0
+        if liq_px > 0 and mark_px > 0:
+            if szi > 0:  # long
+                liq_distance_pct = (mark_px - liq_px) / mark_px * 100
+            else:  # short
+                liq_distance_pct = (liq_px - mark_px) / mark_px * 100
+
+        upnl_pct = (upnl / (abs(szi) * entry_px) * 100) if (abs(szi) * entry_px) > 0 else 0
+
+        positions.append({
+            "coin": coin,
+            "side": "long" if szi > 0 else "short",
+            "entry_price": entry_px,
+            "size": abs(szi),
+            "current_price": mark_px,
+            "liq_price": liq_px,
+            "liq_distance_pct": round(liq_distance_pct, 2),
+            "upnl_pct": round(upnl_pct, 2),
+            "leverage": leverage_val,
+            "notional": abs(notional),
+            "funding_rate": 0.0,  # fetched separately if needed
+        })
+
+    return {"equity": equity, "positions": positions}
 
 
 def _find_canonical_id(coin: str, config: HeartbeatConfig) -> str:
