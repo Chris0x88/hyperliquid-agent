@@ -459,10 +459,11 @@ class DirectHLProxy:
         coin = self._to_coin(instrument)
         is_buy = side.lower() == "buy"
         sz = self._round_size(coin, size)
+        tp = float(self._round_price(trigger_price, coin))
         try:
             result = self._exchange.order(
-                coin, is_buy, sz, trigger_price,
-                order_type={"trigger": {"triggerPx": trigger_price, "isMarket": True, "tpsl": "sl"}},
+                coin, is_buy, sz, tp,
+                order_type={"trigger": {"triggerPx": str(tp), "isMarket": True, "tpsl": "sl"}},
                 reduce_only=True,
             )
             # Parse OID from response

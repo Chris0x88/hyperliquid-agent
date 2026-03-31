@@ -523,6 +523,8 @@ def run_heartbeat(
     # Lazy imports — only this function touches I/O modules
     from common.memory import _conn
     from common.memory_telegram import send_telegram, format_position_summary
+    import requests as _req
+    from common.heartbeat_state import compute_atr
 
     start_ms = int(time.time() * 1000)
     errors: list[str] = []
@@ -534,7 +536,7 @@ def run_heartbeat(
     kw = {"path": state_path} if state_path else {}
     state = load_working_state(**kw)
 
-    # 2. Fetch account state (placeholder — real HL API call goes here)
+    # 2. Fetch account state
     account_state = fetch_with_retry(lambda: _fetch_account_state(config), retries=3, delay_ms=500)
     if account_state is None:
         errors.append("Failed to fetch account state after 3 retries")
@@ -560,6 +562,13 @@ def run_heartbeat(
     dd_level = check_drawdown(equity, state.session_peak_equity, config)
     escalation_levels.append(dd_level)
 
+    # Build trigger order lookup: coin → list of existing trigger orders
+    trigger_orders = account_state.get("trigger_orders", [])
+    existing_stops: dict[str, list] = {}
+    for trig in trigger_orders:
+        tcoin = trig.get("coin", "")
+        existing_stops.setdefault(tcoin, []).append(trig)
+
     # 3. For each position
     positions = account_state.get("positions", [])
     for pos in positions:
@@ -569,23 +578,96 @@ def run_heartbeat(
         size = pos.get("size", 0)
         current_price = pos.get("current_price", entry)
         liq_price = pos.get("liq_price")
+        liq_dist = pos.get("liq_distance_pct", 0)
         upnl_pct = pos.get("upnl_pct", 0)
-        position_age_min = pos.get("position_age_min", 0)
-        notional = pos.get("notional", 0)
-        atr_val = pos.get("atr", 0)
+        margin_used = pos.get("margin_used", 0)
+        account_label = pos.get("account", "main")
 
         pos_summary = {"coin": coin, "side": side, "size": size, "entry": entry}
 
-        # Liq distance
-        if liq_price and current_price:
-            liq_dist = abs(current_price - liq_price) / current_price * 100
-        else:
-            liq_dist = 100.0  # No liq info => assume safe
+        # Liq distance (use pre-computed from API, fallback to 100 if no liq price)
+        if liq_dist <= 0 and (not liq_price or liq_price <= 0):
+            liq_dist = 100.0  # No liq info (cross-margin vault) => assume safe
 
-        liq_level = check_liq_distance(liq_dist, config)
+        raw_liq_level = check_liq_distance(liq_dist, config)
+        liq_level = account_risk_adjusted_escalation(raw_liq_level, margin_used, equity)
         escalation_levels.append(liq_level)
         pos_summary["liq_distance_pct"] = liq_dist
         pos_summary["liq_level"] = liq_level
+
+        # Fetch ATR (cached for 1 hour in working state)
+        atr_val = 0.0
+        cache_key = coin
+        cached = state.atr_cache.get(cache_key, {})
+        if cached and (now_ms - cached.get("cached_at_ms", 0)) < config.atr_cache_seconds * 1000:
+            atr_val = cached.get("value", 0)
+        else:
+            try:
+                # Determine dex for candle query
+                dex = None
+                if coin.startswith("xyz:"):
+                    dex = "xyz"
+                candle_coin = coin
+                end_ms = now_ms
+                start_candle_ms = end_ms - (config.atr_period + 2) * 4 * 3600 * 1000
+                payload = {
+                    "type": "candleSnapshot",
+                    "req": {"coin": candle_coin, "interval": config.atr_interval,
+                            "startTime": start_candle_ms, "endTime": end_ms},
+                }
+                resp = _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10)
+                candles = resp.json()
+                if isinstance(candles, list) and len(candles) >= 2:
+                    atr_val = compute_atr(candles, period=config.atr_period) or 0.0
+                    state.atr_cache[cache_key] = {"value": atr_val, "cached_at_ms": now_ms}
+            except Exception as e:
+                log.debug("ATR fetch failed for %s: %s", coin, e)
+
+        # Check if stop-loss already exists on exchange
+        has_stop = bool(existing_stops.get(coin))
+        pos_summary["has_stop"] = has_stop
+
+        # Compute stop price and place if needed
+        if atr_val > 0 and not has_stop:
+            stop = compute_stop_price(
+                entry=entry, side=side, atr=atr_val,
+                current_price=current_price, liq_price=liq_price if liq_price else None,
+            )
+            pos_summary["computed_stop"] = stop
+
+            if not dry_run:
+                # Place the stop via HL Exchange API
+                try:
+                    from parent.hl_proxy import HLProxy
+                    from cli.hl_adapter import DirectHLProxy
+
+                    # Determine which proxy to use based on account
+                    if account_label == "vault":
+                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                    else:
+                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                    proxy = DirectHLProxy(hl)
+
+                    # Stop side is opposite of position: long pos → sell stop
+                    stop_side = "sell" if side == "long" else "buy"
+                    oid = proxy.place_trigger_order(
+                        instrument=coin, side=stop_side,
+                        size=size, trigger_price=round(stop, 2),
+                    )
+                    if oid:
+                        actions.append({
+                            "market": coin, "action": "stop_placed",
+                            "stop_price": round(stop, 2), "oid": oid,
+                            "reason": f"ATR-based stop ({config.atr_period}x{config.atr_interval}, 3x ATR=${atr_val:.2f})",
+                        })
+                        log.info("Placed stop on %s: %s @ $%.2f (OID %s)", coin, stop_side, stop, oid)
+                    else:
+                        errors.append(f"Stop placement returned no OID for {coin}")
+                except Exception as e:
+                    errors.append(f"Stop placement failed for {coin}: {e}")
+                    log.warning("Failed to place stop for %s: %s", coin, e, exc_info=True)
+        elif has_stop:
+            pos_summary["existing_stop"] = "yes"
 
         # Spike/dip detection
         last_price = state.last_prices.get(coin, current_price)
@@ -597,19 +679,38 @@ def run_heartbeat(
         pos_summary["spike_dip"] = spike_dip
         state.last_prices[coin] = current_price
 
-        # Profit check
+        # Profit check (spike-based quick profit)
         canonical_id = _find_canonical_id(coin, config)
         profit_rules = config.get_profit_rules(canonical_id)
-        profit_check = should_take_profit(upnl_pct, position_age_min, profit_rules, current_size=size)
+        profit_check = should_take_profit(upnl_pct, 0, profit_rules, current_size=size)
         pos_summary["profit_check"] = profit_check
 
-        if profit_check["take"] and not dry_run:
-            actions.append({
-                "market": coin,
-                "action": "take_profit",
-                "take_pct": profit_check["take_pct"],
-                "reason": profit_check["reason"],
-            })
+        if spike_dip["type"] == "spike" and spike_dip["pct"] >= config.spike_config.spike_profit_threshold_pct:
+            take_pct = config.spike_config.spike_take_pct
+            take_size = round(size * take_pct / 100, 6)
+            if take_size >= 0.001 and not dry_run:
+                try:
+                    from parent.hl_proxy import HLProxy
+                    from cli.hl_adapter import DirectHLProxy
+                    if account_label == "vault":
+                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                    else:
+                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                    proxy = DirectHLProxy(hl)
+                    close_side = "sell" if side == "long" else "buy"
+                    fill = proxy.place_order(
+                        instrument=coin, side=close_side, size=take_size,
+                        price=current_price, tif="Ioc",
+                    )
+                    if fill:
+                        actions.append({
+                            "market": coin, "action": "spike_profit",
+                            "size_closed": take_size, "price": current_price,
+                            "spike_pct": spike_dip["pct"],
+                            "reason": f"Spike +{spike_dip['pct']:.1f}% detected, took {take_pct}%",
+                        })
+                except Exception as e:
+                    errors.append(f"Spike profit-take failed for {coin}: {e}")
 
         # Dip add check
         if spike_dip["type"] == "dip":
@@ -619,19 +720,10 @@ def run_heartbeat(
                 pos_summary["dip_add"] = True
                 if not dry_run:
                     actions.append({
-                        "market": coin,
-                        "action": "dip_add",
+                        "market": coin, "action": "dip_add",
                         "add_pct": config.spike_config.dip_add_pct,
                     })
                     state.last_add_ms[coin] = now_ms
-
-        # Stop price
-        if atr_val > 0:
-            stop = compute_stop_price(
-                entry=entry, side=side, atr=atr_val,
-                current_price=current_price, liq_price=liq_price,
-            )
-            pos_summary["stop_price"] = stop
 
         position_summaries.append(pos_summary)
 
@@ -641,11 +733,35 @@ def run_heartbeat(
 
     # 6. Deleverage actions for L2/L3
     if final_escalation in ("L2", "L3") and not dry_run:
-        actions.append({
-            "action": "deleverage",
-            "level": final_escalation,
-            "reason": f"Escalation reached {final_escalation}",
-        })
+        for pos in positions:
+            lev = pos.get("leverage", 1)
+            if lev <= 1:
+                continue  # can't deleverage below 1x
+            target_lev = max(1, lev - config.escalation.liq_L2_deleverage_amount) if final_escalation == "L2" else config.escalation.liq_L3_target_leverage
+            target_lev = max(1, min(target_lev, lev))
+            if target_lev >= lev:
+                continue
+            account_label = pos.get("account", "main")
+            coin = pos.get("coin", "")
+            try:
+                from parent.hl_proxy import HLProxy
+                if account_label == "vault":
+                    hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                else:
+                    hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                hl._ensure_client()
+                hl_coin = coin.replace("xyz:", "") if coin.startswith("xyz:") else coin
+                hl._exchange.update_leverage(int(target_lev), hl_coin, is_cross=True)
+                actions.append({
+                    "market": coin, "action": "deleverage",
+                    "prev_leverage": lev, "new_leverage": target_lev,
+                    "level": final_escalation,
+                    "reason": f"Escalation {final_escalation}: leverage {lev}x→{target_lev}x",
+                })
+                log.info("Delevered %s: %sx→%sx (%s)", coin, lev, target_lev, final_escalation)
+            except Exception as e:
+                errors.append(f"Deleverage failed for {coin}: {e}")
+                log.warning("Deleverage failed for %s: %s", coin, e)
 
     state.escalation_level = final_escalation
     state.last_updated_ms = now_ms

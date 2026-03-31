@@ -229,7 +229,8 @@ class HLProxy:
     """
 
     def __init__(self, private_key: Optional[str] = None, testnet: bool = True,
-                 account_address: Optional[str] = None):
+                 account_address: Optional[str] = None,
+                 vault_address: Optional[str] = None):
         if private_key is None:
             try:
                 from common.credentials import resolve_private_key
@@ -239,6 +240,7 @@ class HLProxy:
         self.private_key = private_key
         self.testnet = testnet
         self._account_address = self._resolve_account_address(account_address)
+        self._vault_address = self._resolve_vault_address(vault_address)
         self._info = None
         self._exchange = None
         self._address = None
@@ -250,6 +252,14 @@ class HLProxy:
         addr = address or os.environ.get("HL_WALLET_ADDRESS", "")
         if addr and not re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
             log.warning("HL_WALLET_ADDRESS invalid, ignoring: %s", addr)
+            return ""
+        return addr
+
+    def _resolve_vault_address(self, address: Optional[str] = None) -> str:
+        """Resolve vault address from arg or HL_VAULT_ADDRESS env var."""
+        addr = address or os.environ.get("HL_VAULT_ADDRESS", "")
+        if addr and not re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
+            log.warning("HL_VAULT_ADDRESS invalid, ignoring: %s", addr)
             return ""
         return addr
 
@@ -271,14 +281,28 @@ class HLProxy:
 
         account = Account.from_key(self.private_key)
         delegated = self._account_address
-        if delegated and delegated.lower() != account.address.lower():
+
+        _dexs = ["", "xyz"]  # same perp_dexs as Info — keeps asset maps in sync
+
+        if self._vault_address:
+            # Vault mode: orders go to the vault, state reads from vault address
+            self._address = self._vault_address
+            self._exchange = Exchange(
+                account, base_url,
+                account_address=account.address,
+                vault_address=self._vault_address,
+                perp_dexs=_dexs,
+            )
+            log.info("HL client: vault=%s signer=%s (testnet=%s)",
+                     self._vault_address, account.address, self.testnet)
+        elif delegated and delegated.lower() != account.address.lower():
             self._address = delegated
-            self._exchange = Exchange(account, base_url, account_address=delegated)
+            self._exchange = Exchange(account, base_url, account_address=delegated, perp_dexs=_dexs)
             log.info("HL client: agent=%s trading for %s (testnet=%s)",
                      account.address, delegated, self.testnet)
         else:
             self._address = account.address
-            self._exchange = Exchange(account, base_url)
+            self._exchange = Exchange(account, base_url, perp_dexs=_dexs)
             log.info("HL client initialized: %s (testnet=%s)", self._address, self.testnet)
 
     def set_leverage(self, leverage: int, coin: str = "ETH", is_cross: bool = True):
