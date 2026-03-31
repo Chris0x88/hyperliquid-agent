@@ -794,9 +794,10 @@ def run_heartbeat(
         except Exception as exc:
             errors.append(f"action_log write failed: {exc}")
 
-    # 9. Log execution trace
+    # 9. Log execution trace — only if something happened (actions, new errors, or escalation change)
     duration_ms = int(time.time() * 1000) - start_ms
-    if not dry_run:
+    something_happened = actions or (final_escalation != prev_escalation) or (errors and not state.heartbeat_consecutive_failures)
+    if not dry_run and something_happened:
         try:
             con = _conn()
             con.execute(
