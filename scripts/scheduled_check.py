@@ -279,10 +279,70 @@ def main():
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--format", choices=["json", "digest"], default="json")
+    parser.add_argument("--format", choices=["json", "digest", "harness"], default="json")
+    parser.add_argument("--market", default=None, help="Single market for harness mode")
+    parser.add_argument("--budget", type=int, default=4000, help="Token budget for harness mode")
     args = parser.parse_args()
 
-    if args.format == "json":
+    if args.format == "harness":
+        # ── NEW: Context harness mode ──
+        # Uses relevance-scored, token-budgeted context assembly
+        # instead of flat-dumping everything.
+        try:
+            from common.context_harness import build_thesis_context, build_multi_market_context
+            from common.market_snapshot import build_snapshot, render_snapshot
+            from modules.candle_cache import CandleCache
+
+            # Build market snapshots if candle data is available
+            snapshot_texts = {}
+            try:
+                cache = CandleCache()
+                markets = [args.market] if args.market else ["xyz:BRENTOIL", "BTC-PERP"]
+                for mk in markets:
+                    price = 0.0
+                    # Try to get price from result
+                    if "brentoil" in mk.lower() and result.get("brentoil"):
+                        price = result["brentoil"].get("current_price", 0)
+                    snap = build_snapshot(mk, cache, current_price=price)
+                    snapshot_texts[mk] = render_snapshot(snap, detail="standard")
+                cache.close()
+            except Exception as e:
+                log_msg = f"Candle cache unavailable for snapshots: {e}"
+                # Silently continue — snapshots are enhancement, not required
+
+            if args.market:
+                # Single market mode
+                thesis_key = args.market.replace(":", "_").replace("-", "_").lower()
+                current_thesis = result.get(f"thesis_{thesis_key}")
+                ctx = build_thesis_context(
+                    market=args.market,
+                    account_state=result,
+                    market_snapshot_text=snapshot_texts.get(args.market),
+                    current_thesis=current_thesis,
+                    alerts=result.get("alerts"),
+                    token_budget=args.budget,
+                )
+            else:
+                # Multi-market mode
+                markets = ["xyz:BRENTOIL", "BTC-PERP"]
+                ctx = build_multi_market_context(
+                    markets=markets,
+                    account_state=result,
+                    market_snapshots=snapshot_texts,
+                    token_budget=args.budget,
+                )
+
+            print(ctx.text)
+            print(f"\n--- ASSEMBLY META ---")
+            print(f"Included: {ctx.blocks_included}")
+            print(f"Dropped: {ctx.blocks_dropped}")
+            print(f"Tokens: ~{ctx.estimated_tokens} ({ctx.budget_used_pct}% of budget)")
+
+        except ImportError as e:
+            print(f"ERROR: Context harness not available: {e}", file=sys.stderr)
+            print(json.dumps(result, indent=2))
+
+    elif args.format == "json":
         print(json.dumps(result, indent=2))
     else:
         # Generate human-readable / AI-readable digest
