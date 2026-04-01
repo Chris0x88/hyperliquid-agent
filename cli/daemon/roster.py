@@ -112,9 +112,10 @@ class Roster:
             self.slots[slot.name] = slot
 
     def ensure_default(self) -> None:
-        """If roster is empty, add the default strategy."""
+        """If roster is empty, add the default strategy (paused by default)."""
         if not self.slots:
             self.add("power_law_btc", instrument="BTC-PERP", tick_interval=3600)
+            self.pause("power_law_btc")
 
 
 def _load_strategy(path: str, params: Dict[str, Any]) -> Any:

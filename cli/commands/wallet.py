@@ -183,6 +183,69 @@ def wallet_export(
         raise typer.Exit(1)
 
 
+@wallet_app.command("deposit")
+def wallet_deposit():
+    """Show your deposit address(es) with network instructions.
+
+    Displays all registered wallet addresses and the correct network/format
+    for depositing into HyperLiquid.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.account_resolver import resolve_all_accounts, WALLET_FILE
+
+    if not WALLET_FILE.exists():
+        typer.echo("\n  No wallets registered yet.")
+        typer.echo("  Run 'hl keys import' then 'hl wallet register' first.")
+        raise typer.Exit(0)
+
+    accounts = resolve_all_accounts()
+    labels = accounts.get("labels", {})
+
+    typer.echo("")
+    typer.echo("  \033[1mDeposit Instructions\033[0m")
+    typer.echo("  " + "─" * 52)
+    typer.echo("")
+    typer.echo("  HyperLiquid uses standard EVM (Ethereum-compatible) addresses.")
+    typer.echo("  Deposits accepted on: \033[1mArbitrum One\033[0m  (NOT Ethereum mainnet)")
+    typer.echo("  Asset: \033[1mUSDC\033[0m  (send USDC, not ETH or other tokens)")
+    typer.echo("")
+    typer.echo("  \033[33m  Only send USDC on Arbitrum. Wrong network = lost funds.\033[0m")
+    typer.echo("")
+
+    if accounts["main"]:
+        lbl = labels.get(accounts["main"], "Main Trading Account")
+        typer.echo(f"  \033[1m{lbl}\033[0m")
+        typer.echo(f"  \033[32m{accounts['main']}\033[0m")
+        typer.echo(f"  Network: Arbitrum One | Asset: USDC")
+        typer.echo("")
+
+    if accounts["vault"]:
+        lbl = labels.get(accounts["vault"], "Vault Account")
+        typer.echo(f"  \033[1m{lbl}\033[0m")
+        typer.echo(f"  \033[32m{accounts['vault']}\033[0m")
+        typer.echo(f"  Network: Arbitrum One | Asset: USDC")
+        typer.echo("")
+
+    for i, sub in enumerate(accounts.get("subs", []), 1):
+        lbl = labels.get(sub, f"Sub-Account {i}")
+        typer.echo(f"  \033[1m{lbl}\033[0m")
+        typer.echo(f"  \033[32m{sub}\033[0m")
+        typer.echo(f"  Network: Arbitrum One | Asset: USDC")
+        typer.echo("")
+
+    if not any([accounts["main"], accounts["vault"], accounts.get("subs")]):
+        typer.echo("  No addresses registered. Run 'hl wallet register' first.")
+
+    typer.echo("  After depositing, it may take 1-2 minutes to appear in your account.")
+    typer.echo("  Verify balance: hl status")
+    typer.echo("")
+
+
+
+
 @wallet_app.command("register")
 def wallet_register(
     label: str = typer.Option("Main", "--label", "-l", help="Human-readable label for this account"),

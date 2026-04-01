@@ -289,6 +289,13 @@ def main():
         lines = []
         lines.append(f"📆 **Market Time**: {result.get('timestamp')}")
         
+        try:
+            from cli.telegram_handler import get_whitelist
+            wl = get_whitelist()
+            lines.append(f"🛡️ **Active Whitelist**: {', '.join(wl)}")
+        except Exception:
+            pass
+
         acc = result.get('account', {})
         if acc:
             lines.append(f"💰 **Equity**: ${acc.get('total_equity', 0):,.2f} (Main: ${acc.get('native_equity',0):.2f}, Vault: ${acc.get('xyz_equity',0):.2f})")

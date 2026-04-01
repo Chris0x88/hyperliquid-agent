@@ -1,0 +1,33 @@
+{
+  "latest": {
+    "component": "heartbeat",
+    "cycle_duration_s": 6.36,
+    "total_actions": 0,
+    "ok": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "api_calls": 0,
+    "api_failures": 0,
+    "stops_placed": 0,
+    "stops_failed": 0,
+    "orders": 0,
+    "ts": 1775003976.142026
+  },
+  "current_cycle_actions": [],
+  "history": [
+    {
+      "component": "heartbeat",
+      "cycle_duration_s": 6.36,
+      "total_actions": 0,
+      "ok": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "api_calls": 0,
+      "api_failures": 0,
+      "stops_placed": 0,
+      "stops_failed": 0,
+      "orders": 0,
+      "ts": 1775003976.142026
+    }
+  ]
+}

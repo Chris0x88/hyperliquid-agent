@@ -47,11 +47,15 @@ def _keychain_read(key_name: str) -> Optional[str]:
     return None
 
 
-def _send(token: str, chat_id: str, text: str) -> bool:
+def _send(token: str, chat_id: str, text: str, reply_markup: Optional[dict] = None) -> bool:
     try:
+        payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+            
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+            json=payload,
             timeout=10,
         )
         return resp.json().get("ok", False)
@@ -72,6 +76,55 @@ def _get_last_update_id() -> int:
 def _set_last_update_id(update_id: int) -> None:
     LAST_UPDATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     LAST_UPDATE_PATH.write_text(str(update_id))
+
+
+WHITELIST_PATH = Path("data/daemon/whitelist.json")
+
+def get_whitelist() -> list[str]:
+    if not WHITELIST_PATH.exists():
+        return ["BTC-PERP", "ETH-PERP", "xyz:BRENTOIL"]
+    try:
+        return json.loads(WHITELIST_PATH.read_text())
+    except Exception:
+        return []
+
+def set_whitelist(wl: list[str]) -> None:
+    WHITELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    WHITELIST_PATH.write_text(json.dumps(list(set(wl)), indent=2))
+    
+def _handle_whitelist_ui(token: str, chat_id: str, action: str = "", arg: str = "") -> str:
+    wl = get_whitelist()
+    
+    if action == "add" and arg:
+        sym = arg.upper()
+        if not sym.endswith("-PERP") and not sym.startswith("xyz:"):
+            sym = f"{sym}-PERP"
+        if sym not in wl:
+            wl.append(sym)
+            set_whitelist(wl)
+            _send(token, chat_id, f"✅ Added {sym} to whitelist.")
+            
+    elif action == "drop" and arg:
+        if arg in wl:
+            wl.remove(arg)
+            set_whitelist(wl)
+            _send(token, chat_id, f"🗑️ Dropped {arg} from whitelist.")
+
+    # Render UI
+    text = "🛡️ **Agent Market Whitelist**\nOpenClaw is restricted to researching and trading these markets only:\n"
+    
+    keyboard = {"inline_keyboard": []}
+    for coin in sorted(wl):
+        keyboard["inline_keyboard"].append([
+            {"text": f"❌ Drop {coin}", "callback_data": f"wl_drop:{coin}"}
+        ])
+    
+    keyboard["inline_keyboard"].append([
+        {"text": "💡 Tip: Reply '/wl add <COIN>' to add", "callback_data": "ignore"}
+    ])
+    
+    _send(token, chat_id, text, reply_markup=keyboard)
+    return ""
 
 
 def _get_portfolio_status(token: str, chat_id: str) -> str:
@@ -197,6 +250,8 @@ def _get_prices(token: str, chat_id: str) -> str:
 COMMANDS = {
     "/status": ("Portfolio status", _get_portfolio_status),
     "/price": ("Current prices", _get_prices),
+    "/whitelist": ("Manage AI market whitelist", lambda t, c: _handle_whitelist_ui(t, c)),
+    "/wl": ("Alias for whitelist (use /wl add <coin>)", None),
     "/help": None,  # handled inline
 }
 
@@ -232,6 +287,21 @@ def poll_and_respond() -> list[dict]:
         update_id = update.get("update_id", 0)
         _set_last_update_id(update_id)
 
+        if callback_query := update.get("callback_query"):
+            _set_last_update_id(update.get("update_id", 0))
+            cb_data = callback_query.get("data", "")
+            cb_msg = callback_query.get("message", {})
+            cb_chat_id = str(cb_msg.get("chat", {}).get("id", ""))
+            
+            if cb_chat_id == chat_id and cb_data.startswith("wl_drop:"):
+                coin = cb_data.split(":", 1)[1]
+                _handle_whitelist_ui(token, chat_id, "drop", coin)
+                
+            # Answer callback to remove loading state
+            cb_id = callback_query.get("id")
+            requests.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery", json={"callback_query_id": cb_id})
+            continue
+
         msg = update.get("message", {})
         msg_chat_id = str(msg.get("chat", {}).get("id", ""))
         text = msg.get("text", "").strip()
@@ -243,17 +313,23 @@ def poll_and_respond() -> list[dict]:
         if not text:
             continue
 
-        cmd = text.split()[0].lower()
+        parts = text.split()
+        cmd = parts[0].lower()
 
         if cmd == "/help":
             help_lines = ["Commands:", ""]
             for c, info in COMMANDS.items():
-                desc = info[0] if info else "This help message"
-                help_lines.append(f"  {c} — {desc}")
+                if info:
+                    desc = info[0] if isinstance(info, tuple) else "Command"
+                    help_lines.append(f"  {c} — {desc}")
             help_lines.append("")
             help_lines.append("Anything else is forwarded to Claude for analysis/execution.")
             _send(token, chat_id, "\n".join(help_lines))
 
+        elif cmd == "/wl" and len(parts) > 2 and parts[1].lower() == "add":
+            sym = parts[2]
+            _handle_whitelist_ui(token, chat_id, "add", sym)
+            
         elif cmd in COMMANDS and COMMANDS[cmd] is not None:
             handler = COMMANDS[cmd][1]
             try:

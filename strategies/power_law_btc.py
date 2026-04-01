@@ -128,7 +128,7 @@ class PowerLawBTCStrategy(BaseStrategy):
         # Fall back: build our own proxy from env (standalone mode)
         try:
             import os
-            from cli.config import TradingConfig
+            from common.account_resolver import resolve_private_key, resolve_vault_wallet
             from parent.hl_proxy import HLProxy
             from cli.hl_adapter import DirectHLProxy, DirectMockProxy
 
@@ -136,10 +136,9 @@ class PowerLawBTCStrategy(BaseStrategy):
                 log.info("[PowerLawBTC] Using mock proxy")
                 return DirectMockProxy()
 
-            cfg = TradingConfig()
-            key = cfg.get_private_key()
+            key = resolve_private_key(required=True)
             testnet = os.environ.get("HL_TESTNET", "true").lower() != "false"
-            vault_address = os.environ.get("HL_VAULT_ADDRESS", "")
+            vault_address = resolve_vault_wallet(required=False)
             hl = HLProxy(private_key=key, testnet=testnet, vault_address=vault_address or None)
             return DirectHLProxy(hl)
         except Exception as e:
