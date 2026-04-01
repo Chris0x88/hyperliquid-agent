@@ -119,12 +119,15 @@ def _default_profit_rules() -> dict[str, ProfitRules]:
 
 # ── Main config ──────────────────────────────────────────────────────────────
 
+from common.consolidation import ConsolidationConfig
+
 @dataclass
 class HeartbeatConfig:
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
     profit_rules: dict[str, ProfitRules] = field(default_factory=_default_profit_rules)
     spike_config: SpikeConfig = field(default_factory=SpikeConfig)
     conviction_bands: ConvictionBands = field(default_factory=ConvictionBands)
+    consolidation_config: ConsolidationConfig = field(default_factory=ConsolidationConfig)
     markets: dict[str, MarketMapping] = field(default_factory=_default_markets)
     atr_interval: str = "4h"
     atr_period: int = 14

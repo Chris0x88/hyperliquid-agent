@@ -31,6 +31,8 @@ class WorkingState:
     last_prices: dict = field(default_factory=dict)
     last_add_ms: dict = field(default_factory=dict)
     last_status_summary_ms: int = 0
+    consolidators: dict = field(default_factory=dict)  # market → consolidation state
+    last_funding_hour: int = 0
 
     # Conviction engine tracking
     last_thesis_load_ms: int = 0

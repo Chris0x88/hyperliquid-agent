@@ -277,7 +277,51 @@ def main():
     except Exception:
         pass
 
-    print(json.dumps(result, indent=2))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--format", choices=["json", "digest"], default="json")
+    args = parser.parse_args()
+
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        # Generate human-readable / AI-readable digest
+        lines = []
+        lines.append(f"📆 **Market Time**: {result.get('timestamp')}")
+        
+        acc = result.get('account', {})
+        if acc:
+            lines.append(f"💰 **Equity**: ${acc.get('total_equity', 0):,.2f} (Main: ${acc.get('native_equity',0):.2f}, Vault: ${acc.get('xyz_equity',0):.2f})")
+        
+        if result.get("drawdown_pct"):
+            lines.append(f"📉 **Drawdown**: {result['drawdown_pct']}% from HWM")
+
+        oil = result.get("brentoil")
+        if oil:
+            stat = f"🛢️ **BRENTOIL**: {oil['size']} @ ${oil['entry']:.2f} (Current: ${oil['current_price']:.2f}, uPnL: ${oil['upnl']:.2f})"
+            stat += f"\n  - Liq: ${oil['liq_price']:.2f} ({oil['liq_dist_pct']}% away) | Lev: {oil['leverage']}x"
+            stat += f"\n  - SL: {'🟢 ' + str(oil['sl_price']) if oil['has_sl'] else '🔴 NONE'} | TP: {'🟢 Yes' if oil['has_tp'] else '🔴 NONE'}"
+            stat += f"\n  - Funding: {oil['funding_rate']:.5f} ({oil['funding_annualized_pct']}% ann, {oil['funding_direction']})"
+            lines.append(stat)
+        
+        if result.get("alerts"):
+            lines.append(f"⚠️ **ALERTS**:")
+            for a in result["alerts"]:
+                lines.append(f"  - {a}")
+                
+        if result.get("open_issues_count"):
+            lines.append(f"🚨 **Open Issues**: {result['open_issues_count']}")
+            for issue in result.get("open_issues", []):
+                lines.append(f"  - [{issue['severity']}] {issue['title']}")
+
+        thesis_keys = [k for k in result.keys() if k.startswith("thesis_") and k != "thesis_error"]
+        if thesis_keys:
+            lines.append("🧠 **Active Theses**:")
+            for tk in thesis_keys:
+                t = result[tk]
+                lines.append(f"  - {tk.replace('thesis_', '')}: Conviction {t['conviction']:.2f} ({t['direction']}) [Age: {t['age_hours']}h]")
+
+        print("\n".join(lines))
 
 if __name__ == "__main__":
     main()

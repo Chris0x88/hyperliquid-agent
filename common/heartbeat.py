@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
+import requests as _req
+
+from common.consolidation import Candle, ConsolidationDetector, calculate_ladder_orders
 from common.heartbeat_config import (
     HeartbeatConfig,
     ProfitRules,
@@ -616,6 +619,26 @@ def run_heartbeat(
             log.warning("Failed to load thesis states: %s", e)
             conviction_enabled = False
 
+    # 2.5 Hourly Funding Tracker
+    current_hour = int(now_ms / 3600000)
+    if getattr(state, "last_funding_hour", 0) < current_hour:
+        try:
+            from common.funding_tracker import FundingTracker
+            tracker = FundingTracker()
+            positions_recorded = 0
+            for p in account_state.get("positions", []):
+                rate = p.get("funding_rate", 0)
+                if rate != 0:
+                    notional = p.get("size", 0) * p.get("current_price", 0)
+                    tracker.record(p.get("coin", "?"), rate, notional, timestamp=now_ms)
+                    positions_recorded += 1
+            state.last_funding_hour = current_hour
+            if positions_recorded > 0:
+                log.info("Recorded hourly funding for %d positions", positions_recorded)
+        except Exception as e:
+            log.warning("Failed to record hourly funding: %s", e)
+
+
     # 3. For each position
     positions = account_state.get("positions", [])
     for pos in positions:
@@ -900,8 +923,70 @@ def run_heartbeat(
                 except Exception as e:
                     errors.append(f"Spike profit-take failed for {coin}: {e}")
 
+        # 3b. Consolidation Check for existing dip flags
+        consolidator_state = state.consolidators.get(coin, {})
+        dip_add_triggered = False
+
+        if consolidator_state.get("active"):
+            start_ms = consolidator_state["start_ms"]
+            # Fetch 1m candles since start
+            try:
+                payload = {
+                    "type": "candleSnapshot",
+                    "req": {"coin": coin, "interval": "1m", "startTime": start_ms, "endTime": now_ms},
+                }
+                resp = fetch_with_retry(lambda: _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10).json(), retries=3)
+                
+                if isinstance(resp, list):
+                    detector = ConsolidationDetector(config.consolidation_config)
+                    detector.start(
+                        dip_low=consolidator_state["dip_low"],
+                        dip_high=consolidator_state["dip_high"],
+                        spike_volume=consolidator_state["spike_volume"]
+                    )
+                    
+                    for c_data in resp:
+                        candle = Candle(
+                            open=float(c_data["o"]),
+                            high=float(c_data["h"]),
+                            low=float(c_data["l"]),
+                            close=float(c_data["c"]),
+                            volume=float(c_data["v"]),
+                            timestamp=float(c_data["t"])
+                        )
+                        c_res = detector.feed(candle)
+                        if not detector.is_active:
+                            break
+
+                    if c_res.action == "BUY_SIGNAL":
+                        log.info("Consolidation confirmed for %s: %s", coin, c_res.reason)
+                        dip_add_triggered = True
+                        state.consolidators[coin] = {"active": False}
+                    elif c_res.action in ("ABORT", "TIMEOUT"):
+                        log.info("Consolidation cancelled for %s: %s", coin, c_res.reason)
+                        state.consolidators[coin] = {"active": False}
+                    else:
+                        pos_summary["consolidation_status"] = "waiting"
+            except Exception as e:
+                log.warning("Failed to fetch consolidation candles for %s: %s", coin, e)
+
+
         # Dip add check — conviction engine activates actual execution
+        # Initialize consolidator instead of buying immediately
         if spike_dip["type"] == "dip":
+            if not consolidator_state.get("active"):
+                # Rough estimate of spike volume, ideally we fetch the last X candles
+                state.consolidators[coin] = {
+                    "active": True,
+                    "start_ms": now_ms,
+                    "dip_low": current_price,
+                    "dip_high": last_price,
+                    "spike_volume": 1.0  # fallback, rely on config bounds avoiding div/0
+                }
+                pos_summary["consolidation_started"] = True
+                log.info("Started consolidation tracking for %s at %.2f", coin, current_price)
+
+        if dip_add_triggered:
             dd_pct = (state.session_peak_equity - equity) / max(state.session_peak_equity, 1) * 100
             last_add = state.last_add_ms.get(coin, 0)
             if should_add_on_dip(liq_dist, dd_pct, last_add, now_ms, config.spike_config):
