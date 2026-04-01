@@ -181,3 +181,155 @@ def wallet_export(
     except Exception as e:
         typer.echo(f"Decryption failed: {e}", err=True)
         raise typer.Exit(1)
+
+
+@wallet_app.command("register")
+def wallet_register(
+    label: str = typer.Option("Main", "--label", "-l", help="Human-readable label for this account"),
+):
+    """Register your main trading wallet address for monitoring.
+
+    Reads the address from your already-stored private key (no re-entry needed).
+    Writes to ~/.hl-agent/wallets.json automatically.
+
+    Run this once after 'hl keys import'.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.credentials import resolve_private_key
+    from common.account_resolver import register_main_wallet, resolve_main_wallet
+
+    # Check if already registered
+    existing = resolve_main_wallet(required=False)
+    if existing:
+        typer.echo(f"  Main wallet already registered: {existing}")
+        typer.echo("  Use --label to update the label, or run without changes.")
+        if not typer.confirm("  Re-register (will overwrite)?", default=False):
+            raise typer.Exit(0)
+
+    # Derive address from stored key
+    try:
+        private_key = resolve_private_key(venue="hl")
+    except RuntimeError as e:
+        typer.echo(f"\n  No key found: {e}", err=True)
+        typer.echo("  Run 'hl keys import' first to store your private key.", err=True)
+        raise typer.Exit(1)
+
+    try:
+        from eth_account import Account
+        acct = Account.from_key(private_key)
+        address = acct.address.lower()
+    except Exception as e:
+        typer.echo(f"\n  Could not derive address from key: {e}", err=True)
+        raise typer.Exit(1)
+
+    register_main_wallet(address, label=label)
+
+    typer.echo("")
+    typer.echo(f"  \033[32m✓ Registered\033[0m  {address}  ({label})")
+    typer.echo(f"             Saved to ~/.hl-agent/wallets.json")
+    typer.echo("")
+    typer.echo("  If you have a vault account, run:")
+    typer.echo("    hl wallet set-vault 0xYourVaultAddress")
+    typer.echo("")
+
+
+@wallet_app.command("set-vault")
+def wallet_set_vault(
+    address: str = typer.Argument(..., help="Vault account address (0x...)"),
+    label: str = typer.Option("Vault", "--label", "-l", help="Human-readable label"),
+):
+    """Register your vault account address.
+
+    Only needed if you have a HyperLiquid vault. Writes to ~/.hl-agent/wallets.json.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.account_resolver import register_vault
+
+    if not address.startswith("0x") or len(address) != 42:
+        typer.echo(f"\n  Invalid address format: {address}", err=True)
+        typer.echo("  Expected a 42-character hex address starting with 0x", err=True)
+        raise typer.Exit(1)
+
+    register_vault(address.lower(), label=label)
+
+    typer.echo("")
+    typer.echo(f"  \033[32m✓ Vault registered\033[0m  {address.lower()}  ({label})")
+    typer.echo(f"                   Saved to ~/.hl-agent/wallets.json")
+    typer.echo("")
+
+
+@wallet_app.command("add-sub")
+def wallet_add_sub(
+    address: str = typer.Argument(..., help="Sub-account address (0x...)"),
+    label: str = typer.Option("", "--label", "-l", help="Optional human-readable label"),
+):
+    """Add a sub-account address for monitoring.
+
+    Supports any number of sub-accounts. Writes to ~/.hl-agent/wallets.json.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.account_resolver import register_sub_wallet
+
+    if not address.startswith("0x") or len(address) != 42:
+        typer.echo(f"\n  Invalid address format: {address}", err=True)
+        typer.echo("  Expected a 42-character hex address starting with 0x", err=True)
+        raise typer.Exit(1)
+
+    register_sub_wallet(address.lower(), label=label or None)
+
+    typer.echo("")
+    typer.echo(f"  \033[32m✓ Sub-account added\033[0m  {address.lower()}")
+    typer.echo("")
+
+
+@wallet_app.command("accounts")
+def wallet_accounts():
+    """Show all registered wallet addresses and their roles.
+
+    Reads from ~/.hl-agent/wallets.json (set up via 'hl wallet register').
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from common.account_resolver import resolve_all_accounts, WALLET_FILE
+
+    if not WALLET_FILE.exists():
+        typer.echo("  No wallets registered yet.")
+        typer.echo("  Run 'hl wallet register' after importing your key.")
+        raise typer.Exit(0)
+
+    accounts = resolve_all_accounts()
+    labels = accounts.get("labels", {})
+
+    typer.echo("")
+    typer.echo("  Registered Accounts")
+    typer.echo("  " + "─" * 50)
+
+    if accounts["main"]:
+        lbl = labels.get(accounts["main"], "Main")
+        typer.echo(f"  \033[1mMAIN  \033[0m  {accounts['main']}  ({lbl})")
+    else:
+        typer.echo("  MAIN    (not registered — run 'hl wallet register')")
+
+    if accounts["vault"]:
+        lbl = labels.get(accounts["vault"], "Vault")
+        typer.echo(f"  VAULT   {accounts['vault']}  ({lbl})")
+
+    for i, sub in enumerate(accounts.get("subs", []), 1):
+        lbl = labels.get(sub, f"Sub-{i}")
+        typer.echo(f"  SUB {i}   {sub}  ({lbl})")
+
+    typer.echo("")
+    typer.echo(f"  Stored at: {WALLET_FILE}")
+    typer.echo("")
+

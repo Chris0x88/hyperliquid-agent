@@ -1,66 +1,52 @@
 """Account resolver — single source of truth for wallet addresses.
 
-Replaces the pattern of hardcoding addresses like:
-    MAIN_ACCOUNT = "0x80B5801ce295C4D469F4C0C2e7E17bd84dF0F205"
-    VAULT_ADDRESS = "0x9da9a9aef5a968277b5ea66c6a0df7add49d98da"
+Wallet addresses (public, non-secret) live in ~/.hl-agent/wallets.json.
+This file is written ONLY by CLI commands (hl wallet register, hl wallet set-vault).
+Users never open or edit this file directly.
 
-...in every file, which is fragile (multi-user, multi-account systems break)
-and leaks real addresses into the codebase.
+Storage structure (wallets.json):
+  {
+    "main": "0xABC...123",             — primary trading account
+    "vault": "0xDEF...456",            — optional vault (not all users have one)
+    "subs": ["0xGHI...789"],           — optional sub-accounts (any number)
+    "labels": {"0xABC...123": "Main"} — optional human labels
+  }
 
-Resolution order for each address type:
-  1. Environment variable (HL_MAIN_WALLET, HL_VAULT_ADDRESS, HL_SECONDARY_WALLET)
-  2. Wallet file (~/.hl-agent/wallets.json or equivalent)
-  3. Raise a clear error with instructions
-
-For the OpenClaw agent:
-  - "main" account  → HL_MAIN_WALLET env var
-  - "vault" account → HL_VAULT_ADDRESS env var (optional, may not exist for all users)
-  - "sub" accounts  → HL_SUB_WALLET_n env vars (n=1,2,3...)
-
-New users just set HL_MAIN_WALLET in their .env and everything works.
-Your setup: two accounts (main + vault) both supported automatically.
+For private KEYS (not addresses), the system uses OWS vault + macOS Keychain
+via common/credentials.py and cli/keystore.py. This module handles addresses only.
 """
 from __future__ import annotations
 
+import json
 import logging
-import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
 log = logging.getLogger("account_resolver")
 
-# Environment variable names
-ENV_MAIN_WALLET    = "HL_MAIN_WALLET"
-ENV_VAULT_ADDRESS  = "HL_VAULT_ADDRESS"
-ENV_SUB_PREFIX     = "HL_SUB_WALLET_"   # HL_SUB_WALLET_1, HL_SUB_WALLET_2, ...
-
-# Wallet file location (optional, for non-env setups)
 WALLET_FILE = Path.home() / ".hl-agent" / "wallets.json"
 
+
+# ── Read-only resolution (used by all runtime code) ──────────────────────────
 
 def resolve_main_wallet(required: bool = True) -> Optional[str]:
     """Return the main trading wallet address.
 
+    Reads from ~/.hl-agent/wallets.json (written by 'hl wallet register').
+
     Args:
         required: If True, raises RuntimeError when not found.
-
-    Returns:
-        Wallet address string (0x-prefixed) or None if not found and not required.
     """
-    addr = os.environ.get(ENV_MAIN_WALLET)
-    if addr:
-        return addr.strip()
-
-    # Try wallet file
-    addr = _load_from_wallet_file("main")
+    data = _load_wallet_file()
+    addr = data.get("main")
     if addr:
         return addr
 
     if required:
         raise RuntimeError(
-            f"No main wallet configured. Set {ENV_MAIN_WALLET} environment variable.\n"
-            f"  Example: export {ENV_MAIN_WALLET}=0xYourWalletAddress\n"
-            f"  Or add it to your .env file."
+            "No main wallet registered.\n"
+            "  Run:  hl wallet register\n"
+            "  It will detect your wallet from your private key automatically."
         )
     return None
 
@@ -68,96 +54,135 @@ def resolve_main_wallet(required: bool = True) -> Optional[str]:
 def resolve_vault_address(required: bool = False) -> Optional[str]:
     """Return the vault wallet address, if configured.
 
-    Vaults are optional — not all users have one.
+    Vaults are optional — not all users have one. If not configured, returns None.
 
     Args:
         required: If True, raises RuntimeError when not found.
-
-    Returns:
-        Vault address string or None.
     """
-    addr = os.environ.get(ENV_VAULT_ADDRESS)
-    if addr:
-        return addr.strip()
-
-    # Try wallet file
-    addr = _load_from_wallet_file("vault")
+    data = _load_wallet_file()
+    addr = data.get("vault")
     if addr:
         return addr
 
     if required:
         raise RuntimeError(
-            f"No vault address configured. Set {ENV_VAULT_ADDRESS} environment variable."
+            "No vault address configured.\n"
+            "  Run:  hl wallet set-vault 0xYourVaultAddress"
         )
 
-    log.debug("No vault address configured — vault monitoring disabled")
+    log.debug("No vault address in wallets.json — vault monitoring disabled")
     return None
 
 
 def resolve_sub_wallets() -> List[str]:
-    """Return all configured sub-wallet addresses.
-
-    Returns:
-        List of 0x-prefixed address strings (may be empty).
-    """
-    subs = []
-    i = 1
-    while True:
-        addr = os.environ.get(f"{ENV_SUB_PREFIX}{i}")
-        if not addr:
-            break
-        subs.append(addr.strip())
-        i += 1
-
-    # Also check wallet file
-    file_subs = _load_subs_from_wallet_file()
-    for s in file_subs:
-        if s not in subs:
-            subs.append(s)
-
-    if subs:
-        log.debug("Resolved %d sub-wallet(s)", len(subs))
-    return subs
+    """Return all configured sub-wallet addresses (may be empty)."""
+    data = _load_wallet_file()
+    subs = data.get("subs", [])
+    return subs if isinstance(subs, list) else []
 
 
-def resolve_all_accounts() -> Dict[str, Optional[str]]:
-    """Return a dict of all configured account addresses.
-
-    Returns:
-        Dict with keys: "main", "vault", "subs"
-    """
-    main = resolve_main_wallet(required=False)
-    vault = resolve_vault_address(required=False)
-    subs = resolve_sub_wallets()
+def resolve_all_accounts() -> Dict:
+    """Return a full dict of all registered wallet addresses."""
+    data = _load_wallet_file()
+    main = data.get("main")
+    vault = data.get("vault")
+    subs = data.get("subs", [])
+    labels = data.get("labels", {})
     return {
         "main": main,
         "vault": vault,
         "subs": subs,
+        "labels": labels,
         "all_addresses": [a for a in [main, vault] + subs if a],
     }
 
 
-def _load_from_wallet_file(account_type: str) -> Optional[str]:
-    """Try to load an address from the wallet JSON file."""
+def get_label(address: str) -> str:
+    """Return the human label for an address, or a short-form fallback."""
+    data = _load_wallet_file()
+    labels = data.get("labels", {})
+    return labels.get(address.lower(), address[:6] + "..." + address[-4:])
+
+
+# ── Write operations (used only by CLI setup commands) ────────────────────────
+
+def register_main_wallet(address: str, label: str = "Main") -> None:
+    """Register the main wallet address. Called by 'hl wallet register'."""
+    _write_wallet({"main": address.lower(), "labels": {address.lower(): label}})
+    log.info("Registered main wallet: %s (%s)", address, label)
+
+
+def register_vault(address: str, label: str = "Vault") -> None:
+    """Register a vault address. Called by 'hl wallet set-vault'."""
+    _write_wallet({"vault": address.lower(), "labels": {address.lower(): label}})
+    log.info("Registered vault: %s (%s)", address, label)
+
+
+def register_sub_wallet(address: str, label: Optional[str] = None) -> None:
+    """Add a sub-account address. Called by 'hl wallet add-sub'."""
+    data = _load_wallet_file()
+    subs = data.get("subs", [])
+    addr = address.lower()
+    if addr not in subs:
+        subs.append(addr)
+    data["subs"] = subs
+    if label:
+        data.setdefault("labels", {})[addr] = label
+    _save_wallet_file(data)
+    log.info("Registered sub-wallet: %s (%s)", address, label or "")
+
+
+def remove_address(address: str) -> bool:
+    """Remove an address from all slots. Returns True if found and removed."""
+    data = _load_wallet_file()
+    addr = address.lower()
+    changed = False
+
+    if data.get("main") == addr:
+        del data["main"]
+        changed = True
+    if data.get("vault") == addr:
+        del data["vault"]
+        changed = True
+    subs = data.get("subs", [])
+    if addr in subs:
+        data["subs"] = [s for s in subs if s != addr]
+        changed = True
+    data.get("labels", {}).pop(addr, None)
+
+    if changed:
+        _save_wallet_file(data)
+    return changed
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _load_wallet_file() -> dict:
+    """Load wallets.json, returning empty dict if not found or corrupt."""
     if not WALLET_FILE.exists():
-        return None
+        return {}
     try:
-        import json
-        data = json.loads(WALLET_FILE.read_text())
-        return data.get(account_type)
+        return json.loads(WALLET_FILE.read_text())
     except Exception as e:
-        log.debug("Could not read wallet file: %s", e)
-        return None
+        log.warning("Could not read wallets.json: %s", e)
+        return {}
 
 
-def _load_subs_from_wallet_file() -> List[str]:
-    """Load sub-wallet list from wallet JSON file."""
-    if not WALLET_FILE.exists():
-        return []
-    try:
-        import json
-        data = json.loads(WALLET_FILE.read_text())
-        subs = data.get("subs", [])
-        return subs if isinstance(subs, list) else []
-    except Exception:
-        return []
+def _write_wallet(updates: dict) -> None:
+    """Merge updates into wallets.json atomically."""
+    data = _load_wallet_file()
+    # Deep merge labels
+    if "labels" in updates:
+        data.setdefault("labels", {}).update(updates.pop("labels"))
+    data.update(updates)
+    _save_wallet_file(data)
+
+
+def _save_wallet_file(data: dict) -> None:
+    """Write wallets.json with restricted permissions (owner-read only)."""
+    WALLET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = WALLET_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.chmod(0o600)
+    tmp.rename(WALLET_FILE)
+

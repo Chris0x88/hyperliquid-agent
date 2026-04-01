@@ -27,14 +27,16 @@ def setup_check():
     except ImportError:
         issues.append("hyperliquid-python-sdk not installed (pip install hyperliquid-python-sdk)")
 
-    # 2. Private key
+    # 2. Keys + wallet addresses
     has_env_key = bool(os.environ.get("HL_PRIVATE_KEY"))
     from cli.keystore import list_keystores
+    from common.account_resolver import resolve_main_wallet, resolve_vault_address, WALLET_FILE
+
     has_keystore = len(list_keystores()) > 0
     if has_env_key:
-        ok_items.append("HL_PRIVATE_KEY set")
+        ok_items.append("HL_PRIVATE_KEY set (env var)")
     elif has_keystore:
-        ok_items.append(f"Keystore found ({len(list_keystores())} keys)")
+        ok_items.append(f"Keystore found ({len(list_keystores())} key(s))")
         from cli.keystore import _load_env_password
         if os.environ.get("HL_KEYSTORE_PASSWORD"):
             ok_items.append("HL_KEYSTORE_PASSWORD set via environment")
@@ -43,7 +45,19 @@ def setup_check():
         else:
             issues.append("HL_KEYSTORE_PASSWORD not set (needed for auto-unlock)")
     else:
-        issues.append("No private key: set HL_PRIVATE_KEY or run 'hl wallet import'")
+        issues.append("No private key: run 'hl keys import'")
+
+    # Wallet addresses (wallets.json)
+    main_wallet = resolve_main_wallet(required=False)
+    if main_wallet:
+        ok_items.append(f"Main wallet registered: {main_wallet}")
+        vault = resolve_vault_address(required=False)
+        if vault:
+            ok_items.append(f"Vault registered: {vault}")
+    elif has_keystore:
+        issues.append("Wallet address not registered — run 'hl wallet register'")
+    else:
+        ok_items.append("Wallet address: (register after importing key)")
 
     # 3. Network
     testnet = os.environ.get("HL_TESTNET", "true").lower()
@@ -121,4 +135,13 @@ def setup_bootstrap():
     typer.echo("")
     setup_check()
 
-    typer.echo("\nBootstrap complete. Next: hl wallet auto")
+    typer.echo("\nBootstrap complete.")
+    typer.echo("")
+    typer.echo("  Next steps:")
+    typer.echo("    1. hl keys import          — import your private key (stored in OWS + Keychain)")
+    typer.echo("    2. hl wallet register       — detect and register your wallet address")
+    typer.echo("    3. hl wallet set-vault 0x.. — (optional) register your vault address")
+    typer.echo("    4. hl wallet accounts       — verify everything is registered correctly")
+    typer.echo("    5. hl setup check           — final environment validation")
+    typer.echo("")
+
