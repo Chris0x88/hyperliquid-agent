@@ -134,6 +134,7 @@ def daemon_start(
     from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
     from cli.daemon.iterators.exchange_protection import ExchangeProtectionIterator
     from cli.daemon.iterators.autoresearch import AutoresearchIterator
+    from cli.daemon.iterators.market_structure_iter import MarketStructureIterator
     try:
         from cli.daemon.iterators.funding_tracker import FundingTrackerIterator
         _has_funding = True
@@ -147,6 +148,7 @@ def daemon_start(
 
     clock.register(AccountCollectorIterator(adapter=adapter))
     clock.register(ConnectorIterator(adapter=adapter))
+    clock.register(MarketStructureIterator())
     clock.register(ThesisEngineIterator())
     clock.register(ExecutionEngineIterator(adapter=adapter))
     clock.register(ExchangeProtectionIterator(adapter=adapter))

@@ -8,6 +8,13 @@ from unittest.mock import patch
 
 import pytest
 
+# Check if eth_account is available
+try:
+    import eth_account
+    HAS_ETH_ACCOUNT = True
+except ImportError:
+    HAS_ETH_ACCOUNT = False
+
 _root = str(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
@@ -30,6 +37,7 @@ def _isolate_credentials(monkeypatch):
     monkeypatch.setattr(MacOSKeychainBackend, "available", lambda self: False)
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestKeystoreCreateLoad:
     def test_create_and_load_roundtrip(self, tmp_keystore):
         from cli.keystore import create_keystore, load_keystore
@@ -70,6 +78,7 @@ class TestKeystoreCreateLoad:
             load_keystore("0xnonexistent", "password")
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestKeystoreList:
     def test_list_empty(self, tmp_keystore):
         from cli.keystore import list_keystores
@@ -98,6 +107,7 @@ class TestKeystoreList:
         assert len(keystores) == 3
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestGetKeystoreKey:
     def test_returns_none_when_no_keystores(self, tmp_keystore):
         from cli.keystore import get_keystore_key
@@ -126,6 +136,7 @@ class TestGetKeystoreKey:
             assert loaded == "0x" + key_hex.replace("0x", "")
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestConfigPriority:
     def test_keystore_over_env(self, tmp_keystore):
         """Keystore key should take priority over HL_PRIVATE_KEY env var."""

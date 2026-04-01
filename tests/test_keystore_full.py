@@ -6,6 +6,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+# Check if eth_account is available
+try:
+    import eth_account
+    HAS_ETH_ACCOUNT = True
+except ImportError:
+    HAS_ETH_ACCOUNT = False
+
 from cli.keystore import (
     create_keystore,
     load_keystore,
@@ -38,6 +45,7 @@ TEST_KEY = "0x" + "ab" * 32  # 0xabab...ab (64 hex chars)
 TEST_PASSWORD = "test-password-123"
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestCreateAndLoad:
     def test_create_and_load_roundtrip(self, tmp_keystore):
         ks_path = create_keystore(TEST_KEY, TEST_PASSWORD)
@@ -73,6 +81,7 @@ class TestCreateAndLoad:
         assert key.lower() == TEST_KEY.lower()
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestListKeystores:
     def test_empty_dir(self, tmp_keystore):
         result = list_keystores()
@@ -113,6 +122,7 @@ class TestResolvePassword:
             assert _resolve_password() == ""
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestGetKeystoreKey:
     def test_returns_key_with_password(self, tmp_keystore):
         create_keystore(TEST_KEY, TEST_PASSWORD)
@@ -141,6 +151,7 @@ class TestGetKeystoreKey:
         assert key is not None
 
 
+@pytest.mark.skipif(not HAS_ETH_ACCOUNT, reason="eth_account not installed")
 class TestGetKeystoreKeyForAddress:
     def test_returns_key_for_valid_address(self, tmp_keystore):
         ks_path = create_keystore(TEST_KEY, TEST_PASSWORD)

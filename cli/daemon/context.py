@@ -89,6 +89,9 @@ class TickContext:
     # Roster (set by Clock before tick)
     active_strategies: Dict[str, StrategySlot] = field(default_factory=dict)
 
+    # Pre-computed market structure snapshots (populated by MarketStructureIterator)
+    market_snapshots: Dict[str, Any] = field(default_factory=dict)  # market -> MarketSnapshot
+
     # Two-layer architecture: thesis state from AI (written by scheduled task)
     thesis_states: Dict[str, Any] = field(default_factory=dict)  # market -> ThesisState
 
