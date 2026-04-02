@@ -980,6 +980,12 @@ def run() -> None:
                 try:
                     args = text[len(text.split()[0]):].strip()
                     HANDLERS[cmd_key](token, reply_chat_id, args)
+                    # Log to chat history so AI knows what commands were used
+                    try:
+                        from cli.telegram_agent import _log_chat
+                        _log_chat("user", f"[command] {cmd_key} {args}".strip())
+                    except Exception:
+                        pass
                 except Exception as e:
                     log.error("Command %s failed: %s", cmd_key, e)
                     if _diag:
