@@ -193,6 +193,32 @@ def _get_account_values(addr: str) -> dict:
     return result
 
 
+def _get_market_oi(coin: str, dex: str = '') -> str:
+    """Get open interest + 24h volume for a market. Returns formatted string."""
+    try:
+        payload: dict = {"type": "metaAndAssetCtxs"}
+        if dex == 'xyz':
+            payload["dex"] = "xyz"
+        data = _hl_post(payload)
+        if isinstance(data, list) and len(data) >= 2:
+            meta = data[0]
+            ctxs = data[1]
+            universe = meta.get("universe", [])
+            for i, ctx in enumerate(ctxs):
+                if i < len(universe) and universe[i].get("name") == coin:
+                    oi = float(ctx.get("openInterest", 0))
+                    vol = float(ctx.get("dayNtlVlm", 0))
+                    parts = []
+                    if oi > 0:
+                        parts.append(f"OI `${oi / 1e6:.1f}M`")
+                    if vol > 0:
+                        parts.append(f"Vol `${vol / 1e6:.1f}M`")
+                    return " • ".join(parts) if parts else ""
+    except Exception:
+        pass
+    return ""
+
+
 def _get_current_price(coin: str) -> Optional[float]:
     """Get current mid price for a coin (checks both clearinghouses)."""
     try:
@@ -228,23 +254,19 @@ def _liquidity_regime() -> str:
 
 def cmd_status(token: str, chat_id: str, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
-    lines = [f"📊 *Portfolio* — {ts}", ""]
+    lines = [f"*Portfolio* — {ts}", ""]
 
     # Spot balances
     spot = _hl_post({"type": "spotClearinghouseState", "user": MAIN_ADDR})
-    spot_lines = []
+    spot_total = 0.0
     for b in spot.get("balances", []):
         total = float(b.get("total", 0))
-        if total > 0.01:
-            coin = b["coin"]
-            spot_lines.append(f"`${total:,.2f}` {coin}" if coin == "USDC" else f"`{total:.4f}` {coin}")
-    if spot_lines:
-        lines.append("💰 *Spot*: " + " • ".join(spot_lines))
+        if total > 0.01 and b.get("coin") == "USDC":
+            spot_total = total
 
     # ALL perp positions (native + xyz clearinghouses)
     positions = _get_all_positions(MAIN_ADDR)
     if positions:
-        lines.append("")
         for pos in positions:
             coin = pos.get('coin', '?')
             size = float(pos.get('szi', 0))
@@ -253,46 +275,50 @@ def cmd_status(token: str, chat_id: str, _args: str) -> None:
             lev = pos.get('leverage', {})
             liq = pos.get('liquidationPx')
             lev_val = lev.get('value', '?') if isinstance(lev, dict) else lev
-            dex = pos.get('_dex', 'native')
+            notional = abs(size * entry)
 
-            direction = "LONG 🟢" if size > 0 else "SHORT 🔴"
+            direction = "LONG" if size > 0 else "SHORT"
+            dir_dot = "🟢" if size > 0 else "🔴"
             pnl_sign = "+" if upnl >= 0 else ""
-            pnl_emoji = "✅" if upnl >= 0 else "🔻"
 
             # Current price
             current = _get_current_price(coin)
-            px_str = f"Now: `${current:,.2f}`" if current else ""
+            px_str = f"`${current:,.2f}`" if current else "—"
 
-            lines.append(f"{'🛢️' if 'OIL' in coin.upper() else '₿' if coin == 'BTC' else '🥇' if 'GOLD' in coin.upper() else '🥈' if 'SILVER' in coin.upper() else '📈'} *{coin}* — {direction}")
-            lines.append(f"  `{abs(size):.1f}` @ `${entry:,.2f}` | {px_str}")
-            lines.append(f"  {pnl_emoji} uPnL: `{pnl_sign}${upnl:,.2f}` | `{lev_val}x` lev")
+            # OI / volume for liquidity
+            oi_str = _get_market_oi(coin, pos.get('_dex', ''))
+
+            lines.append(f"{dir_dot} *{coin}* — {direction}")
+            lines.append(f"  Entry `${entry:,.2f}` → Now {px_str}")
+            lines.append(f"  Size `{abs(size):.1f}` | `{lev_val}x` | Notional `${notional:,.0f}`")
+            lines.append(f"  uPnL `{pnl_sign}${upnl:,.2f}`")
             if liq and liq != "N/A":
                 liq_f = float(liq)
                 if current and current > 0:
                     dist = abs(current - liq_f) / current * 100
-                    lines.append(f"  ⚡ Liq: `${liq_f:,.2f}` (`{dist:.1f}%` away)")
+                    lines.append(f"  Liq `${liq_f:,.2f}` ({dist:.1f}% away)")
+            if oi_str:
+                lines.append(f"  {oi_str}")
+            lines.append("")
     else:
-        lines.append("📭 No open positions")
+        lines.append("No open positions\n")
 
     # Account values
     values = _get_account_values(MAIN_ADDR)
     total_perps = values['native'] + values['xyz']
-    spot_total = sum(float(b.get("total", 0)) for b in spot.get("balances", []) if b.get("coin") == "USDC")
     grand_total = total_perps + spot_total
 
-    lines.append(f"\n💎 *Total*: `${grand_total:,.2f}`")
-    if total_perps > 0:
-        lines.append(f"  Perps: `${total_perps:,.2f}` | Spot: `${spot_total:,.2f}`")
+    lines.append(f"*Equity* `${grand_total:,.2f}`")
+    if total_perps > 0 and spot_total > 0:
+        lines.append(f"  Perps `${total_perps:,.2f}` • Spot `${spot_total:,.2f}`")
 
-    # ALL open orders (native + xyz)
+    # Orders (compact)
     orders = _get_all_orders(MAIN_ADDR)
     if orders:
-        lines.append(f"\n📋 *Orders* ({len(orders)})")
+        lines.append(f"\n*Orders* ({len(orders)})")
         for o in orders[:5]:
-            side = "🟢 BUY" if o.get("side") == "B" else "🔴 SELL"
-            lines.append(f"  {side} `{o.get('sz')}` {o.get('coin')} @ `${o.get('limitPx')}`")
-        if len(orders) > 5:
-            lines.append(f"  _+{len(orders) - 5} more..._")
+            side_dot = "🟢" if o.get("side") == "B" else "🔴"
+            lines.append(f"  {side_dot} {o.get('sz')} {o.get('coin')} @ `${o.get('limitPx')}`")
 
     # Vault
     vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
@@ -300,16 +326,12 @@ def cmd_status(token: str, chat_id: str, _args: str) -> None:
     vpos = vault.get("assetPositions", [])
     val = float(vmarg.get("accountValue", 0))
     if val > 0:
-        lines.append(f"\n🏦 *Vault*: `${val:,.2f}`")
+        lines.append(f"\n*Vault* `${val:,.2f}`")
         for p in vpos:
             pos = p["position"]
             vupnl = float(pos.get('unrealizedPnl', 0))
             vpnl_sign = "+" if vupnl >= 0 else ""
-            lines.append(f"  ₿ `{pos['szi']}` @ `${pos['entryPx']}` | uPnL: `{vpnl_sign}${vupnl:,.2f}`")
-
-    regime = _liquidity_regime()
-    regime_emoji = {"NORMAL": "🟢", "LOW": "🟡", "WEEKEND": "🟠", "DANGEROUS": "🔴"}.get(regime, "⚪")
-    lines.append(f"\n{regime_emoji} Liquidity: *{regime}*")
+            lines.append(f"  BTC `{pos['szi']}` @ `${pos['entryPx']}` • uPnL `{vpnl_sign}${vupnl:,.2f}`")
 
     tg_send(token, chat_id, "\n".join(lines))
 
