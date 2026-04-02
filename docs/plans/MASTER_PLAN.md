@@ -38,6 +38,13 @@ See `docs/plans/PHASE_2_DAEMON_SWITCH.md` for detailed checklist.
 | **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook, weekly reports | Planned |
 | **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, system health monitoring | Future |
 
+## OpenClaw Agent Fix (READ THIS FIRST if agent is broken)
+
+When @HyperLiquidOpenClaw_bot stops responding, check in order:
+1. **Auth profile:** `cat ~/.openclaw/agents/hl-trader/agent/auth-profiles.json` — if `profiles: {}`, copy from default: `cp ~/.openclaw/agents/default/agent/auth-profiles.json ~/.openclaw/agents/hl-trader/agent/auth-profiles.json`
+2. **Gateway network:** Check log for ETIMEDOUT: `grep ETIMEDOUT /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log | tail -3` — fix: `openclaw gateway restart`
+3. **After code changes:** Always `openclaw gateway restart` after modifying MCP tools or workspace files
+
 ## Critical Rules (from CLAUDE.md + learnings)
 
 1. **NEVER touch `~/.openclaw/`** — that's Chris's entire AI agent ecosystem, not just this project

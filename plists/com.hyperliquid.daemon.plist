@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.hyperliquid.daemon</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/.venv/bin/python</string>
+		<string>-m</string>
+		<string>cli.main</string>
+		<string>daemon</string>
+		<string>start</string>
+		<string>--tier</string>
+		<string>watch</string>
+		<string>--mainnet</string>
+		<string>--tick</string>
+		<string>120</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+
+	<key>StandardOutPath</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/daemon/daemon_launchd.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/daemon/daemon_launchd_err.log</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PYTHONPATH</key>
+		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>KeepAlive</key>
+	<true/>
+</dict>
+</plist>

@@ -48,16 +48,17 @@ def _build_adapter(mock: bool, mainnet: bool):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from common.credentials import load_private_key
+    from parent.hl_proxy import HLProxy
     from cli.hl_adapter import DirectHLProxy
 
     testnet = not mainnet
-    key = load_private_key()
-    if not key:
-        typer.echo("Error: No private key found. Run 'hl keys import' first.", err=True)
+    try:
+        hl = HLProxy(testnet=testnet)
+    except Exception as e:
+        typer.echo(f"Error: Could not connect to HL: {e}", err=True)
         raise typer.Exit(1)
 
-    proxy = DirectHLProxy(private_key=key, testnet=testnet)
+    proxy = DirectHLProxy(hl=hl)
     return proxy
 
 
@@ -164,6 +165,14 @@ def daemon_start(
     if _has_catalyst:
         clock.register(CatalystDeleverageIterator(data_dir=data_dir))
     clock.register(AutoresearchIterator())
+
+    # Memory consolidation — compresses old events into summaries hourly
+    try:
+        from cli.daemon.iterators.memory_consolidation import MemoryConsolidationIterator
+        clock.register(MemoryConsolidationIterator())
+    except ImportError:
+        pass
+
     clock.register(JournalIterator(data_dir=data_dir))
     clock.register(TelegramIterator(data_dir=data_dir))
 

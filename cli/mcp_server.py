@@ -758,7 +758,8 @@ def create_mcp_server():
             if resp.status_code == 200:
                 xyz_mids = resp.json()
                 for coin, mid in xyz_mids.items():
-                    prices[f"xyz:{coin}"] = float(mid)
+                    # API already returns keys like "xyz:BRENTOIL" — don't double-prefix
+                    prices[coin] = float(mid)
 
             if not prices:
                 return "Error: could not fetch prices from HL API"
