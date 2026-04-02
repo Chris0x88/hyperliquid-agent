@@ -291,7 +291,17 @@ def _get_openrouter_key() -> Optional[str]:
 
 
 def _tg_send_markdown(token: str, chat_id: str, text: str) -> None:
-    """Send a Telegram message with Markdown formatting, split if needed."""
+    """Send a Telegram message with Markdown formatting, split if needed.
+
+    Tries Markdown first, falls back to plain text if parsing fails.
+    Strips problematic markdown artifacts that LLMs sometimes produce.
+    """
+    # Clean up common LLM markdown artifacts that break Telegram
+    text = text.replace("```json", "").replace("```", "")
+    text = text.replace("<function_calls>", "").replace("</function_calls>", "")
+    text = text.replace("<invoke", "").replace("</invoke>", "")
+    text = text.replace("<parameter", "").replace("</parameter>", "")
+
     chunks = _split_message(text)
     for chunk in chunks:
         try:
