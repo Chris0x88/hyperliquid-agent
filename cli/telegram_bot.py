@@ -105,14 +105,28 @@ def _keychain_read(key_name: str) -> Optional[str]:
 
 # ── Telegram API helpers ─────────────────────────────────────
 
-def tg_send(token: str, chat_id: str, text: str) -> bool:
+def tg_send(token: str, chat_id: str, text: str, markdown: bool = True) -> bool:
+    """Send a Telegram message. Uses Markdown by default, falls back to plain text."""
     try:
+        payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        if markdown:
+            payload["parse_mode"] = "Markdown"
         r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
-            timeout=10,
+            json=payload, timeout=10,
         )
-        return r.json().get("ok", False)
+        result = r.json()
+        if result.get("ok"):
+            return True
+        # Markdown failed — retry as plain text
+        if markdown:
+            payload.pop("parse_mode", None)
+            r = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json=payload, timeout=10,
+            )
+            return r.json().get("ok", False)
+        return False
     except Exception as e:
         log.warning("Send failed: %s", e)
         return False
@@ -179,6 +193,24 @@ def _get_account_values(addr: str) -> dict:
     return result
 
 
+def _get_current_price(coin: str) -> Optional[float]:
+    """Get current mid price for a coin (checks both clearinghouses)."""
+    try:
+        mids = _hl_post({"type": "allMids"})
+        if coin in mids:
+            return float(mids[coin])
+    except Exception:
+        pass
+    try:
+        mids = _hl_post({"type": "allMids", "dex": "xyz"})
+        for k, v in mids.items():
+            if k.replace("xyz:", "") == coin or k == coin:
+                return float(v)
+    except Exception:
+        pass
+    return None
+
+
 def _liquidity_regime() -> str:
     now = datetime.now(timezone.utc)
     weekend = now.weekday() >= 5
@@ -195,115 +227,149 @@ def _liquidity_regime() -> str:
 # ── Command handlers (fixed code, zero AI) ───────────────────
 
 def cmd_status(token: str, chat_id: str, _args: str) -> None:
-    lines = [f"Portfolio ({datetime.now(timezone.utc).strftime('%a %H:%M UTC')})", ""]
+    ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
+    lines = [f"📊 *Portfolio* — {ts}", ""]
 
-    # Spot
+    # Spot balances
     spot = _hl_post({"type": "spotClearinghouseState", "user": MAIN_ADDR})
+    spot_lines = []
     for b in spot.get("balances", []):
         total = float(b.get("total", 0))
         if total > 0.01:
             coin = b["coin"]
-            lines.append(f"  {coin}: ${total:,.2f}" if coin == "USDC" else f"  {coin}: {total:.4f}")
+            spot_lines.append(f"`${total:,.2f}` {coin}" if coin == "USDC" else f"`{total:.4f}` {coin}")
+    if spot_lines:
+        lines.append("💰 *Spot*: " + " • ".join(spot_lines))
 
     # ALL perp positions (native + xyz clearinghouses)
     positions = _get_all_positions(MAIN_ADDR)
     if positions:
-        lines.append("\nPOSITIONS:")
+        lines.append("")
         for pos in positions:
             coin = pos.get('coin', '?')
-            size = pos.get('szi', '0')
-            entry = pos.get('entryPx', '0')
-            upnl = pos.get('unrealizedPnl', '0')
+            size = float(pos.get('szi', 0))
+            entry = float(pos.get('entryPx', 0))
+            upnl = float(pos.get('unrealizedPnl', 0))
             lev = pos.get('leverage', {})
-            liq = pos.get('liquidationPx', 'N/A')
+            liq = pos.get('liquidationPx')
             lev_val = lev.get('value', '?') if isinstance(lev, dict) else lev
-            lines.append(f"  {coin}: {size} @ ${entry}")
-            lines.append(f"    uPnL: ${upnl} | {lev_val}x | liq: ${liq}")
+            dex = pos.get('_dex', 'native')
+
+            direction = "LONG 🟢" if size > 0 else "SHORT 🔴"
+            pnl_sign = "+" if upnl >= 0 else ""
+            pnl_emoji = "✅" if upnl >= 0 else "🔻"
+
+            # Current price
+            current = _get_current_price(coin)
+            px_str = f"Now: `${current:,.2f}`" if current else ""
+
+            lines.append(f"{'🛢️' if 'OIL' in coin.upper() else '₿' if coin == 'BTC' else '🥇' if 'GOLD' in coin.upper() else '🥈' if 'SILVER' in coin.upper() else '📈'} *{coin}* — {direction}")
+            lines.append(f"  `{abs(size):.1f}` @ `${entry:,.2f}` | {px_str}")
+            lines.append(f"  {pnl_emoji} uPnL: `{pnl_sign}${upnl:,.2f}` | `{lev_val}x` lev")
+            if liq and liq != "N/A":
+                liq_f = float(liq)
+                if current and current > 0:
+                    dist = abs(current - liq_f) / current * 100
+                    lines.append(f"  ⚡ Liq: `${liq_f:,.2f}` (`{dist:.1f}%` away)")
+    else:
+        lines.append("📭 No open positions")
 
     # Account values
     values = _get_account_values(MAIN_ADDR)
     total_perps = values['native'] + values['xyz']
+    spot_total = sum(float(b.get("total", 0)) for b in spot.get("balances", []) if b.get("coin") == "USDC")
+    grand_total = total_perps + spot_total
+
+    lines.append(f"\n💎 *Total*: `${grand_total:,.2f}`")
     if total_perps > 0:
-        lines.append(f"\nPerps equity: ${total_perps:,.2f}")
+        lines.append(f"  Perps: `${total_perps:,.2f}` | Spot: `${spot_total:,.2f}`")
 
     # ALL open orders (native + xyz)
     orders = _get_all_orders(MAIN_ADDR)
     if orders:
-        lines.append(f"\nORDERS ({len(orders)}):")
-        for o in orders:
-            side = "BUY" if o.get("side") == "B" else "SELL"
-            lines.append(f"  {side} {o.get('sz')} {o.get('coin')} @ ${o.get('limitPx')}")
+        lines.append(f"\n📋 *Orders* ({len(orders)})")
+        for o in orders[:5]:
+            side = "🟢 BUY" if o.get("side") == "B" else "🔴 SELL"
+            lines.append(f"  {side} `{o.get('sz')}` {o.get('coin')} @ `${o.get('limitPx')}`")
+        if len(orders) > 5:
+            lines.append(f"  _+{len(orders) - 5} more..._")
 
     # Vault
     vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
     vmarg = vault.get("marginSummary", {})
     vpos = vault.get("assetPositions", [])
     val = float(vmarg.get("accountValue", 0))
-    lines.append(f"\nVAULT: ${val:,.2f}")
-    for p in vpos:
-        pos = p["position"]
-        lines.append(f"  {pos['coin']}: {pos['szi']} @ ${pos['entryPx']} | uPnL: ${pos['unrealizedPnl']}")
+    if val > 0:
+        lines.append(f"\n🏦 *Vault*: `${val:,.2f}`")
+        for p in vpos:
+            pos = p["position"]
+            vupnl = float(pos.get('unrealizedPnl', 0))
+            vpnl_sign = "+" if vupnl >= 0 else ""
+            lines.append(f"  ₿ `{pos['szi']}` @ `${pos['entryPx']}` | uPnL: `{vpnl_sign}${vupnl:,.2f}`")
 
-    lines.append(f"\nLiquidity: {_liquidity_regime()}")
+    regime = _liquidity_regime()
+    regime_emoji = {"NORMAL": "🟢", "LOW": "🟡", "WEEKEND": "🟠", "DANGEROUS": "🔴"}.get(regime, "⚪")
+    lines.append(f"\n{regime_emoji} Liquidity: *{regime}*")
+
     tg_send(token, chat_id, "\n".join(lines))
 
 
 def cmd_price(token: str, chat_id: str, _args: str) -> None:
-    mids = _hl_post({"type": "allMids"})
-    lines = ["Prices:"]
-
-    for coin in APPROVED_MARKETS:
-        if coin in mids:
-            lines.append(f"  {coin}: ${float(mids[coin]):,.2f}")
+    lines = ["💲 *Prices*", ""]
+    for name, coin, aliases, cat in WATCHLIST:
+        price = _get_current_price(coin)
+        emoji = {"crypto": "₿", "commodity": "🛢️", "index": "📈", "equity": "🏢"}.get(cat, "📊")
+        if price:
+            lines.append(f"{emoji} {name}: `${price:,.2f}`")
         else:
-            # xyz markets — use L2 book
-            try:
-                book = _hl_post({"type": "l2Book", "coin": coin})
-                levels = book.get("levels", [])
-                if len(levels) >= 2 and levels[0] and levels[1]:
-                    mid = (float(levels[0][0]["px"]) + float(levels[1][0]["px"])) / 2
-                    lines.append(f"  {coin}: ${mid:,.2f}")
-                else:
-                    lines.append(f"  {coin}: --")
-            except Exception:
-                lines.append(f"  {coin}: --")
-
+            lines.append(f"{emoji} {name}: --")
     tg_send(token, chat_id, "\n".join(lines))
 
 
 def cmd_orders(token: str, chat_id: str, _args: str) -> None:
     orders = _get_all_orders(MAIN_ADDR)
     if not orders:
-        tg_send(token, chat_id, "No open orders.")
+        tg_send(token, chat_id, "📋 No open orders")
         return
-    lines = [f"Open Orders ({len(orders)}):"]
+    lines = [f"📋 *Open Orders* ({len(orders)})", ""]
     for o in orders:
-        side = "BUY" if o.get("side") == "B" else "SELL"
-        lines.append(f"  {side} {o.get('sz')} {o.get('coin')} @ ${o.get('limitPx')}")
+        side = "🟢 BUY" if o.get("side") == "B" else "🔴 SELL"
+        lines.append(f"{side} `{o.get('sz')}` {o.get('coin')} @ `${o.get('limitPx')}`")
     tg_send(token, chat_id, "\n".join(lines))
 
 
 def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
-    lines = ["P&L Summary:"]
+    lines = ["📈 *P&L Summary*", ""]
 
     # Main — all positions (native + xyz)
     positions = _get_all_positions(MAIN_ADDR)
     values = _get_account_values(MAIN_ADDR)
     main_val = values['native'] + values['xyz']
 
+    total_upnl = 0.0
     for pos in positions:
-        lines.append(f"  Main {pos.get('coin')}: uPnL ${pos.get('unrealizedPnl')}")
+        upnl = float(pos.get('unrealizedPnl', 0))
+        total_upnl += upnl
+        pnl_sign = "+" if upnl >= 0 else ""
+        emoji = "✅" if upnl >= 0 else "🔻"
+        lines.append(f"{emoji} {pos.get('coin')}: `{pnl_sign}${upnl:,.2f}`")
 
     # Vault
     vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
     vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
     for p in vault.get("assetPositions", []):
         pos = p["position"]
-        lines.append(f"  Vault {pos['coin']}: uPnL ${pos['unrealizedPnl']}")
+        vupnl = float(pos.get('unrealizedPnl', 0))
+        total_upnl += vupnl
+        pnl_sign = "+" if vupnl >= 0 else ""
+        emoji = "✅" if vupnl >= 0 else "🔻"
+        lines.append(f"{emoji} Vault {pos['coin']}: `{pnl_sign}${vupnl:,.2f}`")
 
-    lines.append(f"\nMain equity: ${main_val:,.2f}")
-    lines.append(f"Vault equity: ${vault_val:,.2f}")
-    lines.append(f"Total: ${main_val + vault_val:,.2f}")
+    upnl_emoji = "✅" if total_upnl >= 0 else "🔻"
+    upnl_sign = "+" if total_upnl >= 0 else ""
+    lines.append(f"\n{upnl_emoji} *Unrealized*: `{upnl_sign}${total_upnl:,.2f}`")
+    lines.append(f"💎 *Main*: `${main_val:,.2f}` | *Vault*: `${vault_val:,.2f}`")
+    lines.append(f"💰 *Total*: `${main_val + vault_val:,.2f}`")
 
     # Profit lock ledger
     ledger = Path("data/daemon/profit_locks.jsonl")
@@ -313,7 +379,8 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
             for line in ledger.read_text().splitlines()
             if line.strip()
         )
-        lines.append(f"Profits locked: ${total_locked:,.2f}")
+        if total_locked > 0:
+            lines.append(f"🔒 Locked profits: `${total_locked:,.2f}`")
 
     tg_send(token, chat_id, "\n".join(lines))
 
@@ -387,29 +454,20 @@ def cmd_chart(token: str, chat_id: str, args: str) -> None:
 
 def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
     """Show the watchlist with current prices."""
-    mids = _hl_post({"type": "allMids"})
-    lines = ["Watchlist:", ""]
+    lines = ["📊 *Watchlist*", ""]
+    cat_emojis = {"crypto": "₿", "commodity": "🛢️", "index": "📈", "equity": "🏢"}
     by_cat: dict[str, list] = {}
     for name, coin, aliases, cat in WATCHLIST:
         by_cat.setdefault(cat, []).append((name, coin, aliases))
 
     for cat, markets in by_cat.items():
-        lines.append(f"{cat.upper()}")
+        emoji = cat_emojis.get(cat, "📊")
+        lines.append(f"{emoji} *{cat.title()}*")
         for name, coin, aliases in markets:
-            price = None
-            if coin in mids:
-                price = float(mids[coin])
-            else:
-                try:
-                    book = _hl_post({"type": "l2Book", "coin": coin})
-                    levels = book.get("levels", [])
-                    if len(levels) >= 2 and levels[0] and levels[1]:
-                        price = (float(levels[0][0]["px"]) + float(levels[1][0]["px"])) / 2
-                except Exception:
-                    pass
-            px = f"${price:,.2f}" if price else "--"
+            price = _get_current_price(coin)
+            px = f"`${price:,.2f}`" if price else "`--`"
             hint = aliases[0] if aliases else ""
-            lines.append(f"  {name:<12} {px:>12}   /chart{hint}")
+            lines.append(f"  {name}: {px}  /chart{hint}")
         lines.append("")
 
     tg_send(token, chat_id, "\n".join(lines))
@@ -433,26 +491,28 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
-        "*Trading*\n"
-        "/market <sym> — technicals + funding (/m oil)\n"
-        "/position     — detailed risk report (/pos)\n"
-        "/status       — portfolio overview\n"
-        "/pnl          — profit & loss\n"
-        "\n*Charts & Data*\n"
-        "/chart <sym> [hrs] — price chart (/chart oil 72)\n"
-        "/watchlist    — markets + prices (/w)\n"
-        "/powerlaw     — BTC model\n"
-        "/orders       — open orders\n"
-        "/price        — quick prices\n"
-        "\n*Daemon*\n"
-        "/rebalancer start|stop|status\n"
-        "/rebalance    — force vault rebalance\n"
-        "\n*System*\n"
-        "/bug <desc>   — report a bug\n"
-        "/feedback <text> — submit feedback (/fb)\n"
-        "/diag         — diagnostics\n"
-        "/commands     — full CLI list\n"
-        "/help         — this message")
+        "🤖 *HyperLiquid Bot*\n"
+        "\n📊 *Trading*\n"
+        "  /status — portfolio overview\n"
+        "  /position — detailed risk report\n"
+        "  /market `oil` — technicals + funding\n"
+        "  /pnl — profit & loss\n"
+        "  /price — quick prices\n"
+        "\n📈 *Charts & Data*\n"
+        "  /chartoil `72` — oil price chart\n"
+        "  /chartbtc `168` — BTC price chart\n"
+        "  /watchlist — all markets + prices\n"
+        "  /powerlaw — BTC model\n"
+        "  /orders — open orders\n"
+        "\n🏦 *Vault*\n"
+        "  /rebalancer `status`\n"
+        "  /rebalance — force vault rebalance\n"
+        "\n🔧 *System*\n"
+        "  /bug `description` — report a bug\n"
+        "  /feedback `text` — submit feedback\n"
+        "  /diag — diagnostics\n"
+        "\n💬 *AI Chat*\n"
+        "  Just type normally — AI responds with live data")
 
 
 # ── Vault rebalancer daemon control ─────────────────────────────────────
