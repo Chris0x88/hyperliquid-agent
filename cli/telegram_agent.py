@@ -93,117 +93,128 @@ def _build_system_prompt() -> str:
 
 
 def _build_live_context() -> str:
-    """Fetch live prices, account state, and thesis — inject as context."""
-    lines = ["--- LIVE CONTEXT (fetched just now) ---"]
+    """Build token-budgeted, relevance-scored context using the context harness.
 
-    # Live prices
+    Uses common.context_harness — the same system designed for thesis evaluation.
+    Tiers: CRITICAL (alerts, position, snapshot) > RELEVANT (thesis, memory,
+    learnings) > BACKGROUND (research notes, issues).
+    """
     try:
+        from common.context_harness import build_multi_market_context
+
+        # Fetch account state for the harness
+        account_state = _fetch_account_state_for_harness()
+
+        # Build market snapshots (compact text per market)
+        market_snapshots = _fetch_market_snapshots()
+
+        # Assemble with token budget (2000 tokens for context, rest for history + response)
+        assembled = build_multi_market_context(
+            markets=["xyz:BRENTOIL", "BTC"],
+            account_state=account_state,
+            market_snapshots=market_snapshots,
+            token_budget=2000,
+        )
+
+        header = "--- LIVE CONTEXT (fetched just now) ---"
+        footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
+        return f"{header}\n{assembled.text}\n{footer}"
+
+    except Exception as e:
+        log.warning("Context harness failed, using fallback: %s", e)
+        return _build_live_context_fallback()
+
+
+def _fetch_account_state_for_harness() -> dict:
+    """Fetch account state in the format context_harness expects."""
+    from common.account_resolver import resolve_main_wallet, resolve_vault_address
+
+    main_addr = resolve_main_wallet(required=False)
+    total_equity = 0.0
+    alerts = []
+
+    if main_addr:
+        # XYZ clearinghouse
+        r = requests.post("https://api.hyperliquid.xyz/info",
+                          json={"type": "clearinghouseState", "user": main_addr, "dex": "xyz"},
+                          timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            total_equity += float(data.get("marginSummary", {}).get("accountValue", 0))
+
+        time.sleep(0.2)
+        # Spot USDC
+        r = requests.post("https://api.hyperliquid.xyz/info",
+                          json={"type": "spotClearinghouseState", "user": main_addr},
+                          timeout=8)
+        if r.status_code == 200:
+            for bal in r.json().get("balances", []):
+                if bal.get("coin") == "USDC":
+                    total_equity += float(bal.get("total", 0))
+
+    # Working state for escalation + alerts
+    ws_path = _PROJECT_ROOT / "data" / "memory" / "working_state.json"
+    escalation = "L0"
+    if ws_path.exists():
+        ws = json.loads(ws_path.read_text())
+        escalation = ws.get("escalation_level", "L0")
+        if ws.get("heartbeat_consecutive_failures", 0) > 5:
+            alerts.append(f"Heartbeat failing ({ws['heartbeat_consecutive_failures']} consecutive)")
+
+    return {
+        "account": {"total_equity": total_equity},
+        "alerts": alerts,
+        "escalation": escalation,
+    }
+
+
+def _fetch_market_snapshots() -> dict:
+    """Fetch compact price snapshots for watchlist markets."""
+    snapshots = {}
+    try:
+        # All prices in one call each
         prices = {}
         r = requests.post("https://api.hyperliquid.xyz/info",
                           json={"type": "allMids"}, timeout=8)
         if r.status_code == 200:
-            for coin, mid in r.json().items():
-                prices[coin] = float(mid)
+            prices.update(r.json())
         time.sleep(0.2)
+        r = requests.post("https://api.hyperliquid.xyz/info",
+                          json={"type": "allMids", "dex": "xyz"}, timeout=8)
+        if r.status_code == 200:
+            prices.update(r.json())
+
+        watchlist = {"BTC": "BTC", "xyz:BRENTOIL": "xyz:BRENTOIL",
+                     "xyz:GOLD": "xyz:GOLD", "xyz:SILVER": "xyz:SILVER"}
+        for display, key in watchlist.items():
+            if key in prices:
+                v = float(prices[key])
+                snapshots[display] = f"PRICE ({display}): ${v:,.2f}"
+    except Exception:
+        pass
+    return snapshots
+
+
+def _build_live_context_fallback() -> str:
+    """Minimal fallback if context harness fails."""
+    lines = ["--- LIVE CONTEXT (fallback) ---"]
+    try:
+        prices = {}
         r = requests.post("https://api.hyperliquid.xyz/info",
                           json={"type": "allMids", "dex": "xyz"}, timeout=8)
         if r.status_code == 200:
             for coin, mid in r.json().items():
                 prices[coin] = float(mid)
-
-        watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500"]
-        price_parts = []
-        for k in watchlist:
+        r = requests.post("https://api.hyperliquid.xyz/info",
+                          json={"type": "allMids"}, timeout=8)
+        if r.status_code == 200:
+            for coin, mid in r.json().items():
+                prices[coin] = float(mid)
+        for k in ["BTC", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER"]:
             if k in prices:
-                v = prices[k]
-                price_parts.append(f"{k}: ${v:,.2f}" if v >= 1 else f"{k}: ${v:.6f}")
-        if price_parts:
-            lines.append("Prices: " + " | ".join(price_parts))
+                lines.append(f"{k}: ${prices[k]:,.2f}")
     except Exception as e:
-        lines.append(f"Prices: unavailable ({e})")
-
-    # Account state
-    try:
-        from common.account_resolver import resolve_main_wallet, resolve_vault_address
-        main_addr = resolve_main_wallet(required=False)
-        vault_addr = resolve_vault_address(required=False)
-
-        total_equity = 0.0
-        positions = []
-
-        if main_addr:
-            time.sleep(0.2)
-            # XYZ clearinghouse (oil/gold/silver)
-            r = requests.post("https://api.hyperliquid.xyz/info",
-                              json={"type": "clearinghouseState", "user": main_addr, "dex": "xyz"},
-                              timeout=8)
-            if r.status_code == 200:
-                data = r.json()
-                eq = float(data.get("marginSummary", {}).get("accountValue", 0))
-                total_equity += eq
-                for pos in data.get("assetPositions", []):
-                    p = pos.get("position", {})
-                    if float(p.get("szi", 0)) != 0:
-                        coin_name = p.get('coin', '?')
-                        positions.append(f"xyz:{coin_name} {float(p.get('szi', 0)):.1f}@${float(p.get('entryPx', 0)):.2f}")
-
-            time.sleep(0.2)
-            # Spot USDC
-            r = requests.post("https://api.hyperliquid.xyz/info",
-                              json={"type": "spotClearinghouseState", "user": main_addr},
-                              timeout=8)
-            if r.status_code == 200:
-                for bal in r.json().get("balances", []):
-                    if bal.get("coin") == "USDC":
-                        total_equity += float(bal.get("total", 0))
-
-        if vault_addr:
-            time.sleep(0.2)
-            r = requests.post("https://api.hyperliquid.xyz/info",
-                              json={"type": "clearinghouseState", "user": vault_addr},
-                              timeout=8)
-            if r.status_code == 200:
-                data = r.json()
-                eq = float(data.get("marginSummary", {}).get("accountValue", 0))
-                total_equity += eq
-                for pos in data.get("assetPositions", []):
-                    p = pos.get("position", {})
-                    if float(p.get("szi", 0)) != 0:
-                        positions.append(f"vault:BTC {float(p.get('szi', 0)):.5f}@${float(p.get('entryPx', 0)):.0f}")
-
-        lines.append(f"Account: ${total_equity:,.2f} equity")
-        if positions:
-            lines.append(f"Positions: {', '.join(positions)}")
-        else:
-            lines.append("Positions: flat (no open positions)")
-    except Exception as e:
-        lines.append(f"Account: unavailable ({e})")
-
-    # Thesis state
-    try:
-        thesis_dir = _PROJECT_ROOT / "data" / "thesis"
-        if thesis_dir.exists():
-            for f in sorted(thesis_dir.glob("*_state.json")):
-                data = json.loads(f.read_text())
-                market = data.get("market", f.stem)
-                conv = data.get("conviction", 0)
-                direction = data.get("direction", "?")
-                if conv > 0:
-                    lines.append(f"Thesis: {market} {direction} conviction={conv:.2f}")
-                else:
-                    lines.append(f"Thesis: {market} {direction} (inactive)")
-    except Exception:
-        pass
-
-    # Working state
-    try:
-        ws_path = _PROJECT_ROOT / "data" / "memory" / "working_state.json"
-        if ws_path.exists():
-            ws = json.loads(ws_path.read_text())
-            lines.append(f"Escalation: {ws.get('escalation_level', '?')}")
-    except Exception:
-        pass
-
+        lines.append(f"Prices unavailable: {e}")
     return "\n".join(lines)
 
 
