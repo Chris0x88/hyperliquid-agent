@@ -1102,10 +1102,15 @@ def run_heartbeat(
     state.last_updated_ms = now_ms
 
     # 7. Telegram alerts
-    if not dry_run and (actions or final_escalation != prev_escalation):
+    # Only alert on ACTIONS taken or escalation INCREASES (not downgrades)
+    escalation_increased = (
+        final_escalation != prev_escalation
+        and _ESC_ORDER.get(final_escalation, 0) > _ESC_ORDER.get(prev_escalation, 0)
+    )
+    if not dry_run and (actions or escalation_increased):
         try:
             msg_parts = [f"Heartbeat [{final_escalation}]"]
-            if final_escalation != prev_escalation:
+            if escalation_increased:
                 msg_parts.append(f"Escalation: {prev_escalation} -> {final_escalation}")
             for a in actions:
                 msg_parts.append(f"Action: {a.get('action')} {a.get('market', '')} — {a.get('reason', '')}")
@@ -1256,6 +1261,9 @@ def should_send_status_summary(
     elapsed_ms = now_ms - last_summary_ms
     return elapsed_ms >= interval_hours * 3600 * 1000
 
+
+# Escalation level ordering (for alert-on-increase-only logic)
+_ESC_ORDER = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 # Wallet addresses — resolved lazily from ~/.hl-agent/wallets.json
 # Set via: hl wallet register / hl wallet set-vault
