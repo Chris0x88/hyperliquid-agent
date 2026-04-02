@@ -599,22 +599,11 @@ def run_heartbeat(
                 log.info("Conviction engine: loaded %d thesis(es) — %s",
                          len(thesis_states),
                          ", ".join(f"{m}={t.effective_conviction():.2f}" for m, t in thesis_states.items()))
-            # Thesis review reminders (once every 6h, not every cycle)
-            review_cooldown_ms = 6 * 3600 * 1000
-            last_review_alert = getattr(state, '_last_thesis_review_ms', 0)
-            if now_ms - last_review_alert > review_cooldown_ms:
-                for market, ts in thesis_states.items():
-                    if ts.needs_review and not ts.is_stale:
-                        age_d = ts.age_hours / 24
-                        try:
-                            send_telegram(
-                                f"[Thesis Review] {market}: conviction {ts.conviction:.2f}, "
-                                f"last reviewed {age_d:.1f}d ago. "
-                                f"Run /thesis to confirm or update."
-                            )
-                            state._last_thesis_review_ms = now_ms
-                        except Exception:
-                            pass
+            # Thesis review — log only, no Telegram spam
+            for market, ts in thesis_states.items():
+                if ts.needs_review and not ts.is_stale:
+                    log.info("Thesis %s needs review: conviction %.2f, age %.1fd",
+                             market, ts.conviction, ts.age_hours / 24)
         except Exception as e:
             log.warning("Failed to load thesis states: %s", e)
             conviction_enabled = False
@@ -1109,6 +1098,22 @@ def run_heartbeat(
             send_telegram("\n".join(msg_parts))
         except Exception as exc:
             errors.append(f"Telegram send failed: {exc}")
+
+    # 7b. Hourly status summary (brief, not every tick)
+    if not dry_run and _should_send_status(state, now_ms, interval_hours=1):
+        try:
+            total_eq = account_state.get("equity", 0)
+            pos_count = len(account_state.get("positions", []))
+            pos_summary = ", ".join(
+                f"{p['coin']} {p['side'][0]}{p.get('size', '?')}@{p.get('entry_price', '?')}"
+                for p in account_state.get("positions", [])
+            ) or "flat"
+            send_telegram(
+                f"[Hourly] ${total_eq:.0f} | {final_escalation} | {pos_summary}"
+            )
+            state.last_status_summary_ms = now_ms
+        except Exception:
+            pass
 
     # 8. Log actions to action_log
     if not dry_run and actions:
