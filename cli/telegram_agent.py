@@ -227,8 +227,8 @@ def _build_live_context() -> str:
         # Fetch account state for the harness
         account_state = _fetch_account_state_for_harness()
 
-        # Build market snapshots (compact text per market)
-        market_snapshots = _fetch_market_snapshots()
+        # Build market snapshots with position-aware signals
+        market_snapshots = _fetch_market_snapshots(positions=account_state.get("positions", []))
 
         # Assemble with token budget (3500 tokens for context + signal summaries)
         assembled = build_multi_market_context(
@@ -323,11 +323,12 @@ def _fetch_account_state_for_harness() -> dict:
     return result
 
 
-def _fetch_market_snapshots() -> dict:
-    """Fetch rich market snapshots with technicals for AI context.
+def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
+    """Fetch rich market snapshots with technicals + position-aware signals.
 
-    Uses build_snapshot + render_snapshot to compress candle data into
-    ~250 tokens per market: trend, support/resistance, ATR, BBands.
+    Uses build_snapshot + render_snapshot + render_signal_summary to compress
+    candle data into actionable text per market. Signal summaries include
+    position-specific guidance (e.g. "Signal SUPPORTS your SHORT").
     Falls back to price-only if snapshot building fails.
     """
     now = time.time()
@@ -368,8 +369,20 @@ def _fetch_market_snapshots() -> dict:
             try:
                 snap = build_snapshot(key, cache, price)
                 text = render_snapshot(snap, detail="brief")
-                # Add pre-computed signal interpretation for dumb models
-                signal = render_signal_summary(snap)
+                # Find position for this market (if any)
+                pos_data = None
+                if positions:
+                    bare_key = key.replace("xyz:", "")
+                    for p in positions:
+                        bare_coin = p.get("coin", "").replace("xyz:", "")
+                        if bare_coin == bare_key:
+                            pos_data = {
+                                "direction": "long" if p.get("size", 0) > 0 else "short",
+                                "size": abs(p.get("size", 0)),
+                            }
+                            break
+                # Add position-aware signal interpretation
+                signal = render_signal_summary(snap, position=pos_data)
                 snapshots[display] = f"{text}\n{signal}"
             except Exception:
                 snapshots[display] = f"PRICE ({display}): ${price:,.2f}"
@@ -477,6 +490,9 @@ def _sanitize_assistant_history(text: str) -> str:
         'not seeing any open position', 'not show any open',
         'does not show any open', 'position data is',
         'No Position Detected', 'none listed',
+        # Stale funding claims from memory (actual data comes from live API)
+        '58% annualized', 'earn funding', 'earning funding',
+        'paying funding', 'funding costs compound',
     ]
     for line in lines:
         stripped = line.strip()

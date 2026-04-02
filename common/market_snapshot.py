@@ -358,18 +358,28 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
     return "\n".join(lines)
 
 
-def render_signal_summary(snap: MarketSnapshot) -> str:
+def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None) -> str:
     """Pre-computed plain-English signal assessment.
 
     This is THE key function for making dumb models useful. Instead of
     giving the model raw flags/numbers and hoping it interprets correctly,
     we do the interpretation here and give it sentences to quote.
 
+    IMPORTANT: The model should QUOTE this output, not reinterpret it.
+    Reinterpretation causes directional errors (e.g. saying "exhaustion
+    may give a bounce" when exhaustion means the rally drops).
+
+    Args:
+        snap: MarketSnapshot with pre-computed indicators
+        position: Optional dict with 'direction' ('long'/'short') and 'size'
+                  to add position-specific guidance
+
     Returns ~150 tokens of actionable analysis covering:
     - Overall bias (bullish/bearish/neutral)
     - Exhaustion/momentum signals
     - Key risk levels
     - Position guidance for longs AND shorts
+    - Position-specific impact if position provided
     """
     signals = []
     bias_score = 0  # positive = bullish, negative = bearish
@@ -504,17 +514,43 @@ def render_signal_summary(snap: MarketSnapshot) -> str:
     for s in signals:
         lines.append(f"  • {s}")
 
-    # Position guidance
-    if bias_score >= 2:
-        lines.append("  → LONGS: favorable conditions. SHORTS: against trend, high risk.")
-    elif bias_score <= -2:
-        lines.append("  → SHORTS: favorable conditions. LONGS: against trend, high risk.")
-    elif exhaustion_bull:
-        lines.append("  → SHORTS: near-term opportunity if momentum fades. LONGS: wait for pullback.")
+    # Position guidance — explicit about WHAT HAPPENS TO PRICE
+    # (models get confused about "exhaustion helps shorts" so spell it out)
+    bb_mid = primary.bb.middle if primary.bb else None
+    mid_str = f" toward ${bb_mid:.4g} (BB mid)" if bb_mid else ""
+
+    if exhaustion_bull:
+        lines.append(f"  → PRICE OUTLOOK: Rally exhausted, expect pullback/drop{mid_str}")
+        lines.append("  → SHORTS benefit from the drop. LONGS should wait for pullback to enter.")
     elif exhaustion_bear:
-        lines.append("  → LONGS: near-term bounce opportunity. SHORTS: take profits, cover risk.")
+        lines.append(f"  → PRICE OUTLOOK: Selling exhausted, expect bounce/recovery{mid_str}")
+        lines.append("  → LONGS benefit from the bounce. SHORTS should cover/take profits.")
+    elif bias_score >= 2:
+        lines.append("  → PRICE OUTLOOK: Upward pressure. LONGS favorable. SHORTS high risk.")
+    elif bias_score <= -2:
+        lines.append("  → PRICE OUTLOOK: Downward pressure. SHORTS favorable. LONGS high risk.")
     else:
-        lines.append("  → Range-bound. Wait for directional signal before committing.")
+        lines.append("  → PRICE OUTLOOK: No clear direction. Wait for signal before committing.")
+
+    # Position-specific impact (when position data is available)
+    if position:
+        pos_dir = position.get("direction", "").lower()
+        pos_size = position.get("size", 0)
+        if pos_dir in ("long", "short"):
+            # Determine if signal helps or hurts the position
+            if pos_dir == "long":
+                favorable = bias_score > 0 or exhaustion_bear
+                harmful = bias_score < -1 or exhaustion_bull
+            else:  # short
+                favorable = bias_score < 0 or exhaustion_bull
+                harmful = bias_score > 1 or exhaustion_bear
+
+            if favorable:
+                lines.append(f"  ✅ YOUR {pos_dir.upper()}: Signal SUPPORTS your position")
+            elif harmful:
+                lines.append(f"  ⚠️ YOUR {pos_dir.upper()}: Signal is AGAINST your position")
+            else:
+                lines.append(f"  ➡️ YOUR {pos_dir.upper()}: Signal is neutral for your position")
 
     # Volatility context
     vol_pct = primary.atr_pct
