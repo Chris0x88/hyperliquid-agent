@@ -35,11 +35,15 @@ from common.market_structure import (
     KeyLevel,
     TrendAnalysis,
     VolumeProfile,
+    VolumeWeightedMomentum,
+    VolatilityRegime,
     atr,
     bollinger_bands,
     find_key_levels,
     trend_analysis,
     volume_profile,
+    volume_weighted_momentum,
+    volatility_regime,
     vwap,
 )
 
@@ -58,6 +62,8 @@ class TimeframeData:
     vwap_value: float
     vol_profile: Optional[VolumeProfile]
     price_change_pct: float  # % change over the candle window
+    vwm: Optional[VolumeWeightedMomentum] = None    # volume-weighted momentum
+    vol_regime: Optional[VolatilityRegime] = None    # volatility regime classification
 
 
 @dataclass
@@ -142,6 +148,10 @@ def build_snapshot(
         vp = volume_profile(candles)
         price_change = (closes[-1] - closes[0]) / closes[0] * 100 if closes[0] > 0 else 0
 
+        # Quant signals (v3)
+        vwm = volume_weighted_momentum(candles) if len(candles) > 20 else None
+        vol_reg = volatility_regime(candles, current_price) if len(candles) > 20 else None
+
         tf_data = TimeframeData(
             interval=interval,
             candle_count=len(candles),
@@ -151,6 +161,8 @@ def build_snapshot(
             atr_pct=round(atr_pct, 3),
             vwap_value=vwap_val,
             vol_profile=vp,
+            vwm=vwm,
+            vol_regime=vol_reg,
             price_change_pct=round(price_change, 2),
         )
         snap.timeframes[interval] = tf_data
@@ -227,6 +239,9 @@ def build_snapshot_from_candles(
         vp = volume_profile(candles)
         price_change = (closes[-1] - closes[0]) / closes[0] * 100 if closes[0] > 0 else 0
 
+        vwm = volume_weighted_momentum(candles) if len(candles) > 20 else None
+        vol_reg = volatility_regime(candles, current_price) if len(candles) > 20 else None
+
         tf_data = TimeframeData(
             interval=interval,
             candle_count=len(candles),
@@ -237,6 +252,8 @@ def build_snapshot_from_candles(
             vwap_value=vwap_val,
             vol_profile=vp,
             price_change_pct=round(price_change, 2),
+            vwm=vwm,
+            vol_regime=vol_reg,
         )
         snap.timeframes[interval] = tf_data
 
@@ -330,6 +347,13 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
             parts.append(f"patterns=[{','.join(t.candle_patterns)}]")
 
         parts.append(f"chg={tf.price_change_pct:+.1f}%")
+
+        # Quant v3 additions
+        if tf.vwm and tf.vwm.vol_price_accel != "neutral":
+            parts.append(f"flow={tf.vwm.vol_price_accel}({tf.vwm.obv_trend})")
+        if tf.vol_regime and tf.vol_regime.regime != "normal":
+            parts.append(f"vol_regime={tf.vol_regime.regime}({tf.vol_regime.percentile:.0f}%ile)")
+
         lines.append(" | ".join(parts))
 
     if detail == "standard":
@@ -513,6 +537,34 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
     lines = [f"SIGNAL: {emoji} {overall} (score: {bias_score:+d})"]
     for s in signals:
         lines.append(f"  • {s}")
+
+    # ── Volume-weighted momentum (quant v3) ──
+    if primary.vwm:
+        vwm = primary.vwm
+        if vwm.vol_price_accel in ("strong_buy", "strong_sell"):
+            vol_label = "STRONG" if vwm.recent_vs_avg > 1.5 else "elevated"
+            if vwm.vol_price_accel == "strong_buy":
+                lines.append(f"  • Money flow: {vol_label} accumulation (OBV {vwm.obv_trend}, vol {vwm.recent_vs_avg:.1f}x avg)")
+                bias_score += 1
+            else:
+                lines.append(f"  • Money flow: {vol_label} distribution (OBV {vwm.obv_trend}, vol {vwm.recent_vs_avg:.1f}x avg)")
+                bias_score -= 1
+        elif vwm.obv_trend == "accumulating" and direction == "up":
+            lines.append(f"  • Volume confirms trend (OBV accumulating, {vwm.recent_vs_avg:.1f}x avg vol)")
+        elif vwm.obv_trend == "distributing" and direction == "up":
+            lines.append(f"  • ⚠️ Volume divergence: price rising but OBV distributing (smart money exiting?)")
+            bias_score -= 1
+        elif vwm.obv_trend == "accumulating" and direction == "down":
+            lines.append(f"  • ⚠️ Volume divergence: price falling but OBV accumulating (smart money buying?)")
+            bias_score += 1
+
+    # ── Volatility regime (quant v3) ──
+    if primary.vol_regime:
+        vr = primary.vol_regime
+        if vr.regime == "extreme":
+            lines.append(f"  • 🔥 EXTREME volatility ({vr.percentile:.0f}th percentile) — reduce size, widen stops")
+        elif vr.regime == "low":
+            lines.append(f"  • 💤 LOW volatility ({vr.percentile:.0f}th percentile) — compression before breakout?")
 
     # Position guidance — explicit about WHAT HAPPENS TO PRICE
     # (models get confused about "exhaustion helps shorts" so spell it out)

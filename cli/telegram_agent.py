@@ -408,6 +408,25 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
         except Exception:
             pass
 
+    # Cross-market correlation (BTC vs Oil)
+    try:
+        from common.market_structure import cross_market_correlation, OHLCV
+        if "market_snapshots" not in _CACHE:  # only if we have fresh cache with candle access
+            from modules.candle_cache import CandleCache
+            cache = CandleCache()
+            now_ms = int(time.time() * 1000)
+            start_ms = now_ms - (7 * 86_400_000)  # 7 days
+            btc_raw = cache.get_candles("BTC", "1h", start_ms, now_ms)
+            oil_raw = cache.get_candles("xyz:BRENTOIL", "1h", start_ms, now_ms)
+            if btc_raw and oil_raw:
+                btc_candles = OHLCV.from_hl_list(btc_raw)
+                oil_candles = OHLCV.from_hl_list(oil_raw)
+                corr, interp = cross_market_correlation(btc_candles, oil_candles, window=48)
+                if abs(corr) > 0.25:  # only show if meaningful
+                    snapshots["cross_correlation"] = f"BTC/OIL CORRELATION (48h): {corr:+.2f} — {interp}"
+    except Exception:
+        pass
+
     # Add thesis data if available
     thesis_dir = _PROJECT_ROOT / "data" / "thesis"
     if thesis_dir.exists():

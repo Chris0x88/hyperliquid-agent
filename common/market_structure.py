@@ -687,6 +687,247 @@ def find_key_levels(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Quant signals (v3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class VolumeWeightedMomentum:
+    """Volume-weighted momentum assessment.
+
+    OBV trend + volume-price acceleration tells you whether money is
+    flowing in (accumulation) or out (distribution). Price can rise on
+    declining volume (weak rally) or fall on declining volume (weak selloff).
+    """
+    obv_trend: str          # "accumulating", "distributing", "flat"
+    obv_slope_pct: float    # OBV change over last N bars as % of total
+    vol_price_accel: str    # "strong_buy", "weak_buy", "strong_sell", "weak_sell", "neutral"
+    avg_volume: float       # Average volume over period
+    recent_vs_avg: float    # Recent volume as multiple of average (>1 = above average)
+
+
+def volume_weighted_momentum(candles: List[OHLCV], lookback: int = 20) -> VolumeWeightedMomentum:
+    """Compute OBV trend + volume-price acceleration.
+
+    OBV (On-Balance Volume): cumulative volume, added on up closes, subtracted on down.
+    Volume-price acceleration: are volume surges aligned with price direction?
+
+    Args:
+        candles: OHLCV list (at least lookback+1 candles)
+        lookback: number of bars for trend assessment
+    """
+    if len(candles) < lookback + 1:
+        return VolumeWeightedMomentum("flat", 0, "neutral", 0, 1.0)
+
+    recent = candles[-(lookback + 1):]
+
+    # OBV calculation
+    obv = [0.0]
+    for i in range(1, len(recent)):
+        if recent[i].c > recent[i - 1].c:
+            obv.append(obv[-1] + recent[i].v)
+        elif recent[i].c < recent[i - 1].c:
+            obv.append(obv[-1] - recent[i].v)
+        else:
+            obv.append(obv[-1])
+
+    # OBV trend (linear regression slope over lookback)
+    obv_start = obv[1]  # skip first (zero)
+    obv_end = obv[-1]
+    total_vol = sum(c.v for c in recent[1:])
+    obv_slope_pct = ((obv_end - obv_start) / total_vol * 100) if total_vol > 0 else 0
+
+    if obv_slope_pct > 10:
+        obv_trend = "accumulating"
+    elif obv_slope_pct < -10:
+        obv_trend = "distributing"
+    else:
+        obv_trend = "flat"
+
+    # Volume-price acceleration: do high-volume bars align with price direction?
+    avg_vol = sum(c.v for c in recent[1:]) / lookback
+    recent_5 = recent[-5:]
+    recent_avg = sum(c.v for c in recent_5) / len(recent_5) if recent_5 else avg_vol
+
+    # Count volume-aligned bars (high vol + price direction match)
+    up_vol = 0.0
+    down_vol = 0.0
+    for i in range(1, len(recent)):
+        change = recent[i].c - recent[i - 1].c
+        if change > 0:
+            up_vol += recent[i].v
+        elif change < 0:
+            down_vol += recent[i].v
+
+    if up_vol + down_vol == 0:
+        accel = "neutral"
+    else:
+        ratio = up_vol / (up_vol + down_vol)
+        recent_vol_ratio = recent_avg / avg_vol if avg_vol > 0 else 1.0
+
+        if ratio > 0.65 and recent_vol_ratio > 1.2:
+            accel = "strong_buy"
+        elif ratio > 0.55:
+            accel = "weak_buy"
+        elif ratio < 0.35 and recent_vol_ratio > 1.2:
+            accel = "strong_sell"
+        elif ratio < 0.45:
+            accel = "weak_sell"
+        else:
+            accel = "neutral"
+
+    return VolumeWeightedMomentum(
+        obv_trend=obv_trend,
+        obv_slope_pct=round(obv_slope_pct, 1),
+        vol_price_accel=accel,
+        avg_volume=round(avg_vol, 2),
+        recent_vs_avg=round(recent_avg / avg_vol if avg_vol > 0 else 1.0, 2),
+    )
+
+
+@dataclass
+class VolatilityRegime:
+    """Simple volatility regime classification.
+
+    Compares current ATR% to its own recent history to determine if
+    we're in a low, normal, high, or extreme volatility environment.
+    """
+    regime: str             # "low", "normal", "high", "extreme"
+    current_atr_pct: float  # Current ATR as % of price
+    avg_atr_pct: float      # Average ATR% over lookback
+    percentile: float       # Where current sits in historical distribution (0-100)
+
+
+def volatility_regime(candles: List[OHLCV], price: float, atr_period: int = 14, lookback: int = 100) -> VolatilityRegime:
+    """Classify volatility regime by comparing current ATR to its own history.
+
+    Uses rolling ATR% to determine if current volatility is historically
+    low, normal, high, or extreme for this specific instrument.
+    """
+    if len(candles) < atr_period + 1 + lookback:
+        current = atr(candles, atr_period)
+        pct = (current / price * 100) if price > 0 else 0
+        return VolatilityRegime("normal", round(pct, 2), round(pct, 2), 50.0)
+
+    # Compute rolling ATR% over the lookback window
+    # ATR needs period+1 candles, so windows must be at least that size
+    win_size = atr_period + 1
+    atr_pcts = []
+    for i in range(lookback):
+        end_idx = len(candles) - lookback + i + win_size
+        if end_idx > len(candles):
+            break
+        window = candles[end_idx - win_size:end_idx]
+        if len(window) < win_size:
+            continue
+        a = atr(window, atr_period)
+        mid_price = window[-1].c
+        if mid_price > 0 and a > 0:
+            atr_pcts.append(a / mid_price * 100)
+
+    if not atr_pcts:
+        current = atr(candles[-(win_size):], atr_period)
+        pct = (current / price * 100) if price > 0 else 0
+        return VolatilityRegime("normal", round(pct, 2), round(pct, 2), 50.0)
+
+    current_atr = atr(candles[-(win_size):], atr_period)
+    current_pct = (current_atr / price * 100) if price > 0 else 0
+    avg_pct = sum(atr_pcts) / len(atr_pcts)
+
+    # Percentile rank
+    below = sum(1 for x in atr_pcts if x < current_pct)
+    percentile = (below / len(atr_pcts)) * 100
+
+    if percentile > 90:
+        regime = "extreme"
+    elif percentile > 70:
+        regime = "high"
+    elif percentile < 20:
+        regime = "low"
+    else:
+        regime = "normal"
+
+    return VolatilityRegime(
+        regime=regime,
+        current_atr_pct=round(current_pct, 2),
+        avg_atr_pct=round(avg_pct, 2),
+        percentile=round(percentile, 1),
+    )
+
+
+def cross_market_correlation(
+    candles_a: List[OHLCV],
+    candles_b: List[OHLCV],
+    window: int = 24,
+) -> Tuple[float, str]:
+    """Compute rolling Pearson correlation between two markets' returns.
+
+    Used to detect when BTC and Oil are moving together (risk-on/off) or
+    diverging (sector-specific moves). Returns correlation and interpretation.
+
+    Args:
+        candles_a, candles_b: OHLCV lists (should be same timeframe/alignment)
+        window: number of bars for correlation window
+
+    Returns:
+        (correlation_float, interpretation_string)
+    """
+    # Align by timestamp (nearest match)
+    ts_a = {c.t: c.c for c in candles_a}
+    ts_b = {c.t: c.c for c in candles_b}
+
+    # Find common timestamps (within 5 min tolerance)
+    pairs = []
+    for t_a, p_a in sorted(ts_a.items()):
+        best_t = min(ts_b.keys(), key=lambda t: abs(t - t_a), default=None)
+        if best_t is not None and abs(best_t - t_a) < 300_000:  # 5 min
+            pairs.append((p_a, ts_b[best_t]))
+
+    if len(pairs) < window + 1:
+        return 0.0, "insufficient data"
+
+    # Compute returns
+    recent = pairs[-(window + 1):]
+    returns_a = [(recent[i][0] - recent[i - 1][0]) / recent[i - 1][0]
+                 for i in range(1, len(recent)) if recent[i - 1][0] > 0]
+    returns_b = [(recent[i][1] - recent[i - 1][1]) / recent[i - 1][1]
+                 for i in range(1, len(recent)) if recent[i - 1][1] > 0]
+
+    n = min(len(returns_a), len(returns_b))
+    if n < 5:
+        return 0.0, "insufficient data"
+
+    returns_a = returns_a[:n]
+    returns_b = returns_b[:n]
+
+    # Pearson correlation
+    mean_a = sum(returns_a) / n
+    mean_b = sum(returns_b) / n
+
+    cov = sum((returns_a[i] - mean_a) * (returns_b[i] - mean_b) for i in range(n)) / n
+    std_a = (sum((x - mean_a) ** 2 for x in returns_a) / n) ** 0.5
+    std_b = (sum((x - mean_b) ** 2 for x in returns_b) / n) ** 0.5
+
+    if std_a == 0 or std_b == 0:
+        return 0.0, "no variance"
+
+    corr = cov / (std_a * std_b)
+    corr = max(-1.0, min(1.0, corr))  # clamp
+
+    if corr > 0.7:
+        interp = "strongly correlated (risk-on/off regime)"
+    elif corr > 0.3:
+        interp = "moderately correlated"
+    elif corr < -0.7:
+        interp = "strongly inverse (hedging each other)"
+    elif corr < -0.3:
+        interp = "moderately inverse"
+    else:
+        interp = "uncorrelated (independent moves)"
+
+    return round(corr, 2), interp
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
