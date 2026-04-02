@@ -191,13 +191,22 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         if not response_text:
             response_text = "Sorry, I couldn't get a response from the AI. Try again or use /status for live data."
 
-        # Send response
-        _tg_send_markdown(token, chat_id, response_text)
+        # Extract thought tag for intent-based memory
+        import re
+        thought_match = re.search(r'<thought>(.*?)</thought>', response_text, re.IGNORECASE | re.DOTALL)
+        if thought_match:
+            memory_intent = thought_match.group(1).strip()
+            # Strip the thought tag from what the user sees
+            tg_text = re.sub(r'<thought>.*?</thought>\s*', '', response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+        else:
+            memory_intent = _sanitize_assistant_history(response_text)
+            tg_text = response_text
 
-        # Log SANITIZED version — strip data claims before writing to history.
-        # The full response is sent to Telegram, but history only stores the
-        # conversational analysis (not specific prices/positions that go stale).
-        _log_chat("assistant", _sanitize_assistant_history(response_text))
+        # Send response
+        _tg_send_markdown(token, chat_id, tg_text)
+
+        # Log memory intent instead of raw sanitized response
+        _log_chat("assistant", memory_intent)
 
     except Exception as e:
         log.error("AI handler failed: %s", e, exc_info=True)
@@ -497,14 +506,16 @@ def _sanitize_assistant_history(text: str) -> str:
     import re
     # Remove code blocks (often contain ACCOUNT: $xxx, POSITIONS: etc)
     text = re.sub(r'```[^`]*```', '[data snapshot removed]', text, flags=re.DOTALL)
-    # Remove inline data lines that start with common data prefixes
+    # Remove inline data lines using dynamic regex to catch Markdown Variations
     lines = text.split('\n')
     clean = []
-    # Lines starting with these are data readouts
-    starts_with = [
-        'ACCOUNT:', 'POSITIONS:', 'PRICE (', 'PRICE:', '• Equity:',
-        '• BRENTOIL:', '• BTC:', '• Prices:', '• Open Positions:',
-    ]
+    
+    # Lines matching this regex contain portfolio numbers/data
+    data_pattern = re.compile(
+        r'^[\s\W]*(Equity|Open Positions|Positions|Direction|Entry|Current|uPnL|Leverage|Liquidation|Account|Price)[\s\W]*:',
+        re.IGNORECASE
+    )
+    
     # Lines containing these are stale claims about data state
     contains = [
         'No position', 'no position', 'POSITIONS: (none',
@@ -516,10 +527,9 @@ def _sanitize_assistant_history(text: str) -> str:
         'paying funding', 'funding costs compound',
     ]
     for line in lines:
-        stripped = line.strip()
-        if any(stripped.startswith(p) for p in starts_with):
+        if data_pattern.search(line):
             continue
-        if any(p in stripped for p in contains):
+        if any(p in line for p in contains):
             continue
         clean.append(line)
     return '\n'.join(clean).strip()

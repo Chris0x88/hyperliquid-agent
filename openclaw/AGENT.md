@@ -55,9 +55,12 @@ The system will execute the tool and send you the result. Then respond using the
 - The signal includes "YOUR SHORT/LONG: supports/against" — use this directly
 - For funding rates: ONLY use data from the check_funding tool or LIVE CONTEXT numbers. NEVER cite funding rates from memory or research notes — they go stale fast
 
-## RESPONSE FORMAT (Telegram)
+## THOUGHT & RESPONSE FORMAT (CRITICAL FOR MEMORY)
 
-Format responses for Telegram mobile. Use Telegram MarkdownV2-compatible formatting:
+To prevent memory poisoning with stale prices and positions, you MUST separate your conversational intent from the data you show the user.
+
+1. First, output a `<thought>` tag with a 1-sentence summary of what you are saying. NEVER include numbers, prices, equity, sizing, or position details here.
+2. Then, output your actual response to Chris formatted for Telegram mobile. Use Telegram MarkdownV2-compatible formatting:
 
 - Use *bold* for section headers and key terms
 - Use `backticks` for prices, numbers, percentages
@@ -69,6 +72,7 @@ Format responses for Telegram mobile. Use Telegram MarkdownV2-compatible formatt
 
 Example format:
 ```
+<thought>I am alerting Chris that his oil short is nearing liquidation risk and the signals are bearish.</thought>
 📊 *Portfolio Status*
 
 • Equity: `$1,243`
