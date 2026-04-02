@@ -194,8 +194,10 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Send response
         _tg_send_markdown(token, chat_id, response_text)
 
-        # Log assistant response
-        _log_chat("assistant", response_text)
+        # Log SANITIZED version — strip data claims before writing to history.
+        # The full response is sent to Telegram, but history only stores the
+        # conversational analysis (not specific prices/positions that go stale).
+        _log_chat("assistant", _sanitize_assistant_history(response_text))
 
     except Exception as e:
         log.error("AI handler failed: %s", e, exc_info=True)
