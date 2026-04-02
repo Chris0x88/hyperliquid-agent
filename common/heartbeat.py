@@ -465,14 +465,14 @@ def resolve_escalation(levels: list[str]) -> str:
 def fetch_with_retry(
     fn: Callable[[], Any],
     retries: int = 3,
-    delay_ms: int = 100,
+    delay_ms: int = 2000,
 ) -> Any:
     """Call *fn* with retry logic.
 
     Args:
         fn: Zero-argument callable to invoke.
         retries: Maximum number of attempts.
-        delay_ms: Milliseconds to sleep between retries.
+        delay_ms: Milliseconds to sleep between retries (default 2s for rate limits).
 
     Returns:
         The return value of *fn*, or ``None`` if all retries fail.
@@ -724,9 +724,9 @@ def run_heartbeat(
 
                     # Determine which proxy to use based on account
                     if account_label == "vault":
-                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                     else:
-                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                        hl = HLProxy(testnet=False, account_address=_get_main_account())
                     proxy = DirectHLProxy(hl)
 
                     # Stop side is opposite of position: long pos → sell stop
@@ -781,9 +781,9 @@ def run_heartbeat(
                         from parent.hl_proxy import HLProxy
                         from cli.hl_adapter import DirectHLProxy
                         if account_label == "vault":
-                            hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                            hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                         else:
-                            hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                            hl = HLProxy(testnet=False, account_address=_get_main_account())
                         proxy = DirectHLProxy(hl)
                         tp_side = "sell" if side == "long" else "buy"
                         tp_oid = proxy.place_tp_trigger_order(
@@ -856,9 +856,9 @@ def run_heartbeat(
                     from parent.hl_proxy import HLProxy
                     from cli.hl_adapter import DirectHLProxy
                     if account_label == "vault":
-                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                     else:
-                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                        hl = HLProxy(testnet=False, account_address=_get_main_account())
                     proxy = DirectHLProxy(hl)
                     close_side = "sell" if side == "long" else "buy"
                     fill = proxy.place_order(
@@ -904,9 +904,9 @@ def run_heartbeat(
                     from parent.hl_proxy import HLProxy
                     from cli.hl_adapter import DirectHLProxy
                     if account_label == "vault":
-                        hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                     else:
-                        hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                        hl = HLProxy(testnet=False, account_address=_get_main_account())
                     proxy = DirectHLProxy(hl)
                     close_side = "sell" if side == "long" else "buy"
                     fill = proxy.place_order(
@@ -1026,7 +1026,7 @@ def run_heartbeat(
                         try:
                             from parent.hl_proxy import HLProxy
                             from cli.hl_adapter import DirectHLProxy
-                            hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                            hl = HLProxy(testnet=False, account_address=_get_main_account())
                             proxy = DirectHLProxy(hl)
                             add_side = "buy" if side == "long" else "sell"
                             fill = proxy.place_order(
@@ -1078,9 +1078,9 @@ def run_heartbeat(
             try:
                 from parent.hl_proxy import HLProxy
                 if account_label == "vault":
-                    hl = HLProxy(testnet=False, vault_address=VAULT_ADDRESS)
+                    hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                 else:
-                    hl = HLProxy(testnet=False, account_address=MAIN_ACCOUNT)
+                    hl = HLProxy(testnet=False, account_address=_get_main_account())
                 hl._ensure_client()
                 # xyz markets need the full "xyz:COIN" format for the SDK
                 hl._exchange.update_leverage(int(target_lev), coin, is_cross=True)
@@ -1238,12 +1238,40 @@ def should_send_status_summary(
     return elapsed_ms >= interval_hours * 3600 * 1000
 
 
-# Wallet addresses — resolved from environment/config, never hardcoded
-# Set HL_MAIN_WALLET and HL_VAULT_ADDRESS in your .env file
+# Wallet addresses — resolved lazily from ~/.hl-agent/wallets.json
+# Set via: hl wallet register / hl wallet set-vault
 from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
 
-MAIN_ACCOUNT = resolve_main_wallet(required=False) or ""
-VAULT_ADDRESS = _resolve_vault(required=False) or ""
+_MAIN_ACCOUNT_CACHE: Optional[str] = None
+_VAULT_ADDRESS_CACHE: Optional[str] = None
+
+
+def _get_main_account() -> str:
+    """Lazily resolve main wallet address (cached after first successful lookup)."""
+    global _MAIN_ACCOUNT_CACHE
+    if _MAIN_ACCOUNT_CACHE:
+        return _MAIN_ACCOUNT_CACHE
+    addr = resolve_main_wallet(required=False) or ""
+    if addr:
+        _MAIN_ACCOUNT_CACHE = addr
+    return addr
+
+
+def _get_vault_address() -> str:
+    """Lazily resolve vault address (cached after first successful lookup)."""
+    global _VAULT_ADDRESS_CACHE
+    if _VAULT_ADDRESS_CACHE:
+        return _VAULT_ADDRESS_CACHE
+    addr = _resolve_vault(required=False) or ""
+    if addr:
+        _VAULT_ADDRESS_CACHE = addr
+    return addr
+
+
+# Backwards compat — computed properties would be ideal but these are module-level
+# so we use the lazy functions everywhere in _fetch_account_state
+MAIN_ACCOUNT = ""  # Use _get_main_account() instead
+VAULT_ADDRESS = ""  # Use _get_vault_address() instead
 
 
 def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
@@ -1346,6 +1374,10 @@ def _fetch_open_trigger_orders(address: str, dex: str = None) -> list[dict]:
         payload["dex"] = dex
     try:
         resp = _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10)
+        if resp.status_code == 429:
+            log.debug("frontendOpenOrders rate limited, skipping")
+            return []
+        resp.raise_for_status()
         orders = resp.json()
         if not isinstance(orders, list):
             return []
@@ -1379,6 +1411,10 @@ def _fetch_funding_rates(dex: str = None) -> dict[str, float]:
         payload["dex"] = dex
     try:
         resp = _req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=10)
+        if resp.status_code == 429:
+            log.debug("metaAndAssetCtxs rate limited, skipping")
+            return {}
+        resp.raise_for_status()
         data = resp.json()
         # Response is [meta_dict, [asset_ctx_list]]
         if isinstance(data, list) and len(data) >= 2:
@@ -1410,62 +1446,94 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     from parent.hl_proxy import HLProxy
     from cli.hl_adapter import DirectHLProxy
 
+    # Resolve addresses lazily (not at module-load time)
+    main_acct = _get_main_account()
+    vault_addr = _get_vault_address()
+    if not main_acct and not vault_addr:
+        raise RuntimeError(
+            "No wallets configured. Run: hl wallet register"
+        )
+
     all_positions = []
     main_equity = 0.0
     vault_equity = 0.0
 
     import requests as _req
 
+    # Rate-limit-safe API helper — checks status code before parsing JSON
+    _HL_URL = "https://api.hyperliquid.xyz/info"
+    _RATE_LIMIT_DELAY = 0.3  # 300ms between requests to avoid 429s
+
+    def _hl_post(payload: dict) -> dict:
+        """POST to HL /info with rate-limit handling."""
+        resp = _req.post(_HL_URL, json=payload, timeout=10)
+        if resp.status_code == 429:
+            log.warning("HL API rate limited (429), backing off 2s")
+            time.sleep(2)
+            resp = _req.post(_HL_URL, json=payload, timeout=10)
+            if resp.status_code == 429:
+                raise RuntimeError("HL API rate limited after retry")
+        resp.raise_for_status()
+        return resp.json()
+
     # 1. Fetch main account — default clearinghouse
-    try:
-        resp = _req.post("https://api.hyperliquid.xyz/info", json={
-            "type": "clearinghouseState", "user": MAIN_ACCOUNT
-        }, timeout=10)
-        raw_main = resp.json()
-        main_equity = _get_equity_from_state(raw_main)
-        all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
-    except Exception as e:
-        log.warning("Main account default clearinghouse failed: %s", e)
+    if main_acct:
+        try:
+            raw_main = _hl_post({
+                "type": "clearinghouseState", "user": main_acct
+            })
+            main_equity = _get_equity_from_state(raw_main)
+            all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
+        except Exception as e:
+            log.warning("Main account default clearinghouse failed: %s", e)
 
-    # 2. Fetch main account — xyz clearinghouse (oil positions)
-    try:
-        resp = _req.post("https://api.hyperliquid.xyz/info", json={
-            "type": "clearinghouseState", "user": MAIN_ACCOUNT, "dex": "xyz"
-        }, timeout=10)
-        xyz_data = resp.json()
-        xyz_equity = _get_equity_from_state(xyz_data)
-        if xyz_equity > 0:
-            main_equity += xyz_equity
-        xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
-        all_positions.extend(xyz_positions)
-        if xyz_positions:
-            log.info("Found %d xyz position(s)", len(xyz_positions))
-    except Exception as e:
-        log.debug("XYZ clearinghouse query failed: %s", e)
+        time.sleep(_RATE_LIMIT_DELAY)
 
-    # 3. Fetch spot balances (USDC may be idle in spot)
-    try:
-        resp = _req.post("https://api.hyperliquid.xyz/info", json={
-            "type": "spotClearinghouseState", "user": MAIN_ACCOUNT
-        }, timeout=10)
-        spot_data = resp.json()
-        spot_usdc = 0.0
-        for bal in spot_data.get("balances", []):
-            if bal.get("coin") == "USDC":
-                spot_usdc = float(bal.get("total", 0))
-        if spot_usdc > 0:
-            main_equity += spot_usdc
-            log.info("Main spot USDC: $%.2f", spot_usdc)
-    except Exception as e:
-        log.debug("Spot balance query failed: %s", e)
+        # 2. Fetch main account — xyz clearinghouse (oil positions)
+        try:
+            xyz_data = _hl_post({
+                "type": "clearinghouseState", "user": main_acct, "dex": "xyz"
+            })
+            xyz_equity = _get_equity_from_state(xyz_data)
+            if xyz_equity > 0:
+                main_equity += xyz_equity
+            xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
+            all_positions.extend(xyz_positions)
+            if xyz_positions:
+                log.info("Found %d xyz position(s)", len(xyz_positions))
+        except Exception as e:
+            log.debug("XYZ clearinghouse query failed: %s", e)
 
-    # 4. Fetch trigger orders for stop-loss detection (main + xyz)
-    main_triggers = _fetch_open_trigger_orders(MAIN_ACCOUNT)
-    xyz_triggers = _fetch_open_trigger_orders(MAIN_ACCOUNT, dex="xyz")
-    all_triggers = main_triggers + xyz_triggers
+        time.sleep(_RATE_LIMIT_DELAY)
+
+        # 3. Fetch spot balances (USDC may be idle in spot)
+        try:
+            spot_data = _hl_post({
+                "type": "spotClearinghouseState", "user": main_acct
+            })
+            spot_usdc = 0.0
+            for bal in spot_data.get("balances", []):
+                if bal.get("coin") == "USDC":
+                    spot_usdc = float(bal.get("total", 0))
+            if spot_usdc > 0:
+                main_equity += spot_usdc
+                log.info("Main spot USDC: $%.2f", spot_usdc)
+        except Exception as e:
+            log.debug("Spot balance query failed: %s", e)
+
+        time.sleep(_RATE_LIMIT_DELAY)
+
+        # 4. Fetch trigger orders for stop-loss detection (main + xyz)
+        main_triggers = _fetch_open_trigger_orders(main_acct)
+        time.sleep(_RATE_LIMIT_DELAY)
+        xyz_triggers = _fetch_open_trigger_orders(main_acct, dex="xyz")
+        all_triggers = main_triggers + xyz_triggers
+
+        time.sleep(_RATE_LIMIT_DELAY)
 
     # 5. Fetch funding rates
     default_rates = _fetch_funding_rates()
+    time.sleep(_RATE_LIMIT_DELAY)
     xyz_rates = _fetch_funding_rates(dex="xyz")
 
     # Attach funding rates to positions
@@ -1476,25 +1544,29 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
         else:
             pos["funding_rate"] = default_rates.get(coin, 0.0)
 
+    time.sleep(_RATE_LIMIT_DELAY)
+
     # 6. Fetch vault (BTC Power Law)
-    try:
-        resp = _req.post("https://api.hyperliquid.xyz/info", json={
-            "type": "clearinghouseState", "user": VAULT_ADDRESS
-        }, timeout=10)
-        raw_vault = resp.json()
-        vault_equity = _get_equity_from_state(raw_vault)
-        vault_positions = _parse_positions_from_raw(raw_vault, "vault")
-        all_positions.extend(vault_positions)
+    if vault_addr:
+        try:
+            raw_vault = _hl_post({
+                "type": "clearinghouseState", "user": vault_addr
+            })
+            vault_equity = _get_equity_from_state(raw_vault)
+            vault_positions = _parse_positions_from_raw(raw_vault, "vault")
+            all_positions.extend(vault_positions)
 
-        # Attach funding rates to vault positions
-        for pos in vault_positions:
-            pos["funding_rate"] = default_rates.get(pos["coin"], 0.0)
+            # Attach funding rates to vault positions
+            for pos in vault_positions:
+                pos["funding_rate"] = default_rates.get(pos["coin"], 0.0)
 
-        # Fetch vault trigger orders
-        vault_triggers = _fetch_open_trigger_orders(VAULT_ADDRESS)
-        all_triggers.extend(vault_triggers)
-    except Exception as e:
-        log.warning("Failed to fetch vault state: %s", e)
+            time.sleep(_RATE_LIMIT_DELAY)
+
+            # Fetch vault trigger orders
+            vault_triggers = _fetch_open_trigger_orders(vault_addr)
+            all_triggers.extend(vault_triggers)
+        except Exception as e:
+            log.warning("Failed to fetch vault state: %s", e)
 
     if not all_positions and main_equity == 0 and vault_equity == 0:
         raise RuntimeError("Empty account state from both HL wallets")

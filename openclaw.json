@@ -6,11 +6,11 @@
   "mcp": [
     {
       "name": "hl-trading",
-      "command": "python3",
+      "command": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/.venv/bin/python",
       "args": ["-m", "cli.main", "mcp", "serve"],
-      "cwd": ".",
+      "cwd": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli",
       "env": {
-        "PYTHONPATH": "."
+        "PYTHONPATH": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli"
       }
     }
   ],
