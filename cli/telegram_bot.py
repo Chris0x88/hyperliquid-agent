@@ -904,40 +904,21 @@ def run() -> None:
                         _diag.log_error("telegram_cmd", f"{cmd_key} failed: {e}")
                     tg_send(token, reply_chat_id, f"Error: {e}")
             else:
-                # Not a command — silently ignore in group chats
-                # (OpenClaw bot handles free text)
-                # In DMs, queue for Claude's scheduled check-in
+                # Not a command — handle with AI agent (direct, no OpenClaw)
                 is_group = msg.get("chat", {}).get("type", "") in ("group", "supergroup")
                 if is_group:
-                    log.debug("Ignoring free text in group (OpenClaw handles): %s", text[:50])
+                    log.debug("Ignoring free text in group: %s", text[:50])
                 else:
-                    # Dedup: check if this message_id was already queued
-                    msg_id = msg.get("message_id")
-                    already_queued = False
-                    if COMMAND_QUEUE.exists():
-                        try:
-                            for line in COMMAND_QUEUE.read_text().splitlines():
-                                if line.strip():
-                                    existing = json.loads(line)
-                                    if existing.get("message_id") == msg_id:
-                                        already_queued = True
-                                        break
-                        except Exception:
-                            pass
-
-                    if not already_queued:
-                        COMMAND_QUEUE.parent.mkdir(parents=True, exist_ok=True)
-                        entry = {
-                            "timestamp": int(time.time()),
-                            "message_id": msg_id,
-                            "text": text,
-                            "user": msg.get("from", {}).get("first_name", ""),
-                        }
-                        with open(COMMAND_QUEUE, "a") as f:
-                            f.write(json.dumps(entry) + "\n")
-                        log.info("Queued for Claude: %s", text[:80])
-                    else:
-                        log.debug("Dedup: message_id %s already queued", msg_id)
+                    log.info("AI chat: %s", text[:80])
+                    try:
+                        from cli.telegram_agent import handle_ai_message
+                        handle_ai_message(
+                            token, reply_chat_id, text,
+                            user_name=msg.get("from", {}).get("first_name", ""),
+                        )
+                    except Exception as e:
+                        log.error("AI handler failed: %s", e)
+                        tg_send(token, reply_chat_id, f"AI error: {e}\n\nUse /help for commands.")
 
         if running:
             time.sleep(POLL_INTERVAL)
