@@ -88,10 +88,13 @@ class MarketSnapshot:
     # e.g. ["bb_squeeze_4h", "rsi_oversold_1h", "bullish_div_4h",
     #        "above_vwap", "volume_surge", "near_support"]
 
-    # Suggested mechanical levels (code-computed, AI can override)
+    # Suggested mechanical levels for LONGS (code-computed, AI can override)
     suggested_stop: Optional[float] = None
     suggested_tp: Optional[float] = None
     suggested_entry: Optional[float] = None
+    # Suggested mechanical levels for SHORTS
+    suggested_short_stop: Optional[float] = None
+    suggested_short_tp: Optional[float] = None
 
 
 def build_snapshot(
@@ -318,7 +321,9 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
 
     if detail == "brief":
         if snap.suggested_stop or snap.suggested_tp:
-            lines.append(f"MECH: SL={_fmt(snap.suggested_stop)} TP={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}")
+            lines.append(f"MECH(long): SL={_fmt(snap.suggested_stop)} TP={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}")
+            if snap.suggested_short_stop:
+                lines.append(f"MECH(short): SL={_fmt(snap.suggested_short_stop)} TP={_fmt(snap.suggested_short_tp)}")
         return "\n".join(lines)
 
     # Per-timeframe data
@@ -358,7 +363,9 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
 
     if detail == "standard":
         if snap.suggested_stop or snap.suggested_tp:
-            lines.append(f"MECH: SL={_fmt(snap.suggested_stop)} TP={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}")
+            lines.append(f"MECH(long): SL={_fmt(snap.suggested_stop)} TP={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}")
+            if snap.suggested_short_stop:
+                lines.append(f"MECH(short): SL={_fmt(snap.suggested_short_stop)} TP={_fmt(snap.suggested_short_tp)}")
         return "\n".join(lines)
 
     # Full detail: volume profile
@@ -372,11 +379,16 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
                 f"({vp.value_area_width_pct:.1f}% wide)"
             )
 
-    # Suggested levels
+    # Suggested levels (both directions)
     if snap.suggested_stop or snap.suggested_tp:
         lines.append(
-            f"MECHANICAL: stop={_fmt(snap.suggested_stop)} "
-            f"tp={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}"
+            f"MECHANICAL(long): SL={_fmt(snap.suggested_stop)} "
+            f"TP={_fmt(snap.suggested_tp)} entry={_fmt(snap.suggested_entry)}"
+        )
+    if snap.suggested_short_stop:
+        lines.append(
+            f"MECHANICAL(short): SL={_fmt(snap.suggested_short_stop)} "
+            f"TP={_fmt(snap.suggested_short_tp)}"
         )
 
     return "\n".join(lines)
@@ -712,8 +724,9 @@ def _generate_flags(snap: MarketSnapshot, tf: TimeframeData, price: float) -> No
 
 
 def _compute_suggested_levels(snap: MarketSnapshot) -> None:
-    """Compute mechanical entry/stop/TP from indicators.
+    """Compute mechanical entry/stop/TP from indicators for BOTH directions.
 
+    Long: stop below, TP above. Short: stop above, TP below.
     These are suggestions — the AI can override with thesis-based levels.
     """
     # Use 4h ATR for stops, fall back to 1h
@@ -725,17 +738,18 @@ def _compute_suggested_levels(snap: MarketSnapshot) -> None:
             break
 
     if atr_val > 0 and snap.current_price > 0:
-        # Stop: 3x ATR below current price (long bias)
+        # Long levels: stop below, TP above
         snap.suggested_stop = round(snap.current_price - 3 * atr_val, 6)
-        # TP: 5x ATR above (reward:risk ≈ 1.67)
         snap.suggested_tp = round(snap.current_price + 5 * atr_val, 6)
+        # Short levels: stop above, TP below
+        snap.suggested_short_stop = round(snap.current_price + 3 * atr_val, 6)
+        snap.suggested_short_tp = round(snap.current_price - 5 * atr_val, 6)
 
-    # Entry: nearest strong support or VWAP, whichever is closer
+    # Entry: nearest strong support (for longs) or VWAP
     supports = [kl for kl in snap.key_levels if kl.type == "support" and kl.distance_pct > 0]
     if supports:
         snap.suggested_entry = supports[0].price
     else:
-        # Fall back to VWAP if it's below price
         for tf in snap.timeframes.values():
             if tf.vwap_value > 0 and tf.vwap_value < snap.current_price:
                 snap.suggested_entry = round(tf.vwap_value, 6)
