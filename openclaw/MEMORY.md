@@ -19,6 +19,11 @@ This file holds essential background, active rules, and learned lessons to ensur
 - Macro: US Dollar Index / Fed Rate Decisions
 - Supply outages (refineries, pipelines)
 
+## Known Issues
+- None currently active.
+
 ## Completed/Resolved
-*Move closed theses or resolved macro events here to maintain a timeline.*
-- *[Example]* Dec 2025: BRENTOIL Squeeze trade executed perfectly, 14% upnl captured through coordinated ATR-trailing.
+- **2026-04-02: Pipeline failure fixed.** Thesis files were frozen since March 30 because no write path existed. `update_thesis` MCP tool now available — use it after market analysis to persist conviction changes. Heartbeat reads thesis every 2 minutes.
+- **2026-04-02: BRENTOIL position closed at loss.** Every system failed simultaneously: heartbeat blind 21h (missing wallets.json), thesis stuck at 0.95 conviction while Trump announced war ending, OpenClaw agent had no auth profile. All fixed. Lesson: always verify infrastructure before trusting execution.
+- **2026-04-02: Stale research data resolved.** signals.jsonl staleness was a symptom, not the cause. The root issue was no feedback loop — data was collected but conviction never updated. Now `update_thesis` closes the loop.
+- *Dec 2025:* BRENTOIL Squeeze trade executed perfectly, 14% upnl captured through coordinated ATR-trailing.

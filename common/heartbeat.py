@@ -560,6 +560,20 @@ def run_heartbeat(
     if account_state is None:
         errors.append("Failed to fetch account state after 3 retries")
         state.heartbeat_consecutive_failures += 1
+
+        # Alert on sustained failures (10=20min, 30=1hr, 90=3hr)
+        fail_count = state.heartbeat_consecutive_failures
+        if fail_count in (10, 30, 90) or (fail_count > 90 and fail_count % 90 == 0):
+            try:
+                from common.memory_telegram import send_telegram
+                send_telegram(
+                    f"[CRITICAL] Heartbeat blind for {fail_count * 2} minutes "
+                    f"({fail_count} consecutive failures). "
+                    f"Last error: {errors[-1] if errors else 'unknown'}"
+                )
+            except Exception:
+                pass
+
         save_working_state(state, **(kw or {}))
         return {
             "escalation": "L0",
