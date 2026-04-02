@@ -1,8 +1,10 @@
 # openclaw/ — OpenClaw Agent Workspace
 
-This is the workspace for the hl-trader OpenClaw agent (@HyperLiquidOpenClaw_bot on Telegram). The agent runs on cheap OpenRouter models (NOT Opus) — it reads thesis, discusses with Chris, and can make quick adjustments. It is NOT the primary thesis writer.
+This is the workspace for the hl-trader OpenClaw agent (@HyperLiquidOpenClaw_bot on Telegram). The agent runs on cheap OpenRouter models — it reads thesis, discusses with Chris, and can make quick adjustments.
 
 **CRITICAL: Never modify `~/.openclaw/openclaw.json` or any files in `~/.openclaw/` — that's Chris's entire AI agent ecosystem with multiple agents and a company of AI workers. Only modify files in THIS directory.**
+
+**Note: OpenClaw gateway has been bypassed (v2 decision).** The AI chat now runs directly via `cli/telegram_agent.py` with OpenRouter, not through the OpenClaw gateway. This workspace is still read by the legacy gateway path but is no longer the primary AI interface.
 
 ## Key Files
 
@@ -19,9 +21,25 @@ This is the workspace for the hl-trader OpenClaw agent (@HyperLiquidOpenClaw_bot
 | `TOOLS.md` | MCP tools reference table and research file locations |
 | `MEMORY.md` | Persistent state: active rules, learnings, known issues |
 
+## Current AI Architecture (v3)
+
+The primary AI path is now:
+```
+Telegram free text → telegram_bot.py → telegram_agent.py → OpenRouter
+                                                          → 9 agent tools
+                                                          → context pipeline
+```
+
+The OpenClaw path (legacy):
+```
+Telegram DM → OpenClaw gateway → hl-trader agent → MCP server → 17 tools
+```
+
+Both paths read the same thesis files and exchange data. The v3 path is richer (context pipeline, tool-calling, approval gates).
+
 ## MCP Server Configuration
 
-The MCP server is defined in the PARENT directory at `agent-cli/openclaw.json`:
+In `agent-cli/openclaw.json`:
 ```json
 {
   "mcp": [{
@@ -33,52 +51,22 @@ The MCP server is defined in the PARENT directory at `agent-cli/openclaw.json`:
 }
 ```
 
-The MCP server exposes 17 tools (Phase 2 adds 2 more):
-- `market_context` — comprehensive market brief (primary tool)
-- `account` — live account state
-- `status` — quick position/PnL view
-- `analyze` — technical analysis
-- `trade` — place orders
-- `live_price` — quick price check (Phase 2)
-- `update_thesis` — write conviction updates (Phase 2)
-- Plus 10 more for memory, journal, diagnostics, strategies
+17 tools: market_context, account, status, analyze, get_candles, agent_memory, trade_journal, trade, log_bug, log_feedback, diagnostic_report, daemon_status, strategies, setup_check, cache_stats, run_strategy, daemon_start.
 
 ## Agent Auth Profile
 
-The agent's API credentials live at `~/.openclaw/agents/hl-trader/agent/auth-profiles.json`. This must have a valid OpenRouter key (synced from the default agent). Without it, the agent can't call any LLM and won't respond.
+`~/.openclaw/agents/hl-trader/agent/auth-profiles.json` — must have valid OpenRouter key. This is the ONE file outside the project that may be touched, for credential sync only.
 
-## Telegram Binding
+## Fix Procedure (when legacy agent stops responding)
 
-In `~/.openclaw/openclaw.json`:
-```json
-{"agentId": "hl-trader", "match": {"channel": "telegram", "accountId": "hl-trader"}}
-```
-Bot: @HyperLiquidOpenClaw_bot. DM only. Chris's user ID: 5219304680.
-
-## Agent's Role
-
-The agent is the **voice** of the system, not the brain:
-- Reads thesis files (written by Chris via Claude Code Opus)
-- Reads live market data via MCP tools
-- Discusses strategy, challenges thesis, suggests trades
-- Can update thesis conviction in a pinch (Phase 2: `update_thesis` tool)
-- Executes trades if instructed (autonomous mandate)
-- Reports via Telegram in clean formatting
+1. Check auth profile (most common): if empty, copy from default agent
+2. Check gateway log for ETIMEDOUT: `openclaw gateway restart`
+3. After code changes: always restart gateway
 
 ## Upstream
-- OpenClaw Gateway routes Telegram DMs here
-- MCP tools call into `cli/mcp_server.py`
+- OpenClaw Gateway routes Telegram DMs here (legacy)
+- v3: `telegram_agent.py` reads AGENT.md + SOUL.md for system prompt
 
 ## Downstream
 - MCP server reads `common/thesis.py`, `parent/hl_proxy.py`
 - Thesis updates write to `data/thesis/`
-
-## Current Status
-- Agent responds on Telegram (auth profile fixed this session)
-- MCP server starts with 17 tools (mcp package installed this session)
-- Agent serves stale data because thesis files aren't updated (fixed in Phase 2)
-
-## Future Direction (Phase 2)
-- Add `update_thesis` and `live_price` MCP tools
-- Update TOOLS.md and AGENT.md to document new tools
-- Agent can then give live prices and persist conviction updates

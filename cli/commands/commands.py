@@ -74,15 +74,36 @@ CATEGORIES = {
 
 # Telegram command registry (for /commands in Telegram bot)
 TELEGRAM_COMMANDS = [
-    ("/status", "Portfolio snapshot"),
-    ("/price", "Current prices"),
+    # Trading
+    ("/status", "Portfolio overview"),
+    ("/position", "Positions + risk + authority"),
+    ("/market", "Technicals, funding, OI"),
+    ("/pnl", "Profit & loss breakdown"),
+    ("/price", "Quick prices"),
     ("/orders", "Open orders"),
-    ("/pnl", "P&L summary"),
-    ("/chart", "Price chart (/chart oil 72)"),
-    ("/watchlist", "Markets + prices"),
-    ("/powerlaw", "BTC Power Law chart"),
-    ("/commands", "All CLI commands"),
-    ("/help", "Telegram help"),
+    # Charts
+    ("/chartoil", "Oil price chart (hours)"),
+    ("/chartbtc", "BTC price chart"),
+    ("/chartgold", "Gold price chart"),
+    ("/watchlist", "All markets + prices"),
+    ("/powerlaw", "BTC power law model"),
+    # Agent Control
+    ("/authority", "Who manages what"),
+    ("/delegate", "Hand asset to agent"),
+    ("/reclaim", "Take asset back"),
+    # Vault
+    ("/rebalancer", "Rebalancer status/start/stop"),
+    ("/rebalance", "Force vault rebalance"),
+    # System
+    ("/models", "AI model selection"),
+    ("/memory", "Memory system status"),
+    ("/health", "App health check"),
+    ("/diag", "Error diagnostics"),
+    ("/bug", "Report a bug"),
+    ("/todo", "Add or list todos"),
+    ("/feedback", "Submit feedback"),
+    ("/guide", "How to use this bot"),
+    ("/help", "Full command list"),
 ]
 
 
@@ -151,33 +172,47 @@ def get_commands_text(long: bool = False, category: Optional[str] = None) -> str
         filtered = [c for c in filtered if c[3] == category.lower()]
 
     if not long and not category:
-        # Short form: just telegram commands + most-used CLI
-        lines = ["TELEGRAM (instant)"]
+        # Telegram commands grouped by section
+        sections = {
+            "Trading": [], "Charts": [], "Agent Control": [],
+            "Vault": [], "System": [],
+        }
+        section_order = ["Trading", "Charts", "Agent Control", "Vault", "System"]
+        current_section = None
         for tc, td in TELEGRAM_COMMANDS:
-            lines.append(f"  {tc}  —  {td}")
-        lines.append("")
-        lines.append("TOP CLI COMMANDS")
-        top = [c for c in COMMAND_REGISTRY if c[1] is not None]  # only ones with shortcuts
-        for cmd, alias, desc, cat in top:
-            lines.append(f"  {alias}  —  {desc}")
-        lines.append(f"\n/commands long — full list")
-        lines.append(f"/commands <category> — filter")
-        lines.append(f"Categories: {', '.join(CATEGORIES.keys())}")
+            # Infer section from position in list
+            if tc in ("/status", "/position", "/market", "/pnl", "/price", "/orders"):
+                sections["Trading"].append((tc, td))
+            elif tc in ("/chartoil", "/chartbtc", "/chartgold", "/watchlist", "/powerlaw"):
+                sections["Charts"].append((tc, td))
+            elif tc in ("/authority", "/delegate", "/reclaim"):
+                sections["Agent Control"].append((tc, td))
+            elif tc in ("/rebalancer", "/rebalance"):
+                sections["Vault"].append((tc, td))
+            else:
+                sections["System"].append((tc, td))
+
+        lines = ["*Commands*", ""]
+        for section in section_order:
+            cmds = sections.get(section, [])
+            if cmds:
+                lines.append(f"*{section}*")
+                for tc, td in cmds:
+                    lines.append(f"  {tc} — {td}")
+                lines.append("")
+
+        lines.append("Type anything for AI chat")
+        lines.append("`/commands long` — full CLI list")
         return "\n".join(lines)
 
-    lines = []
+    lines = ["*CLI Commands*", ""]
     current_cat = None
     for cmd, alias, desc, cat in filtered:
         if cat != current_cat:
             current_cat = cat
-            lines.append(f"\n{CATEGORIES.get(cat, cat).upper()}")
-        short = f" ({alias})" if alias and long else ""
-        lines.append(f"  {cmd}  —  {desc}{short}")
+            lines.append(f"\n*{CATEGORIES.get(cat, cat)}*")
+        short = f" (`{alias}`)" if alias and long else ""
+        lines.append(f"  `{cmd}` — {desc}{short}")
 
-    if not category:
-        lines.append(f"\nTELEGRAM")
-        for tc, td in TELEGRAM_COMMANDS:
-            lines.append(f"  {tc}  —  {td}")
-
-    lines.append(f"\n{len(filtered)} commands")
+    lines.append(f"\n`{len(filtered)}` commands")
     return "\n".join(lines)

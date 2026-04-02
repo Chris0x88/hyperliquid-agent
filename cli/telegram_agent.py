@@ -230,12 +230,12 @@ def _build_live_context() -> str:
         # Build market snapshots (compact text per market)
         market_snapshots = _fetch_market_snapshots()
 
-        # Assemble with token budget (3000 tokens for richer context with technicals)
+        # Assemble with token budget (3500 tokens for context + signal summaries)
         assembled = build_multi_market_context(
             markets=["xyz:BRENTOIL", "BTC"],
             account_state=account_state,
             market_snapshots=market_snapshots,
-            token_budget=3000,
+            token_budget=3500,
         )
 
         header = "--- LIVE CONTEXT (fetched just now) ---"
@@ -339,7 +339,7 @@ def _fetch_market_snapshots() -> dict:
     # Try rich snapshots first (candle-based technicals)
     try:
         from modules.candle_cache import CandleCache
-        from common.market_snapshot import build_snapshot, render_snapshot
+        from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
         cache = CandleCache()
 
         watchlist = {
@@ -367,7 +367,10 @@ def _fetch_market_snapshots() -> dict:
                 continue
             try:
                 snap = build_snapshot(key, cache, price)
-                snapshots[display] = render_snapshot(snap, detail="brief")
+                text = render_snapshot(snap, detail="brief")
+                # Add pre-computed signal interpretation for dumb models
+                signal = render_signal_summary(snap)
+                snapshots[display] = f"{text}\n{signal}"
             except Exception:
                 snapshots[display] = f"PRICE ({display}): ${price:,.2f}"
 

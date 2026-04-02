@@ -453,9 +453,9 @@ def cmd_price(token: str, chat_id: str, _args: str) -> None:
             lines.append(f"{emoji} {name}: --")
             continue
 
-        # Look up 24h change — coin may be "xyz:BRENTOIL" but metaAndAssetCtxs uses "BRENTOIL"
-        lookup = coin.replace("xyz:", "") if coin.startswith("xyz:") else coin
-        ctx = market_ctx.get(lookup, {})
+        # Look up 24h change — try both with and without xyz: prefix
+        bare = coin.replace("xyz:", "") if coin.startswith("xyz:") else coin
+        ctx = market_ctx.get(coin, {}) or market_ctx.get(bare, {}) or market_ctx.get(f"xyz:{bare}", {})
         prev = ctx.get("prevDayPx", 0)
 
         if prev and prev > 0:

@@ -358,6 +358,174 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
     return "\n".join(lines)
 
 
+def render_signal_summary(snap: MarketSnapshot) -> str:
+    """Pre-computed plain-English signal assessment.
+
+    This is THE key function for making dumb models useful. Instead of
+    giving the model raw flags/numbers and hoping it interprets correctly,
+    we do the interpretation here and give it sentences to quote.
+
+    Returns ~150 tokens of actionable analysis covering:
+    - Overall bias (bullish/bearish/neutral)
+    - Exhaustion/momentum signals
+    - Key risk levels
+    - Position guidance for longs AND shorts
+    """
+    signals = []
+    bias_score = 0  # positive = bullish, negative = bearish
+
+    # Gather data from primary timeframe (prefer 1h for short-term signals)
+    tf_1h = snap.timeframes.get("1h")
+    tf_4h = snap.timeframes.get("4h")
+    tf_1d = snap.timeframes.get("1d")
+    primary = tf_1h or tf_4h
+
+    if not primary:
+        return "SIGNAL: Insufficient data for analysis."
+
+    rsi = primary.trend.rsi
+    direction = primary.trend.direction
+    strength = primary.trend.strength
+    patterns = primary.trend.candle_patterns
+    bb_zone = primary.bb.zone if primary.bb else "mid"
+    bb_squeeze = primary.bb.is_squeeze if primary.bb else False
+    ema_spread = primary.trend.ema_spread_pct
+    price_change = primary.price_change_pct
+    divergence = primary.trend.rsi_divergence
+
+    # ── Trend assessment ──
+    if direction == "up" and strength > 50:
+        bias_score += 2
+    elif direction == "up":
+        bias_score += 1
+    elif direction == "down" and strength > 50:
+        bias_score -= 2
+    elif direction == "down":
+        bias_score -= 1
+
+    # ── Multi-timeframe confluence ──
+    tf_directions = []
+    for label, tf in [("1h", tf_1h), ("4h", tf_4h), ("1d", tf_1d)]:
+        if tf:
+            tf_directions.append((label, tf.trend.direction, tf.trend.strength))
+    all_up = all(d == "up" for _, d, _ in tf_directions)
+    all_down = all(d == "down" for _, d, _ in tf_directions)
+    if all_up:
+        signals.append("All timeframes aligned bullish")
+        bias_score += 1
+    elif all_down:
+        signals.append("All timeframes aligned bearish")
+        bias_score -= 1
+    elif len(tf_directions) > 1:
+        dirs = ", ".join(f"{l}={d}" for l, d, _ in tf_directions)
+        signals.append(f"Mixed trend ({dirs})")
+
+    # ── Exhaustion detection (KEY for dumb models) ──
+    exhaustion_bull = (rsi > 65 and bb_zone == "above_upper")
+    exhaustion_bear = (rsi < 35 and bb_zone == "below_lower")
+    reversal_candle = any(p in patterns for p in ["doji", "hammer", "shooting_star", "engulfing"])
+
+    if exhaustion_bull and reversal_candle:
+        signals.append(f"EXHAUSTION — RSI {rsi:.0f} + above upper BB + {', '.join(patterns)}. Pullback likely")
+        bias_score -= 2
+    elif exhaustion_bull:
+        signals.append(f"Overbought zone — RSI {rsi:.0f}, above upper BB. Watch for reversal")
+        bias_score -= 1
+    elif exhaustion_bear and reversal_candle:
+        signals.append(f"CAPITULATION — RSI {rsi:.0f} + below lower BB + {', '.join(patterns)}. Bounce likely")
+        bias_score += 2
+    elif exhaustion_bear:
+        signals.append(f"Oversold zone — RSI {rsi:.0f}, below lower BB. Watch for bounce")
+        bias_score += 1
+    elif rsi > 70:
+        signals.append(f"RSI overbought ({rsi:.0f})")
+        bias_score -= 1
+    elif rsi < 30:
+        signals.append(f"RSI oversold ({rsi:.0f})")
+        bias_score += 1
+
+    # ── Divergence ──
+    if divergence == "bullish_div":
+        signals.append("Bullish RSI divergence — price falling but momentum rising")
+        bias_score += 2
+    elif divergence == "bearish_div":
+        signals.append("Bearish RSI divergence — price rising but momentum fading")
+        bias_score -= 2
+
+    # ── BB Squeeze ──
+    if bb_squeeze:
+        signals.append("BB squeeze — volatility compressed, breakout imminent")
+
+    # ── Momentum ──
+    if abs(price_change) > 10:
+        direction_word = "rally" if price_change > 0 else "selloff"
+        signals.append(f"Strong {direction_word} ({price_change:+.1f}% over window)")
+    elif abs(ema_spread) > 3:
+        signals.append(f"Momentum {'bullish' if ema_spread > 0 else 'bearish'} (EMA spread {ema_spread:+.1f}%)")
+
+    # ── Key levels ──
+    nearest_support = None
+    nearest_resist = None
+    for kl in snap.key_levels:
+        if kl.type == "support" and (nearest_support is None or abs(kl.distance_pct) < abs(nearest_support.distance_pct)):
+            nearest_support = kl
+        if kl.type == "resistance" and (nearest_resist is None or abs(kl.distance_pct) < abs(nearest_resist.distance_pct)):
+            nearest_resist = kl
+
+    level_note = ""
+    if nearest_support and abs(nearest_support.distance_pct) < 2:
+        level_note = f"Near support ${nearest_support.price:.4g} ({nearest_support.distance_pct:+.1f}%)"
+        bias_score += 1
+    if nearest_resist and abs(nearest_resist.distance_pct) < 2:
+        r_note = f"Near resistance ${nearest_resist.price:.4g} ({nearest_resist.distance_pct:+.1f}%)"
+        level_note = f"{level_note}. {r_note}" if level_note else r_note
+        bias_score -= 1
+    if level_note:
+        signals.append(level_note)
+
+    # ── Compose summary ──
+    if bias_score >= 3:
+        overall = "STRONGLY BULLISH"
+        emoji = "🟢🟢"
+    elif bias_score >= 1:
+        overall = "BULLISH"
+        emoji = "🟢"
+    elif bias_score <= -3:
+        overall = "STRONGLY BEARISH"
+        emoji = "🔴🔴"
+    elif bias_score <= -1:
+        overall = "BEARISH"
+        emoji = "🔴"
+    else:
+        overall = "NEUTRAL"
+        emoji = "⚪"
+
+    lines = [f"SIGNAL: {emoji} {overall} (score: {bias_score:+d})"]
+    for s in signals:
+        lines.append(f"  • {s}")
+
+    # Position guidance
+    if bias_score >= 2:
+        lines.append("  → LONGS: favorable conditions. SHORTS: against trend, high risk.")
+    elif bias_score <= -2:
+        lines.append("  → SHORTS: favorable conditions. LONGS: against trend, high risk.")
+    elif exhaustion_bull:
+        lines.append("  → SHORTS: near-term opportunity if momentum fades. LONGS: wait for pullback.")
+    elif exhaustion_bear:
+        lines.append("  → LONGS: near-term bounce opportunity. SHORTS: take profits, cover risk.")
+    else:
+        lines.append("  → Range-bound. Wait for directional signal before committing.")
+
+    # Volatility context
+    vol_pct = primary.atr_pct
+    if vol_pct > 3:
+        lines.append(f"  ⚡ HIGH volatility (ATR {vol_pct:.1f}%) — size conservatively")
+    elif vol_pct < 0.5:
+        lines.append(f"  💤 LOW volatility (ATR {vol_pct:.1f}%) — breakout setup possible")
+
+    return "\n".join(lines)
+
+
 def snapshot_to_dict(snap: MarketSnapshot) -> Dict:
     """Serialize snapshot to JSON-safe dict for storage/API."""
     return {

@@ -1,80 +1,74 @@
-# cli/ — CLI Commands + MCP Server
+# cli/ — Commands, Telegram Bot, AI Agent, Tools
 
-23 CLI commands accessible via `hl <command>`. Star topology — each command is independent, all routed through `main.py`. Also contains the MCP server that powers the OpenClaw agent.
+The primary interface layer. Contains 23 CLI commands, the Telegram bot (25 handlers), the AI agent with tool-calling, and the MCP server. This is the v2/v3 heart of the system.
 
-## Entry Point
+## Key Areas
 
-`cli/main.py` — Typer app with 23 subcommands. Run via `hl` (installed via pyproject.toml `[project.scripts]`).
+### Telegram Bot + AI Agent (v2/v3 core)
 
-## Command Inventory
+| File | Lines | Purpose |
+|------|-------|---------|
+| `telegram_bot.py` | ~1800 | Polling loop (2s), 25 command handlers, callback router (model/approve/reject), AI message routing |
+| `telegram_agent.py` | ~760 | OpenRouter integration, tool-calling loop (max 3), context pipeline, chat history sanitization |
+| `agent_tools.py` | ~550 | 9 tools (7 READ auto-execute, 2 WRITE with approval gates), pending action store (5min TTL) |
+
+**Data flow:** User message → `telegram_bot.py` (polling) → free text routed to `telegram_agent.py` → builds context (account + positions + technicals + thesis + memory) → calls OpenRouter with tool definitions → tool results fed back → response to Telegram.
+
+**Dual-mode tool calling:** Paid models use native `tool_calls`. Free models use text-based `[TOOL: name {args}]` parsed by `_parse_text_tool_calls()`. Both paths converge at `execute_tool()`.
+
+**WRITE tool approval:** `place_trade` and `update_thesis` store pending actions, send Telegram inline keyboard [Approve/Reject], execute only on approval. 5-min TTL auto-expire.
+
+**Coin name normalization (RECURRING BUG):** xyz clearinghouse returns `xyz:BRENTOIL`, native returns `BTC`. Use `_coin_matches()` or compare both `name` and `name.replace("xyz:", "")`. This has caused silent failures multiple times.
+
+### CLI Commands (23 total)
+
+Entry point: `cli/main.py` — Typer app. Run via `hl <command>`.
 
 | Command | File | Purpose |
 |---------|------|---------|
-| `hl run` | `commands/run.py` | Start autonomous trading (legacy engine) |
-| `hl status` | `commands/status.py` | Show positions, PnL, risk |
+| `hl status` | `commands/status.py` | Positions, PnL, risk |
 | `hl trade` | `commands/trade.py` | Manual order placement |
-| `hl account` | `commands/account.py` | HL account state |
-| `hl strategies` | `commands/strategies.py` | List registered strategies |
-| `hl guard` | `commands/guard.py` | Trailing stop system |
-| `hl radar` | `commands/radar.py` | Market scanner |
-| `hl pulse` | `commands/pulse.py` | Capital inflow detection |
-| `hl apex` | `commands/apex.py` | Multi-slot trading |
-| `hl reflect` | `commands/reflect.py` | Performance review |
-| `hl wallet` | `commands/wallet.py` | Keystore management |
-| `hl setup` | `commands/setup.py` | Environment validation |
-| `hl mcp` | `commands/mcp.py` | MCP server (`hl mcp serve`) |
-| `hl skills` | `commands/skills.py` | Skill discovery |
-| `hl journal` | `commands/journal.py` | Trade journal |
-| `hl keys` | `commands/keys.py` | Unified key management |
-| `hl markets` | `commands/markets.py` | Browse/search HL perps |
-| `hl data` | `commands/data.py` | Fetch/cache historical |
-| `hl backtest` | `commands/backtest.py` | Backtest strategies |
 | `hl daemon` | `commands/daemon.py` | Monitoring loop |
-| `hl heartbeat` | `commands/heartbeat_cmd.py` | Position auditor |
+| `hl reflect` | `commands/reflect.py` | Performance review |
+| `hl mcp` | `commands/mcp.py` | MCP server (`hl mcp serve`) |
 | `hl telegram` | `commands/telegram.py` | Telegram bot control |
-| `hl commands` | `commands/commands.py` | List all commands |
+| + 17 more | `commands/` | account, strategies, guard, radar, pulse, apex, wallet, setup, skills, journal, keys, markets, data, backtest, heartbeat_cmd, commands |
 
-## MCP Server
+### MCP Server
 
-`cli/mcp_server.py` — FastMCP server with 17 tools (Phase 2 adds 2 more).
+`cli/mcp_server.py` — FastMCP with 17 tools. Launch: `hl mcp serve`. Used by OpenClaw agent (legacy) and potentially future integrations.
 
-**Launch:** `hl mcp serve` or `.venv/bin/python -m cli.main mcp serve`
-
-**Current tools:** market_context, account, status, analyze, get_candles, agent_memory, trade_journal, trade, log_bug, log_feedback, diagnostic_report, daemon_status, strategies, setup_check, cache_stats, run_strategy, daemon_start
-
-**Phase 2 additions:** update_thesis, live_price
-
-All tool responses capped at 3000 chars. Token budgeting via chars/4 estimation.
-
-## Other Key Files
+### Other Files
 
 | File | Purpose |
 |------|---------|
-| `telegram_bot.py` | Commands Bot — polls Telegram, 22 fixed handlers, zero AI |
-| `telegram_handler.py` | Legacy handler (not actively used) |
-| `strategy_registry.py` | 27 registered strategies (module:class paths) |
-| `config.py` | TradingConfig dataclass + YAML loading |
-| `engine.py` | Legacy trading engine (single-strategy) |
-| `hl_adapter.py` | DirectHLProxy wrapper for the SDK |
+| `strategy_registry.py` | 27 registered strategies |
+| `config.py` | TradingConfig + YAML loading |
+| `engine.py` | Legacy single-strategy engine |
+| `hl_adapter.py` | DirectHLProxy wrapper for SDK |
 | `chart_engine.py` | Price chart generation (matplotlib) |
-| `mcp_server.py` | FastMCP server for OpenClaw agent |
+| `telegram_handler.py` | Legacy handler (not actively used) |
 
 ## Upstream
 - `main.py` routes to all commands
-- OpenClaw gateway calls MCP server
-- launchd can launch telegram_bot.py
+- launchd launches telegram_bot.py
+- OpenClaw gateway calls MCP server (legacy path)
 
 ## Downstream
 - Commands call into `common/`, `modules/`, `parent/`
-- MCP server calls into `common/thesis.py`, `parent/hl_proxy.py`, `modules/`
+- AI agent calls `common/context_harness.py`, `common/market_snapshot.py`
+- Agent tools call `parent/hl_proxy.py`, `common/thesis.py`, `modules/candle_cache.py`
 
-## Current Status
-- All 23 commands work
-- MCP server starts with 17 tools (mcp package installed this session)
-- Commands Bot running with /chartoil shorthand fix
-- Daemon command works but daemon not running as primary
+## Current Status (v3)
+- All 23 CLI commands work
+- Telegram bot running with 25 handlers + AI router + inline keyboards
+- AI agent running with 9 tools, dual-mode calling, approval gates
+- MCP server starts with 17 tools
+- Context pipeline: account + positions + technicals + thesis + memory (3000 token budget)
+- 18 curated models (10 free, 8 paid) switchable via /models
 
 ## Testing
 ```bash
 .venv/bin/python -m pytest tests/test_config.py tests/test_engine.py tests/test_strategy_registry.py -x -q
+# Note: telegram_agent.py and agent_tools.py lack test coverage (gap)
 ```

@@ -401,6 +401,20 @@ def _render_account_overview(account_state: Dict) -> str:
     if account_state.get("drawdown_pct"):
         lines[0] += f" (drawdown: {account_state['drawdown_pct']}%)"
 
+    # Positions
+    positions = account_state.get("positions", [])
+    if positions:
+        lines.append("POSITIONS:")
+        for p in positions:
+            direction = "LONG" if p["size"] > 0 else "SHORT"
+            upnl_sign = "+" if p["upnl"] >= 0 else ""
+            line = f"  {p['coin']} {direction} {abs(p['size']):.1f} @ ${p['entry']:,.2f} | uPnL {upnl_sign}${p['upnl']:,.2f} | {p['leverage']}x"
+            if p.get("liq") and p["liq"] != "N/A":
+                line += f" | liq ${float(p['liq']):,.2f}"
+            lines.append(line)
+    else:
+        lines.append("POSITIONS: none")
+
     # Alerts
     for alert in account_state.get("alerts", []):
         lines.append(f"  ⚠️ {alert}")
