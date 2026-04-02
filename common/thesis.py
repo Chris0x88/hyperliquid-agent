@@ -145,8 +145,11 @@ class ThesisState:
             "snapshot_ref": self.snapshot_ref,
             "notes": self.notes,
         }
-        with open(path, "w") as f:
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
             json.dump(data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp_path, path)
         log.info("ThesisState saved: %s  conviction=%.2f  direction=%s", path, self.conviction, self.direction)
         return path
 
