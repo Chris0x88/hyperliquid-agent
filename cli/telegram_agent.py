@@ -31,10 +31,11 @@ _AUTH_PROFILES = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "a
 
 # Limits
 _MAX_HISTORY = 20
+_MAX_HISTORY_CHARS = 12000  # Cap total history chars to stay within context window
 _MAX_RESPONSE_TOKENS = 1500
 _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-_DEFAULT_MODEL = "openrouter/auto"
+_DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
 
 
 def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") -> None:
@@ -207,7 +208,11 @@ def _build_live_context() -> str:
 
 
 def _load_chat_history(limit: int = 20) -> List[Dict]:
-    """Load recent chat history from JSONL."""
+    """Load recent chat history from JSONL, respecting token budget.
+
+    Takes the most recent messages that fit within _MAX_HISTORY_CHARS total.
+    This prevents context window overflow on long conversations.
+    """
     if not _HISTORY_FILE.exists():
         return []
     entries = []
@@ -217,7 +222,17 @@ def _load_chat_history(limit: int = 20) -> List[Dict]:
                 entries.append(json.loads(line))
     except Exception:
         return []
-    return entries[-limit:]
+
+    # Take last N entries
+    recent = entries[-limit:]
+
+    # Trim from the front if total chars exceed budget
+    total_chars = sum(len(e.get("text", "")) for e in recent)
+    while recent and total_chars > _MAX_HISTORY_CHARS:
+        removed = recent.pop(0)
+        total_chars -= len(removed.get("text", ""))
+
+    return recent
 
 
 def _log_chat(role: str, text: str, user_name: str = "", model: str = "") -> None:
@@ -301,6 +316,13 @@ def _tg_send_markdown(token: str, chat_id: str, text: str) -> None:
     text = text.replace("<function_calls>", "").replace("</function_calls>", "")
     text = text.replace("<invoke", "").replace("</invoke>", "")
     text = text.replace("<parameter", "").replace("</parameter>", "")
+
+    # Convert **bold** (standard markdown) to *bold* (Telegram markdown)
+    import re
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+
+    # Convert ### Heading to *Heading* (Telegram has no heading syntax)
+    text = re.sub(r'^#{1,3}\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
 
     chunks = _split_message(text)
     for chunk in chunks:
