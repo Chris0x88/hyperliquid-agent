@@ -1,6 +1,7 @@
-# HyperLiquid Trading System — Master Build Plan
+# HyperLiquid Trading System — Master Build Plan v2
 
-> **Start every Claude Code session by reading this file + `docs/SYSTEM_ARCHITECTURE.md` + the relevant package `CLAUDE.md`.**
+> **Previous version archived at `MASTER_PLAN_v1.md`**
+> **Start every session by reading this file + `docs/SYSTEM_ARCHITECTURE_v3.md` + the relevant package `CLAUDE.md`.**
 
 ## What This System Is
 
@@ -9,72 +10,123 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention. Chris delegates this entirely.
 
-## The Architecture (read `docs/SYSTEM_ARCHITECTURE.md` for full diagrams)
+## The Architecture (v3 — Agentic Tool-Calling)
+
+Read `docs/SYSTEM_ARCHITECTURE_v3.md` for full mermaid diagrams. Previous versions at `_v1.md` and `_v2.md` for history.
 
 ```
 CHRIS + CLAUDE CODE (Opus) ──writes──► data/thesis/*.json
                                            │
-DAEMON (19 iterators, every tick) ──reads───┘──executes──► HyperLiquid
+HEARTBEAT (2min launchd) ──────reads───────┘──places stops──► HyperLiquid
+                                           │
+TELEGRAM BOT ──25 commands + AI router─────┘
     │
-    └──writes──► journal, signals, snapshots, learnings
-                     │
-REFLECT (meta-eval) ──reads───┘──evaluates──► playbook, adjustments
-                     │
-OPENCLAW AGENT ──reads───┘──discusses──► Chris via Telegram
-                     │
-COMMANDS BOT ──reads───┘──instant responses──► Chris via Telegram
+    └──free text──► AI AGENT (telegram_agent.py)
+                        │
+                        ├──9 tools (7 read, 2 write w/ approval)──► HyperLiquid
+                        ├──context pipeline (account, technicals, thesis, memory)
+                        └──OpenRouter (18 models, dual-mode tool calling)
+
+VAULT REBALANCER (hourly launchd) ──BTC Power Law──► HyperLiquid
 ```
 
-## Current Phase: PHASE 2 (Daemon Switch + Immediate Fixes)
+## Architecture Evolution
 
-See `docs/plans/PHASE_2_DAEMON_SWITCH.md` for detailed checklist.
+| Version | Date | Shift | Doc |
+|---------|------|-------|-----|
+| v1 | 2026-03 | Daemon-centric: 19 iterators, REFLECT, 4-phase plan | `SYSTEM_ARCHITECTURE.md` |
+| v2 | 2026-04-02 AM | Interface-first: rich context, model selector, formatting | `SYSTEM_ARCHITECTURE_v2.md` |
+| v3 | 2026-04-02 PM | Agentic: 9 tools, dual-mode calling, approval gates | `SYSTEM_ARCHITECTURE_v3.md` |
 
-## Phase Overview
+Key pattern: each version ADDS a capability layer. v1 daemon still exists (built, not running). v2 context pipeline runs. v3 tool-calling runs on top.
+
+## Current Phase Status
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **Phase 1: Foundation** | Document everything, per-package CLAUDE.md, save learnings | DONE |
-| **Phase 2: Daemon Switch** | Wire up the real workhorse, add MCP tools, failure alerting | NEXT |
-| **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook, weekly reports | Planned |
-| **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, system health monitoring | Future |
+| **Phase 1: Foundation** | Heartbeat, thesis contract, conviction engine, single-instance | ✅ DONE |
+| **Phase 1.5: Agentic Interface** | Telegram 25 commands, AI agent with tools, context pipeline, model selector | ✅ DONE |
+| **Phase 2: Daemon Switch** | Replace heartbeat with full 19-iterator daemon | NEXT |
+| **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook into daemon | Planned |
+| **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, convergence tracking | Future |
 
-## OpenClaw Agent Fix (READ THIS FIRST if agent is broken)
+## What's Running Right Now
 
-When @HyperLiquidOpenClaw_bot stops responding, check in order:
-1. **Auth profile:** `cat ~/.openclaw/agents/hl-trader/agent/auth-profiles.json` — if `profiles: {}`, copy from default: `cp ~/.openclaw/agents/default/agent/auth-profiles.json ~/.openclaw/agents/hl-trader/agent/auth-profiles.json`
-2. **Gateway network:** Check log for ETIMEDOUT: `grep ETIMEDOUT /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log | tail -3` — fix: `openclaw gateway restart`
-3. **After code changes:** Always `openclaw gateway restart` after modifying MCP tools or workspace files
+| Process | Script | Schedule | Purpose |
+|---------|--------|----------|---------|
+| Heartbeat | `common/heartbeat.py` | launchd 2min | Stops, alerts, escalation |
+| Commands Bot | `cli/telegram_bot.py` | background | 25 handlers + AI router |
+| AI Agent | `cli/telegram_agent.py` | on-demand | OpenRouter + 9 tools |
+| Vault Rebalancer | `scripts/run_vault_rebalancer.py` | launchd hourly | BTC Power Law |
 
-## Critical Rules (from CLAUDE.md + learnings)
+## What's Built But NOT Running
 
-1. **NEVER touch `~/.openclaw/`** — that's Chris's entire AI agent ecosystem, not just this project
-2. **Thesis files are the shared contract** — Chris writes conviction via Opus, daemon reads and executes
-3. **OpenClaw agent is cheap model** — it reads and discusses, it's NOT the primary thesis writer
-4. **Daemon safety** — always start in WATCH tier first, never go straight to REBALANCE on mainnet
-5. **No fixed stops on thesis trades** — use invalidation-based exits, conviction sizing
-6. **LONG or NEUTRAL only on oil** — never short
-7. **Always add specific files to git** — never `git add -A`
+| System | Location | Why Not Running |
+|--------|----------|-----------------|
+| Full daemon (19 iterators, 3 tiers) | `cli/daemon/` | Phase 2 work needed |
+| REFLECT meta-evaluation | `modules/reflect_engine.py` | CLI only, not wired to daemon |
+| Journal + Memory engines | `modules/journal_engine.py`, `memory_engine.py` | CLI only |
+| 22 strategies | `strategies/` | Only power_law_btc active |
+| Quoting engine | `quoting_engine/` | Not relevant to current use case |
+
+## Phase 2: Daemon Switch (NEXT)
+
+See `docs/plans/PHASE_2_DAEMON_SWITCH.md` for detailed checklist.
+
+**Goal:** Replace simplified heartbeat with full daemon orchestration.
+- All 19 iterators active in ordered execution
+- Start in WATCH tier, graduate to REBALANCE after 24h validation
+- Daemon writes thesis updates automatically (closes the stale-thesis gap)
+- Heartbeat becomes fallback, daemon becomes primary
+
+## Package Map (read relevant CLAUDE.md before working)
+
+| Package | CLAUDE.md | Files | Role |
+|---------|-----------|-------|------|
+| `common/` | `common/CLAUDE.md` | 31 | Shared utilities, heartbeat, thesis, conviction, context harness, market snapshots |
+| `cli/` | `cli/CLAUDE.md` | 33+ | Commands, telegram bot, AI agent, agent tools, MCP server |
+| `cli/daemon/` | `cli/daemon/CLAUDE.md` | 25 | Full daemon: clock, context, 19 iterators, 3 tiers |
+| `modules/` | `modules/CLAUDE.md` | 41 | 7 engines (REFLECT, GUARD, RADAR, PULSE, JOURNAL, MEMORY, APEX) + utilities |
+| `parent/` | `parent/CLAUDE.md` | 7 | Exchange layer: hl_proxy (17 importers), risk manager |
+| `openclaw/` | `openclaw/CLAUDE.md` | 10 | Agent workspace: AGENT.md, SOUL.md, TOOLS.md |
 
 ## Session Workflow for Claude Code
 
 ```
 1. Read docs/plans/MASTER_PLAN.md (this file)
-2. Read docs/SYSTEM_ARCHITECTURE.md (system map)
+2. Read docs/SYSTEM_ARCHITECTURE_v3.md (latest architecture)
 3. Check which phase is current (see table above)
 4. Read the phase-specific plan (docs/plans/PHASE_N_*.md)
 5. Read the relevant package CLAUDE.md for the work
 6. Do the work, run tests, commit
-7. Update the phase plan with what was done
-8. Update MASTER_PLAN.md if phase status changes
+7. If architecture changed: update SYSTEM_ARCHITECTURE_v3.md (or create v4)
+8. Run /alignment at end of session to sync docs
 ```
 
-## Key Learnings (from this session, 2026-04-02)
+## Critical Rules (from CLAUDE.md + learnings)
 
-1. **Heartbeat was blind for 21h** because `~/.hl-agent/wallets.json` didn't exist. Always verify infrastructure before assuming code works.
-2. **Thesis was frozen for 3 days** because there was no write path — the scheduled task collected data but never wrote conviction updates. The feedback loop must be closed.
-3. **OpenClaw agent had no auth profile** — it received messages but couldn't call any LLM. Always sync auth-profiles.json from the default agent.
-4. **The daemon (19 iterators) is the real workhorse** — the heartbeat is a simplified stopgap missing 12 iterators of capability.
-5. **REFLECT + Journal + Playbook are fully built** but only accessible via CLI, not wired into any automated loop.
-6. **Three Telegram interfaces serve different purposes** — Commands Bot (instant, zero AI), OpenClaw Agent (AI chat), Alert Board (one-way heartbeat alerts). They're separate by design.
-7. **HL API rate limits at ~3+ requests/second** — add 300ms delays between sequential calls.
-8. **Module-level constants evaluated at import time** — use lazy resolution for anything that reads from disk (wallets, config).
+1. **NEVER touch `~/.openclaw/`** — Chris's entire AI agent ecosystem
+2. **Thesis files are the shared contract** — Chris writes conviction via Opus, daemon reads and executes
+3. **Archive, never replace** — old plans and architecture docs stay for track record
+4. **Coin name normalization** — xyz clearinghouse returns `xyz:BRENTOIL`, native returns `BTC`. Always handle both forms.
+5. **No fixed stops on thesis trades** — invalidation-based exits, conviction sizing
+6. **LONG or NEUTRAL only on oil** — never short
+7. **Always add specific files to git** — never `git add -A`
+8. **HL API rate limits** — 300ms delays between sequential calls
+9. **Module-level constants evaluated at import time** — use lazy resolution for disk reads
+
+## Key Learnings
+
+### From oil trade loss (2026-04-02):
+- Heartbeat was blind 21h (wallets.json missing)
+- Thesis frozen 3 days (no write path)
+- OpenClaw agent had no auth profile
+- 636 consecutive failures with no notification
+- Infrastructure/plumbing failures, not strategy failures
+
+### From v2/v3 build (2026-04-02):
+- Interface-first approach more productive than daemon-first
+- Rich AI context (positions + technicals + thesis) makes cheap models useful
+- Dual-mode tool calling lets free models use tools via text parsing
+- Approval gates via Telegram buttons = secure write operations
+- Per-section CLAUDE.md files must stay current or sessions start confused

@@ -1,83 +1,60 @@
 # modules/ — Engine Modules
 
-Seven core engines plus utilities. Pure computation (zero I/O) — the `_guard` classes handle persistence separately. This design lets daemon iterators call engines without blocking.
+Seven core engines plus utilities. 41 files. Pure computation (zero I/O) — `_guard` classes handle persistence separately. This lets daemon iterators call engines without blocking.
 
 ## Core Engines
 
-| Engine | Files | Purpose | Wired? |
+| Engine | Files | Purpose | Status |
 |--------|-------|---------|--------|
-| **APEX** | `apex_engine.py`, `apex_config.py`, `apex_state.py` | Multi-slot autonomous trading (3-5 independent positions) | Via daemon |
-| **GUARD** | `guard_bridge.py`, `guard_config.py`, `guard_state.py` | Trailing stops + two-phase profit protection | Via daemon |
-| **RADAR** | `radar_engine.py`, `radar_config.py`, `radar_state.py` | Market scanner — find setups across all HL perps | Via daemon |
-| **PULSE** | `pulse_engine.py`, `pulse_config.py`, `pulse_state.py` | Capital inflow detector (volume + OI momentum) | Via daemon |
-| **REFLECT** | `reflect_engine.py`, `reflect_reporter.py`, `reflect_convergence.py`, `reflect_adapter.py` | Trade outcome analysis, convergence tracking, parameter auto-tuning | CLI only (Phase 3 wires to daemon) |
+| **APEX** | `apex_engine.py`, `apex_config.py`, `apex_state.py` | Multi-slot autonomous trading (3-5 positions) | Wired to daemon |
+| **GUARD** | `guard_bridge.py`, `guard_config.py`, `guard_state.py` | Trailing stops + two-phase profit protection | Wired to daemon |
+| **RADAR** | `radar_engine.py`, `radar_config.py`, `radar_state.py` | Market scanner — find setups across all HL perps | Wired to daemon |
+| **PULSE** | `pulse_engine.py`, `pulse_config.py`, `pulse_state.py` | Capital inflow detector (volume + OI momentum) | Wired to daemon |
+| **REFLECT** | `reflect_engine.py`, `reflect_reporter.py`, `reflect_convergence.py`, `reflect_adapter.py` | Trade outcome analysis, convergence, auto-tuning | CLI only (Phase 3) |
 | **JOURNAL** | `journal_engine.py`, `journal_guard.py` | Structured trade journal, signal quality, nightly review | CLI only (Phase 3) |
-| **MEMORY** | `memory_engine.py`, `memory_guard.py` | Playbook (what works per instrument/signal), param change events | CLI only (Phase 3) |
+| **MEMORY** | `memory_engine.py`, `memory_guard.py` | Playbook per instrument/signal, param change events | CLI only (Phase 3) |
 
-## REFLECT Pipeline (the meta-evaluation system)
+## REFLECT Pipeline (meta-evaluation)
 
 ```
 ReflectEngine.compute(trades) → ReflectMetrics
-    ↓
-ConvergenceTracker.record_cycle(metrics) → is_converging?
-    ↓
-ReflectAdapter.adapt(metrics, config) → [Adjustment]
-    ↓
-DirectionalHysteresis.should_apply(param, direction) → bool
-    ↓
-Apply adjustments → MemoryEngine.log_event("param_change")
-    ↓
-Playbook.update(instrument, signal_source, outcome)
+    → ConvergenceTracker.record_cycle(metrics) → is_converging?
+    → ReflectAdapter.adapt(metrics, config) → [Adjustment]
+    → DirectionalHysteresis.should_apply(param, direction) → bool
+    → Apply adjustments → MemoryEngine.log_event("param_change")
+    → Playbook.update(instrument, signal_source, outcome)
 ```
 
-### ReflectMetrics includes:
-- Core: total_trades, win_rate, gross/net_pnl, profit_factor
-- Fee analysis: FDR (fee drag ratio)
-- Direction: long vs short performance
-- Holding period: buckets (<5m, 5-15m, 15-60m, 1-4h, 4h+)
-- Streaks: max consecutive wins/losses
-- Monster dependency: % of PnL from single best/worst trade
-- Strategy breakdown: per-strategy performance
-- Auto-generated recommendations
+ReflectMetrics: win_rate, gross/net_pnl, FDR (fee drag), direction bias, holding periods, streaks, monster dependency, per-strategy breakdown, recommendations.
 
 ## Utility Modules
 
-| Module | Purpose |
-|--------|---------|
-| `candle_cache.py` | OHLC data caching (SQLite) |
-| `data_fetcher.py` | Historical data retrieval from HL |
-| `radar_technicals.py` | EMA, RSI, ADX, ATR calculations |
-| `trailing_stop.py` | Trailing stop price computation |
-| `backtest_engine.py` | Strategy backtesting harness |
-| `backtest_reporter.py` | Backtest result formatting |
-| `strategy_guard.py` | Strategy parameter validation |
-| `judge_engine.py` | Signal quality judge |
-| `obsidian_reader.py` | Read from Obsidian vault |
-| `obsidian_writer.py` | Write to Obsidian vault |
-| `reconciliation.py` | Position reconciliation |
-| `rotation.py` | Market rotation detection |
-| `smart_money/` | Smart money flow tracking |
-| `wallet_manager.py` | Multi-wallet coordination |
+| Module | Purpose | Used By |
+|--------|---------|---------|
+| `candle_cache.py` | OHLCV SQLite cache | **v3 agent tools** (`analyze_market`), market_snapshot |
+| `data_fetcher.py` | Historical data retrieval from HL | candle_cache, backtest |
+| `radar_technicals.py` | EMA, RSI, ADX, ATR calculations | radar, market_snapshot |
+| `trailing_stop.py` | Trailing stop price computation | guard |
+| `backtest_engine.py` | Strategy backtesting harness | CLI |
+| `backtest_reporter.py` | Backtest result formatting | CLI |
+| `strategy_guard.py` | Strategy parameter validation | daemon |
+| `judge_engine.py` | Signal quality judge | journal |
+| `reconciliation.py` | Position reconciliation | daemon |
+| `rotation.py` | Market rotation detection | radar |
+| `smart_money/` | Smart money flow tracking | radar |
+| `wallet_manager.py` | Multi-wallet coordination | daemon |
+
+**Note:** `candle_cache.py` is now on the v3 critical path — the AI agent's `analyze_market` tool uses it for OHLCV data. Changes here affect agent tool responses.
 
 ## Upstream
 - `cli/daemon/iterators/` — daemon calls engines
 - `cli/commands/` — CLI commands call engines
+- `cli/agent_tools.py` — v3 agent tools call candle_cache + market_snapshot
 
 ## Downstream
 - `common/models.py` — data structures
 - `common/thesis.py` — conviction state
 - Pure computation — no exchange calls
-
-## Current Status
-- APEX, GUARD, RADAR, PULSE: Built, wired to daemon iterators
-- REFLECT, JOURNAL, MEMORY: Built, accessible via CLI (`hl reflect run`), NOT wired to daemon
-- Utilities: All working
-
-## Future Direction (Phase 3)
-- Wire REFLECT into daemon's AutoResearch iterator
-- Wire JOURNAL into position close events
-- Wire MEMORY playbook into execution decisions
-- Weekly REFLECT summary to Telegram
 
 ## Testing
 ```bash
