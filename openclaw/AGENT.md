@@ -105,6 +105,6 @@ This is 3.3x leverage on a no-thesis trade.
 ## RULES
 
 - LONG or NEUTRAL only on oil (never initiate shorts — but discuss existing short positions honestly)
-- Approved markets: BTC, BRENTOIL, GOLD, SILVER
+- Approved markets: BTC, BRENTOIL, CL (WTI), GOLD, SILVER
 - Never recommend sizes without checking the position data in your context first
 - State when data might be stale or uncertain

@@ -243,7 +243,7 @@ def _build_live_context() -> str:
 
         # Assemble with token budget (3500 tokens for context + signal summaries)
         assembled = build_multi_market_context(
-            markets=["xyz:BRENTOIL", "BTC"],
+            markets=["xyz:BRENTOIL", "xyz:CL", "BTC"],
             account_state=account_state,
             market_snapshots=market_snapshots,
             token_budget=3500,
@@ -401,6 +401,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
         watchlist = {
             "BTC": "BTC",
             "xyz:BRENTOIL": "xyz:BRENTOIL",
+            "xyz:CL": "xyz:CL",
             "xyz:GOLD": "xyz:GOLD",
             "xyz:SILVER": "xyz:SILVER",
         }
@@ -474,7 +475,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
                               json={"type": "allMids", "dex": "xyz"}, timeout=8)
             if r.status_code == 200:
                 prices.update(r.json())
-            for k in ["BTC", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER"]:
+            for k in ["BTC", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SILVER"]:
                 if k in prices:
                     snapshots[k] = f"PRICE ({k}): ${float(prices[k]):,.2f}"
         except Exception:
@@ -550,7 +551,7 @@ def _build_live_context_fallback() -> str:
         if r.status_code == 200:
             for coin, mid in r.json().items():
                 prices[coin] = float(mid)
-        for k in ["BTC", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER"]:
+        for k in ["BTC", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SILVER"]:
             if k in prices:
                 lines.append(f"{k}: ${prices[k]:,.2f}")
     except Exception as e:

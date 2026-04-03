@@ -90,6 +90,9 @@ def _default_markets() -> dict[str, MarketMapping]:
         "xyz:BRENTOIL": MarketMapping(
             canonical_id="xyz:BRENTOIL", hl_coin="BRENTOIL", dex="xyz",
         ),
+        "xyz:CL": MarketMapping(
+            canonical_id="xyz:CL", hl_coin="CL", dex="xyz",
+        ),
         "BTC-PERP": MarketMapping(
             canonical_id="BTC-PERP", hl_coin="BTC",
         ),
@@ -99,6 +102,14 @@ def _default_markets() -> dict[str, MarketMapping]:
 def _default_profit_rules() -> dict[str, ProfitRules]:
     return {
         "xyz:BRENTOIL": ProfitRules(
+            quick_profit_pct=5.0,
+            quick_profit_window_min=30,
+            quick_profit_take_pct=25,
+            extended_profit_pct=10.0,
+            extended_profit_window_min=120,
+            extended_profit_take_pct=25,
+        ),
+        "xyz:CL": ProfitRules(
             quick_profit_pct=5.0,
             quick_profit_window_min=30,
             quick_profit_take_pct=25,

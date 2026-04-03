@@ -780,7 +780,7 @@ def create_mcp_server():
                 prices = filtered
 
             # Format compactly
-            watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500"]
+            watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500"]
             if markets == "all":
                 # Show watchlist only, not all 200+ markets
                 prices = {k: v for k, v in prices.items() if k in watchlist}

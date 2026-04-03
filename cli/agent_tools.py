@@ -306,7 +306,7 @@ def _tool_live_price(args: dict) -> str:
                 return f"{k}: ${float(v):,.2f}"
         return f"No price found for '{target}'"
 
-    watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:NATGAS"]
+    watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SILVER", "xyz:NATGAS"]
     lines = []
     for k in watchlist:
         if k in mids:
