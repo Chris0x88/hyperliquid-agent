@@ -73,10 +73,10 @@ def build():
         "<b>plain-English market assessments</b> that any AI model &mdash; including small, free "
         "models on OpenRouter &mdash; can quote directly in responses.", styles["Body"]))
     story.append(Paragraph(
-        "Instead of giving a model raw numbers like <font face='Courier'>RSI=69, BB=above_upper, "
+        "Instead of giving a model raw numbers like <font face='Courier'>RSI=72, BB=above_upper, "
         "pattern=doji</font> and hoping it interprets correctly, the signal interpreter outputs:", styles["Body"]))
     story.append(Paragraph(
-        '<font face="Courier" color="#2d5a2d">SIGNAL: EXHAUSTION &mdash; RSI 69 + above upper BB + doji. '
+        '<font face="Courier" color="#2d5a2d">SIGNAL: EXHAUSTION &mdash; RSI 72 + above upper BB + doji. '
         'Pullback likely.<br/>SHORTS: near-term opportunity if momentum fades. LONGS: wait for pullback.</font>',
         styles["Example"]))
     story.append(Paragraph(

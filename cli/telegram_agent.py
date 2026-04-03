@@ -334,6 +334,46 @@ def _fetch_account_state_for_harness() -> dict:
     return result
 
 
+def _refresh_candle_cache(cache, coins: list, interval: str = "1h", lookback_hours: int = 72) -> None:
+    """Fetch fresh candles from HL API and write to cache.
+
+    Called before every prompt build so technicals are never stale.
+    Only fetches from the last cached candle (or lookback_hours if empty).
+    """
+    now_ms = int(time.time() * 1000)
+
+    for coin in coins:
+        try:
+            # Check how fresh the cache is
+            date_range = cache.date_range(coin, interval)
+            if date_range and (now_ms - date_range[1]) < 3_600_000:
+                # Cache is less than 1 hour old, skip
+                continue
+
+            # Fetch from last cached candle or lookback
+            if date_range:
+                start_ms = date_range[1]  # from last cached candle
+            else:
+                start_ms = now_ms - (lookback_hours * 3_600_000)
+
+            payload = {
+                "type": "candleSnapshot",
+                "req": {"coin": coin, "interval": interval,
+                        "startTime": start_ms, "endTime": now_ms},
+            }
+            r = requests.post("https://api.hyperliquid.xyz/info",
+                              json=payload, timeout=10)
+            if r.status_code == 200:
+                candles = r.json()
+                if isinstance(candles, list) and candles:
+                    stored = cache.store_candles(coin, interval, candles)
+                    if stored:
+                        log.info("Refreshed %d %s candles for %s", stored, interval, coin)
+            time.sleep(0.15)  # rate limit between coins
+        except Exception as e:
+            log.debug("Candle refresh failed for %s: %s", coin, e)
+
+
 def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
     """Fetch rich market snapshots with technicals + position-aware signals.
 
@@ -341,6 +381,10 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
     candle data into actionable text per market. Signal summaries include
     position-specific guidance (e.g. "Signal SUPPORTS your SHORT").
     Falls back to price-only if snapshot building fails.
+
+    FRESHNESS: Fetches fresh candles from HL API before building snapshots
+    so technicals are never stale. If candles are still >4h old after refresh,
+    skips technicals and shows price-only with a staleness warning.
     """
     now = time.time()
     if "market_snapshots" in _CACHE and now - _CACHE["market_snapshots"].get("ts", 0) < 10:
@@ -361,6 +405,10 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
             "xyz:SILVER": "xyz:SILVER",
         }
 
+        # ── FRESH CANDLE INJECTION ──
+        # Fetch fresh candles from HL API and write to cache BEFORE building snapshots
+        _refresh_candle_cache(cache, list(watchlist.values()), interval="1h")
+
         # Get current prices for snapshot building
         prices = {}
         r = requests.post("https://api.hyperliquid.xyz/info",
@@ -373,11 +421,26 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
         if r.status_code == 200:
             prices.update(r.json())
 
+        now_ms = int(time.time() * 1000)
+        _MAX_CANDLE_AGE_MS = 4 * 3_600_000  # 4 hours
+
         for display, key in watchlist.items():
             price = float(prices.get(key, 0))
             if not price:
                 continue
             try:
+                # ── FRESHNESS GUARD ──
+                # Check if candle data is actually fresh enough for technicals
+                date_range = cache.date_range(key, "1h")
+                if not date_range or (now_ms - date_range[1]) > _MAX_CANDLE_AGE_MS:
+                    age_hrs = (now_ms - date_range[1]) / 3_600_000 if date_range else float('inf')
+                    snapshots[display] = (
+                        f"PRICE ({display}): ${price:,.2f}\n"
+                        f"⚠️ TECHNICALS UNAVAILABLE — candle data is {age_hrs:.0f}h stale. "
+                        f"Price is LIVE but RSI/BB/signals are unreliable."
+                    )
+                    continue
+
                 snap = build_snapshot(key, cache, price)
                 text = render_snapshot(snap, detail="brief")
                 # Find position for this market (if any)
@@ -510,12 +573,14 @@ def _sanitize_assistant_history(text: str) -> str:
     lines = text.split('\n')
     clean = []
     
-    # Lines matching this regex contain portfolio numbers/data
+    # Lines matching this regex contain portfolio numbers/data or technical indicators
     data_pattern = re.compile(
-        r'^[\s\W]*(Equity|Open Positions|Positions|Direction|Entry|Current|uPnL|Leverage|Liquidation|Account|Price)[\s\W]*:',
+        r'^[\s\W]*(Equity|Open Positions|Positions|Direction|Entry|Current|uPnL|Leverage|Liquidation|Account|Price'
+        r'|RSI|Signal|VWAP|BB |EMA|ATR|Bollinger|Support|Resist|MECH|FLAGS'
+        r'|PRICE OUTLOOK|Money flow|OBV|Volatility|vol_regime)[\s\W]*[:=]',
         re.IGNORECASE
     )
-    
+
     # Lines containing these are stale claims about data state
     contains = [
         'No position', 'no position', 'POSITIONS: (none',
@@ -525,6 +590,11 @@ def _sanitize_assistant_history(text: str) -> str:
         # Stale funding claims from memory (actual data comes from live API)
         '58% annualized', 'earn funding', 'earning funding',
         'paying funding', 'funding costs compound',
+        # Stale technical indicators (fresh ones come from LIVE CONTEXT)
+        'RSI 69', 'RSI 20', 'RSI:', 'overbought', 'oversold',
+        'EXHAUSTION', 'CAPITULATION', 'BEARISH exhaustion', 'BULLISH exhaustion',
+        'SIGNAL:', 'STRONGLY BULLISH', 'STRONGLY BEARISH',
+        'YOUR SHORT:', 'YOUR LONG:',
     ]
     for line in lines:
         if data_pattern.search(line):
