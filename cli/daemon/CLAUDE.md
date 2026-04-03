@@ -59,21 +59,24 @@ Hummingbot-style tick engine with 19 iterators, 3 tiers, and ordered execution. 
 19. Telegram
 ```
 
-## Safety Mechanisms
-- **Circuit breaker**: 5 consecutive tick failures → auto-downgrade tier (opportunistic → rebalance → watch)
-- **Mock mode**: `--mock` flag → no real orders, log-only
+## Safety
+- **Circuit breaker**: 5 consecutive tick failures → auto-downgrade tier
+- **Mock mode**: `--mock` → no real orders
 - **Max ticks**: `--max-ticks N` → auto-stop
-- **Ruin prevention**: 25% drawdown halts entries, 40% closes all (unconditional, in execution_engine)
-- **Graceful shutdown**: SIGINT/SIGTERM handled, iterators torn down properly
+- **Ruin prevention**: 25% drawdown halts entries, 40% closes all (unconditional)
+- **Graceful shutdown**: SIGINT/SIGTERM handled
 
-## Upstream
-- `cli/commands/daemon.py` — CLI entry point (`hl daemon start`)
-- `scripts/` — could be launched via launchd plist
+## Relationship to Current Running System
 
-## Downstream
-- `modules/` — engines (reflect, guard, radar, pulse, journal, memory)
-- `common/` — thesis, conviction, models, credentials
-- `parent/` — HL exchange adapter
+The heartbeat (`common/heartbeat.py`) is a simplified version that handles:
+- Position monitoring + stop placement
+- Escalation alerts
+- Conviction engine integration
+- Hourly status reports
+
+The daemon adds 12 more capabilities: guard trailing stops, radar scanning, pulse detection, auto-research, journal, memory consolidation, profit locking, funding tracking, catalyst deleverage, and full execution engine.
+
+**Phase 2 plan:** Start daemon in WATCH alongside heartbeat for 24h comparison. Then switch launchd to daemon, keep heartbeat as fallback.
 
 ## CLI Commands
 ```bash
@@ -83,12 +86,6 @@ hl daemon start --tier rebalance --mainnet            # Production (careful!)
 hl daemon stop                                         # Graceful stop
 hl daemon status                                       # Health check
 ```
-
-## Future Direction (Phase 2)
-- Create launchd plist: `plists/com.hyperliquid.daemon.plist`
-- Start in WATCH tier on mainnet
-- Run alongside heartbeat for 24h comparison
-- Heartbeat becomes fallback, daemon becomes primary
 
 ## Testing
 ```bash

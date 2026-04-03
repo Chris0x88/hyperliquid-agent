@@ -17,7 +17,7 @@ Read `docs/SYSTEM_ARCHITECTURE_v3.md` for full mermaid diagrams. Previous versio
 ```
 CHRIS + CLAUDE CODE (Opus) ──writes──► data/thesis/*.json
                                            │
-HEARTBEAT (2min launchd) ──────reads───────┘──places stops──► HyperLiquid
+DAEMON (WATCH tier, 120s launchd) ──reads──┘──monitors──► HyperLiquid
                                            │
 TELEGRAM BOT ──25 commands + AI router─────┘
     │
@@ -38,7 +38,7 @@ VAULT REBALANCER (hourly launchd) ──BTC Power Law──► HyperLiquid
 | v2 | 2026-04-02 AM | Interface-first: rich context, model selector, formatting | `SYSTEM_ARCHITECTURE_v2.md` |
 | v3 | 2026-04-02 PM | Agentic: 9 tools, dual-mode calling, approval gates | `SYSTEM_ARCHITECTURE_v3.md` |
 
-Key pattern: each version ADDS a capability layer. v1 daemon still exists (built, not running). v2 context pipeline runs. v3 tool-calling runs on top.
+Key pattern: each version ADDS a capability layer. v1 daemon design → v2 context pipeline → v3 tool-calling. All layers are live.
 
 ## Current Phase Status
 
@@ -46,24 +46,25 @@ Key pattern: each version ADDS a capability layer. v1 daemon still exists (built
 |-------|------|--------|
 | **Phase 1: Foundation** | Heartbeat, thesis contract, conviction engine, single-instance | ✅ DONE |
 | **Phase 1.5: Agentic Interface** | Telegram 25 commands, AI agent with tools, context pipeline, model selector | ✅ DONE |
-| **Phase 2: Daemon Switch** | Replace heartbeat with full 19-iterator daemon | NEXT |
-| **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook into daemon | Planned |
+| **Phase 2: Daemon Switch** | Replace heartbeat with full daemon (WATCH tier, 120s tick, mainnet) | ✅ DONE — tick 997+ as of 2026-04-03 |
+| **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook into daemon | NEXT |
 | **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, convergence tracking | Future |
 
 ## What's Running Right Now
 
 | Process | Script | Schedule | Purpose |
 |---------|--------|----------|---------|
-| Heartbeat | `common/heartbeat.py` | launchd 2min | Stops, alerts, escalation |
+| **Daemon** | `cli/daemon/clock.py` | launchd 120s, WATCH tier | 19 iterators, account snapshots, thesis engine, liquidity regime, autoresearch, memory consolidation |
 | Commands Bot | `cli/telegram_bot.py` | background | 25 handlers + AI router |
 | AI Agent | `cli/telegram_agent.py` | on-demand | OpenRouter + 9 tools |
 | Vault Rebalancer | `scripts/run_vault_rebalancer.py` | launchd hourly | BTC Power Law |
+
+Note: Heartbeat (`common/heartbeat.py`) has been replaced by the daemon. Heartbeat plist still exists as fallback.
 
 ## What's Built But NOT Running
 
 | System | Location | Why Not Running |
 |--------|----------|-----------------|
-| Full daemon (19 iterators, 3 tiers) | `cli/daemon/` | Phase 2 work needed |
 | REFLECT meta-evaluation | `modules/reflect_engine.py` | CLI only, not wired to daemon |
 | Journal + Memory engines | `modules/journal_engine.py`, `memory_engine.py` | CLI only |
 | 22 strategies | `strategies/` | Only power_law_btc active |
