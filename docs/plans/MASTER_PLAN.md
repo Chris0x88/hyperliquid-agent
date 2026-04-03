@@ -45,7 +45,7 @@ Key pattern: each version ADDS a capability layer. v1 daemon design → v2 conte
 | Phase | Goal | Status |
 |-------|------|--------|
 | **Phase 1: Foundation** | Heartbeat, thesis contract, conviction engine, single-instance | ✅ DONE |
-| **Phase 1.5: Agentic Interface** | Telegram 25 commands, AI agent with tools, context pipeline, model selector | ✅ DONE |
+| **Phase 1.5: Agentic Interface** | Telegram 28 commands, AI agent with tools, context pipeline, model selector, centralized watchlist | ✅ DONE |
 | **Phase 2: Daemon Switch** | Replace heartbeat with full daemon (WATCH tier, 120s tick, mainnet) | ✅ DONE — tick 997+ as of 2026-04-03 |
 | **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook into daemon | NEXT |
 | **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, convergence tracking | Future |

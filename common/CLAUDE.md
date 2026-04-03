@@ -1,6 +1,6 @@
 # common/ — Shared Utilities
 
-Foundational utilities used by every other package. 31 modules. The `models` module alone has 39 importers — the most-depended-on file in the project.
+Foundational utilities used by every other package. 32 modules. The `models` module alone has 39 importers — the most-depended-on file in the project.
 
 ## Key Files
 
@@ -25,6 +25,7 @@ Foundational utilities used by every other package. 31 modules. The `models` mod
 | `market_structure.py` | OI/volume aggregation, term structure | 2 |
 | `authority.py` | Per-asset delegation: agent vs manual vs off | Used by heartbeat |
 | `funding_tracker.py` | Cumulative funding cost tracking | 2 |
+| `watchlist.py` | **Centralized watchlist** — single source of truth for tracked markets, CRUD, HL search | Used by telegram_bot, telegram_agent, agent_tools, mcp_server, scheduled_check |
 
 ## v2/v3 Critical Path
 
