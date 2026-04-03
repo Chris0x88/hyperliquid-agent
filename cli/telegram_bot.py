@@ -52,30 +52,17 @@ COMMAND_QUEUE = Path("data/daemon/telegram_commands.jsonl")
 PID_FILE = Path("data/daemon/telegram_bot.pid")
 LAST_UPDATE_FILE = Path("data/daemon/telegram_last_update_id.txt")
 
-# ── Watchlist: markets we track ──────────────────────────────
-# Format: (display_name, hl_coin, aliases, category)
-WATCHLIST = [
-    ("BTC", "BTC", ["btc", "bitcoin"], "crypto"),
-    ("ETH", "ETH", ["eth", "ethereum"], "crypto"),
-    ("Brent Oil", "xyz:BRENTOIL", ["oil", "brent", "brentoil", "crude"], "commodity"),
-    ("WTI Crude", "xyz:CL", ["wti", "cl", "crude-us"], "commodity"),
-    ("Gold", "xyz:GOLD", ["gold", "xau"], "commodity"),
-    ("Silver", "xyz:SILVER", ["silver", "xag"], "commodity"),
-    ("Nat Gas", "xyz:NATGAS", ["natgas", "gas", "ng"], "commodity"),
-    ("S&P 500", "xyz:SP500", ["sp500", "spx", "sp"], "index"),
-    ("Nvidia", "xyz:NVDA", ["nvda", "nvidia"], "equity"),
-    ("Tesla", "xyz:TSLA", ["tsla", "tesla"], "equity"),
-]
+# ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
+from common.watchlist import (
+    load_watchlist as _load_wl,
+    get_watchlist_as_tuples as _get_wl_tuples,
+    get_coin_aliases as _get_aliases,
+    get_watchlist_coins as _get_coins,
+)
 
-# Quick lookup: alias → hl_coin
-COIN_ALIASES: dict[str, str] = {}
-for _name, _coin, _aliases, _cat in WATCHLIST:
-    COIN_ALIASES[_coin.lower()] = _coin
-    COIN_ALIASES[_name.lower()] = _coin
-    for a in _aliases:
-        COIN_ALIASES[a.lower()] = _coin
-
-APPROVED_MARKETS = [w[1] for w in WATCHLIST]
+WATCHLIST = _get_wl_tuples()
+COIN_ALIASES: dict[str, str] = _get_aliases()
+APPROVED_MARKETS = _get_coins()
 
 
 def _coin_matches(universe_name: str, target: str) -> bool:
@@ -612,6 +599,89 @@ def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+def cmd_addmarket(token: str, chat_id: str, args: str) -> None:
+    """Search HL for a market and add it to the watchlist. Usage: /addmarket <query>"""
+    from common.watchlist import search_hl_markets, add_market, load_watchlist
+    query = args.strip()
+    if not query:
+        tg_send(token, chat_id, "Usage: `/addmarket <query>`\nExample: `/addmarket crude` or `/addmarket sol`")
+        return
+
+    # Check if already in watchlist
+    existing = {m["coin"] for m in load_watchlist()}
+
+    results = search_hl_markets(query)
+    if not results:
+        tg_send(token, chat_id, f"No markets found matching `{query}`")
+        return
+
+    lines = [f"🔍 *Markets matching* `{query}`", ""]
+    for r in results:
+        status = " ✅ (already tracked)" if r["coin"] in existing else ""
+        lines.append(f"  `{r['coin']}` — ${r['price']:,.2f} ({r['dex']}){status}")
+
+    # Auto-add first non-existing match if only one clear result
+    candidates = [r for r in results if r["coin"] not in existing]
+    if candidates:
+        lines.append("")
+        lines.append("To add, reply: `/addmarket! <coin>`")
+        lines.append(f"Example: `/addmarket! {candidates[0]['coin']}`")
+
+    tg_send(token, chat_id, "\n".join(lines))
+
+
+def cmd_addmarket_confirm(token: str, chat_id: str, args: str) -> None:
+    """Confirm adding a market. Usage: /addmarket! xyz:CL"""
+    from common.watchlist import add_market
+    coin = args.strip()
+    if not coin:
+        tg_send(token, chat_id, "Usage: `/addmarket! <coin>`\nExample: `/addmarket! xyz:CL`")
+        return
+
+    # Determine display name and category
+    bare = coin.replace("xyz:", "")
+    display = bare
+    category = "crypto"
+    if coin.startswith("xyz:"):
+        category = "commodity"
+    aliases = [bare.lower()]
+
+    if add_market(display, coin, aliases, category):
+        # Reload module-level vars
+        global WATCHLIST, COIN_ALIASES, APPROVED_MARKETS
+        WATCHLIST = _get_wl_tuples()
+        COIN_ALIASES = _get_aliases()
+        APPROVED_MARKETS = _get_coins()
+        tg_send(token, chat_id, f"✅ Added `{coin}` to watchlist.\nUse `/watchlist` to see all tracked markets.")
+    else:
+        tg_send(token, chat_id, f"`{coin}` is already in the watchlist.")
+
+
+def cmd_removemarket(token: str, chat_id: str, args: str) -> None:
+    """Remove a market from the watchlist. Usage: /removemarket <coin>"""
+    from common.watchlist import remove_market, load_watchlist
+    coin = args.strip()
+    if not coin:
+        # Show current watchlist for selection
+        wl = load_watchlist()
+        lines = ["📋 *Current watchlist* — which to remove?", ""]
+        for m in wl:
+            lines.append(f"  `{m['coin']}` — {m['display']}")
+        lines.append("")
+        lines.append("Reply: `/removemarket <coin>`")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    if remove_market(coin):
+        global WATCHLIST, COIN_ALIASES, APPROVED_MARKETS
+        WATCHLIST = _get_wl_tuples()
+        COIN_ALIASES = _get_aliases()
+        APPROVED_MARKETS = _get_coins()
+        tg_send(token, chat_id, f"✅ Removed `{coin}` from watchlist.")
+    else:
+        tg_send(token, chat_id, f"`{coin}` not found in watchlist. Use `/watchlist` to see current markets.")
+
+
 def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
     """Generate and send the BTC Power Law chart."""
     try:
@@ -1089,30 +1159,42 @@ def cmd_feedback(token: str, chat_id: str, args: str) -> None:
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
-        "*How This Bot Works*\n"
-        "\n*Trading Commands*\n"
-        "Your portfolio at a glance — use `/status` for the overview, "
-        "`/position` for detailed risk, `/market oil` for technicals.\n"
-        "\n*Charts*\n"
-        "Type `/chartoil 72` for a 72-hour oil chart. "
-        "Also: `/chartbtc`, `/chartgold`, `/chartsilver`. "
-        "Just the shorthand works.\n"
-        "\n*AI Chat*\n"
-        "Type anything that's not a command and the AI responds with "
-        "live market data. It knows your positions, prices, and thesis. "
-        "Ask it questions like \"what's oil doing?\" or \"should I add here?\"\n"
-        "\n*Agent Delegation*\n"
-        "You control which assets the bot can trade autonomously.\n"
-        "  `/authority` — see who manages what\n"
-        "  `/delegate BRENTOIL` — give BRENTOIL to the agent\n"
-        "  `/reclaim BRENTOIL` — take it back\n"
-        "\n🤖 *Agent* = bot manages entries, exits, sizing\n"
-        "👤 *Manual* = you trade, bot only ensures SL/TP exist\n"
-        "\n*Tracking*\n"
-        "  `/bug text` — report issues\n"
-        "  `/todo text` — add tasks\n"
-        "  `/feedback text` — suggestions\n"
-        "All picked up by Claude Code next session.\n"
+        "*How This System Works*\n"
+        "\nThis is a portfolio copilot, risk manager, and research agent. "
+        "You bring the thesis, it executes with discipline.\n"
+        "\n📊 *Quick Data*\n"
+        "`/status` — portfolio overview + PnL\n"
+        "`/position` — detailed risk per position\n"
+        "`/market oil` — deep technicals on a market\n"
+        "`/watchlist` — all tracked markets + prices\n"
+        "`/price btc` — quick price check\n"
+        "\n📈 *Charts*\n"
+        "`/chartoil 72` — 72h oil chart\n"
+        "Shortcuts: `/chartbtc`, `/chartgold`, `/chartwti`\n"
+        "\n💬 *AI Chat*\n"
+        "Type anything that's not a `/command` and the AI responds. "
+        "It sees your live positions, prices, thesis, and memory — refreshed every message. "
+        "Ask things like \"what's oil doing?\", \"should I add here?\", or \"challenge my thesis\".\n"
+        "\nIf the AI suggests a trade, you get Approve/Reject buttons. "
+        "No trade executes without your tap.\n"
+        "\n🤖 *Agent Delegation*\n"
+        "`/authority` — see who manages what\n"
+        "`/delegate BRENTOIL` — agent controls entries, exits, sizing\n"
+        "`/reclaim BRENTOIL` — take it back to manual\n"
+        "\n🤖 Agent = bot makes all decisions (you approve trades)\n"
+        "👤 Manual = you trade, bot ensures SL/TP exist\n"
+        "\n🔧 *System*\n"
+        "`/models` — switch AI model (10 free, 8 paid)\n"
+        "`/health` — check what's running (bot, heartbeat, daemon)\n"
+        "`/diag` — tool calls, errors, authority status\n"
+        "`/memory` — agent learnings and notes\n"
+        "\n🛢️ *Watchlist Management*\n"
+        "`/addmarket crude` — search and add a new market\n"
+        "`/removemarket xyz:CL` — remove a market\n"
+        "\n📝 *Tracking*\n"
+        "`/bug`, `/todo`, `/feedback` — all picked up by Claude Code next session.\n"
+        "\n*Background*: Heartbeat checks every 2 min (stops, alerts, escalation). "
+        "Thesis files drive conviction sizing. Claude Code (Opus) writes thesis, this bot reads and discusses.\n"
         "\n`/help` for full command list")
 
 
@@ -1496,6 +1578,14 @@ def cmd_diag(token: str, chat_id: str, _args: str) -> None:
         else:
             uptime_str = f"{uptime_s}s"
         lines.append(f"  Bot uptime: `{uptime_str}`")
+        # Tool call counts
+        total_tools = summary.get('total_tool_calls', 0)
+        tool_counts = summary.get('tool_calls', {})
+        lines.append(f"  Tool calls: `{total_tools}`")
+        if tool_counts:
+            top3 = sorted(tool_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_str = ", ".join(f"{n}({c})" for n, c in top3)
+            lines.append(f"  Top tools: `{top_str}`")
         if summary['total_errors'] > 0:
             lines.append(f"  Errors: `{summary['total_errors']}`")
 
@@ -1596,6 +1686,9 @@ HANDLERS = {
     "diag": cmd_diag,
     "watchlist": cmd_watchlist,
     "w": cmd_watchlist,
+    "addmarket": cmd_addmarket,
+    "addmarket!": cmd_addmarket_confirm,
+    "removemarket": cmd_removemarket,
     "powerlaw": cmd_powerlaw,
     "rebalancer": cmd_rebalancer,
     "rebalance": cmd_rebalance,

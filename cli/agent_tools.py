@@ -306,7 +306,8 @@ def _tool_live_price(args: dict) -> str:
                 return f"{k}: ${float(v):,.2f}"
         return f"No price found for '{target}'"
 
-    watchlist = ["BTC", "ETH", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SILVER", "xyz:NATGAS"]
+    from common.watchlist import get_watchlist_coins
+    watchlist = get_watchlist_coins()
     lines = []
     for k in watchlist:
         if k in mids:
@@ -498,13 +499,27 @@ def execute_tool(name: str, arguments: dict) -> str:
     fn = _TOOL_DISPATCH.get(name)
     if not fn:
         return f"Unknown tool: {name}"
+    t0 = time.time()
     try:
         args = json.loads(arguments) if isinstance(arguments, str) else arguments
         result = fn(args)
-        log.info("Tool %s executed: %s", name, str(result)[:100])
+        duration_ms = int((time.time() - t0) * 1000)
+        log.info("Tool %s executed (%dms): %s", name, duration_ms, str(result)[:100])
+        # Log to diagnostics for /diag tool call counting
+        try:
+            from common.diagnostics import get_diagnostics
+            get_diagnostics().log_tool_call(name, args, str(result)[:200], duration_ms=duration_ms)
+        except Exception:
+            pass
         return _cap(result)
     except Exception as e:
-        log.error("Tool %s failed: %s", name, e)
+        duration_ms = int((time.time() - t0) * 1000)
+        log.error("Tool %s failed (%dms): %s", name, duration_ms, e)
+        try:
+            from common.diagnostics import get_diagnostics
+            get_diagnostics().log_tool_call(name, arguments, str(e), duration_ms=duration_ms, error=True)
+        except Exception:
+            pass
         return f"Tool error ({name}): {e}"
 
 

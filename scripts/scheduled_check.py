@@ -232,7 +232,8 @@ def main():
     try:
         from common.memory import get_market_context as _mem_ctx
         mem = {}
-        for mk in ["xyz:BRENTOIL", "BTC-PERP"]:
+        from common.watchlist import get_watchlist_coins
+        for mk in get_watchlist_coins():
             ctx = _mem_ctx(mk, days=60)
             if ctx:
                 mem[mk] = ctx
@@ -297,7 +298,8 @@ def main():
             snapshot_texts = {}
             try:
                 cache = CandleCache()
-                markets = [args.market] if args.market else ["xyz:BRENTOIL", "BTC-PERP"]
+                from common.watchlist import get_watchlist_coins as _wl_coins
+                markets = [args.market] if args.market else _wl_coins()
                 for mk in markets:
                     price = 0.0
                     # Try to get price from result
@@ -324,7 +326,7 @@ def main():
                 )
             else:
                 # Multi-market mode
-                markets = ["xyz:BRENTOIL", "BTC-PERP"]
+                markets = _wl_coins()
                 ctx = build_multi_market_context(
                     markets=markets,
                     account_state=result,
