@@ -1850,12 +1850,13 @@ def cmd_thesis(token: str, chat_id: str, _args: str) -> None:
     for market, state in sorted(states.items()):
         age_h = state.age_hours
         raw_conv = state.conviction
+        # Mirror the in-memory clamp applied by ThesisEngineIterator
         if age_h > _CLAMP_AGE_H:
-            effective = raw_conv * 0.5 * (1.0 if not state.is_stale else state.effective_conviction() / raw_conv)
-            clamp_note = f" ⚠️ clamped 50%"
+            state.conviction = raw_conv * 0.5
+            clamp_note = " ⚠️ clamped 50%"
         else:
-            effective = state.effective_conviction()
             clamp_note = ""
+        effective = state.effective_conviction()
 
         if age_h > _CLAMP_AGE_H:
             age_icon = "🔴"
