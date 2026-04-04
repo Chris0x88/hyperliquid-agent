@@ -192,6 +192,45 @@ def tg_answer_callback(token: str, callback_id: str, text: str = "") -> None:
         pass
 
 
+def tg_send_grid(token: str, chat_id: str, text: str, rows: list) -> dict:
+    """Send a message with inline keyboard grid. rows = [[btn, btn], [btn], ...]."""
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": rows},
+        }
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload, timeout=10,
+        )
+        return r.json()
+    except Exception as e:
+        log.warning("Send grid failed: %s", e)
+        return {}
+
+
+def tg_edit_grid(token: str, chat_id: str, message_id: int, text: str, rows: list) -> bool:
+    """Edit an existing message text + inline keyboard in-place."""
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": rows},
+        }
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/editMessageText",
+            json=payload, timeout=10,
+        )
+        return r.json().get("ok", False)
+    except Exception as e:
+        log.warning("Edit grid failed: %s", e)
+        return False
+
+
 def tg_get_updates(token: str, offset: int) -> list:
     try:
         r = requests.get(
@@ -229,14 +268,46 @@ def _get_all_positions(addr: str) -> list:
     return positions
 
 
+def _refresh_candle_cache_for_market(cache, coin: str, lookback_hours: int = 168) -> None:
+    """Fetch fresh candles for a market across 1h, 4h, 1d intervals.
+
+    Called by /market before building snapshots so signals are never stale.
+    Skips intervals already fresh (<1h old).
+    """
+    now_ms = int(time.time() * 1000)
+    for interval in ["1h", "4h", "1d"]:
+        try:
+            date_range = cache.date_range(coin, interval)
+            if date_range and (now_ms - date_range[1]) < 3_600_000:
+                continue  # Fresh enough
+
+            start_ms = date_range[1] if date_range else now_ms - (lookback_hours * 3_600_000)
+            payload = {
+                "type": "candleSnapshot",
+                "req": {"coin": coin, "interval": interval,
+                        "startTime": start_ms, "endTime": now_ms},
+            }
+            r = requests.post(HL_API, json=payload, timeout=10)
+            if r.status_code == 200:
+                candles = r.json()
+                if isinstance(candles, list) and candles:
+                    cache.store_candles(coin, interval, candles)
+            time.sleep(0.15)
+        except Exception:
+            pass
+
+
 def _get_all_orders(addr: str) -> list:
-    """Get open orders from BOTH native and xyz clearinghouses."""
+    """Get open orders from BOTH clearinghouses (rich format with orderType/triggerPx)."""
     orders = []
     for dex in ['', 'xyz']:
-        payload = {'type': 'openOrders', 'user': addr}
+        payload = {'type': 'frontendOpenOrders', 'user': addr}
         if dex:
             payload['dex'] = dex
-        orders.extend(_hl_post(payload) or [])
+        result = _hl_post(payload) or []
+        for o in result:
+            o['_dex'] = dex or 'native'
+        orders.extend(result)
     return orders
 
 
@@ -388,6 +459,21 @@ def cmd_status(token: str, chat_id: str, _args: str) -> None:
             if oi_str:
                 lines.append(f"  {oi_str}")
             lines.append("")
+        # Check for unwatched positions and flag them
+        from common.watchlist import get_watchlist_coins, get_coin_aliases
+        watched = set(get_watchlist_coins())
+        aliases = get_coin_aliases()
+        for pos in positions:
+            coin = pos.get('coin', '?')
+            # Check if this coin is watched (with or without xyz: prefix)
+            is_watched = (
+                coin in watched
+                or f"xyz:{coin}" in watched
+                or coin.lower() in aliases
+            )
+            if not is_watched:
+                lines.append(f"⚠️ `{coin}` not in watchlist — run `/addmarket {coin.lower()}` for full monitoring")
+                lines.append("")
     else:
         lines.append("No open positions\n")
 
@@ -456,15 +542,62 @@ def cmd_price(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+def _format_order_line(o: dict) -> str:
+    """Format a single order into a readable line with type label."""
+    coin = o.get("coin", "?")
+    side = "BUY" if o.get("side") == "B" else "SELL"
+    sz = o.get("sz", "0")
+    order_type = o.get("orderType", "Limit")
+    trigger_px = o.get("triggerPx")
+    limit_px = o.get("limitPx", "?")
+    tpsl = o.get("tpsl", "")
+
+    # Determine type label and icon
+    if tpsl == "sl" or order_type in ("Stop Market", "Stop Limit"):
+        icon = "🛡"
+        label = "SL"
+        px = trigger_px or limit_px
+    elif tpsl == "tp" or order_type in ("Take Profit Market", "Take Profit Limit"):
+        icon = "🎯"
+        label = "TP"
+        px = trigger_px or limit_px
+    elif o.get("isTrigger"):
+        icon = "⏳"
+        label = "Trigger"
+        px = trigger_px or limit_px
+    else:
+        icon = "🟢" if side == "BUY" else "🔴"
+        label = side
+        px = limit_px
+
+    # Size display: 0 means whole position
+    if float(sz) == 0:
+        sz_str = "whole position"
+    else:
+        sz_str = f"{float(sz):.1f}"
+
+    return f"{icon} *{label}* {coin} — {sz_str} @ `${px}`"
+
+
 def cmd_orders(token: str, chat_id: str, _args: str) -> None:
     orders = _get_all_orders(MAIN_ADDR)
     if not orders:
         tg_send(token, chat_id, "📋 No open orders")
         return
-    lines = [f"📋 *Open Orders* ({len(orders)})", ""]
+
+    # Group by coin
+    by_coin: dict = {}
     for o in orders:
-        side = "🟢 BUY" if o.get("side") == "B" else "🔴 SELL"
-        lines.append(f"{side} `{o.get('sz')}` {o.get('coin')} @ `${o.get('limitPx')}`")
+        coin = o.get("coin", "?")
+        by_coin.setdefault(coin, []).append(o)
+
+    lines = [f"📋 *Open Orders* ({len(orders)})", ""]
+    for coin, coin_orders in by_coin.items():
+        lines.append(f"*{coin}*")
+        for o in coin_orders:
+            lines.append(f"  {_format_order_line(o)}")
+        lines.append("")
+
     tg_send(token, chat_id, "\n".join(lines))
 
 
@@ -950,26 +1083,16 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
     else:
         lines.append("  Price: unavailable")
 
-    # Technicals — formatted for Telegram
+    # Technicals — full signal engine
     try:
-        from common.market_snapshot import build_snapshot
+        from common.market_snapshot import build_snapshot, render_signal_summary
         from modules.candle_cache import CandleCache
         cache = CandleCache()
-        snap = build_snapshot(coin, cache, price or 0)
 
-        # Flags as readable labels
-        if snap.flags:
-            flag_labels = {
-                "bb_squeeze_4h": "BB squeeze (4h)", "bb_squeeze_1h": "BB squeeze (1h)",
-                "rsi_oversold_1h": "RSI oversold (1h)", "rsi_overbought_1h": "RSI overbought (1h)",
-                "rsi_oversold_4h": "RSI oversold (4h)", "rsi_overbought_4h": "RSI overbought (4h)",
-                "bullish_div_4h": "Bullish div (4h)", "bearish_div_4h": "Bearish div (4h)",
-                "above_vwap": "Above VWAP", "below_vwap": "Below VWAP",
-                "volume_surge": "Volume surge", "near_support": "Near support",
-                "near_resistance": "Near resistance",
-            }
-            readable = [flag_labels.get(f, f) for f in snap.flags]
-            lines.append(f"  Signals: {', '.join(readable)}")
+        # Refresh candles for all timeframes BEFORE building snapshot
+        _refresh_candle_cache_for_market(cache, coin)
+
+        snap = build_snapshot(coin, cache, price or 0)
 
         # Key levels
         if snap.key_levels:
@@ -982,7 +1105,8 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
                 r_prices = ", ".join(f"`${kl.price:,.2f}` ({kl.distance_pct:+.1f}%)" for kl in resists[:3])
                 lines.append(f"  Resist: {r_prices}")
 
-        # Timeframe trends
+        # Timeframe trends (compact)
+        lines.append("")
         for interval in ["1d", "4h", "1h"]:
             tf = snap.timeframes.get(interval)
             if not tf:
@@ -1000,6 +1124,44 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
                 f"RSI `{t.rsi:.0f}` | ATR `{tf.atr_pct:.1f}%`{bb_note} | "
                 f"`{tf.price_change_pct:+.1f}%`"
             )
+
+        # Full signal summary — exhaustion, divergence, multi-TF, volume, position guidance
+        # Get position data for position-specific signals
+        pos_data = None
+        for p in _get_all_positions(MAIN_ADDR):
+            if _coin_matches(p.get("coin", ""), coin):
+                sz = float(p.get("szi", 0))
+                if sz != 0:
+                    pos_data = {"direction": "long" if sz > 0 else "short", "size": abs(sz)}
+                break
+
+        signal_text = render_signal_summary(snap, position=pos_data)
+        if signal_text:
+            lines.append("")
+            lines.append("---")
+            # Reformat signal for Telegram readability
+            for sig_line in signal_text.strip().split("\n"):
+                sig_line = sig_line.strip()
+                if not sig_line:
+                    continue
+                # Header line: "SIGNAL: 🟢 BULLISH (score: +1)" → bold header
+                if sig_line.startswith("SIGNAL:"):
+                    lines.append(f"*{sig_line}*")
+                # Outlook line: "→ PRICE OUTLOOK:" → bold, standalone
+                elif sig_line.startswith("→ PRICE OUTLOOK:"):
+                    outlook = sig_line.replace("→ PRICE OUTLOOK:", "").strip()
+                    lines.append(f"\n📍 *Outlook:* {outlook}")
+                # Position guidance: "→ SHORTS/LONGS" → actionable
+                elif sig_line.startswith("→ SHORTS") or sig_line.startswith("→ LONGS"):
+                    lines.append(f"  {sig_line}")
+                # Position impact: "✅/⚠️/➡️ YOUR LONG/SHORT" → bold
+                elif "YOUR LONG" in sig_line or "YOUR SHORT" in sig_line:
+                    lines.append(f"\n{sig_line}")
+                # Bullet points
+                elif sig_line.startswith("•"):
+                    lines.append(f"  {sig_line}")
+                else:
+                    lines.append(f"  {sig_line}")
     except Exception as e:
         log.debug("Snapshot unavailable for %s: %s", coin, e)
 
@@ -1633,6 +1795,567 @@ def cmd_diag(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Interactive Menu System
+# ═══════════════════════════════════════════════════════════════════════
+
+# Position cache (5s TTL) — rapid menu tapping shouldn't hammer HL API
+_pos_cache: dict = {"ts": 0, "data": []}
+_pending_inputs: dict = {}  # chat_id -> {type, coin, size, side, entry, current, ts}
+
+
+def _cached_positions() -> list:
+    """Get positions with 5-second cache."""
+    now = time.time()
+    if now - _pos_cache["ts"] < 5:
+        return _pos_cache["data"]
+    positions = _get_all_positions(MAIN_ADDR)
+    # Filter to non-zero size
+    result = [p for p in positions if float(p.get("szi", 0)) != 0]
+    _pos_cache["ts"] = now
+    _pos_cache["data"] = result
+    return result
+
+
+def _btn(text: str, data: str) -> dict:
+    """Shorthand for inline keyboard button."""
+    return {"text": text, "callback_data": data}
+
+
+def _build_main_menu() -> tuple:
+    """Build main menu text + button grid. Returns (text, rows)."""
+    ts = datetime.now(timezone.utc).strftime('%H:%M UTC')
+    positions = _cached_positions()
+    orders = _get_all_orders(MAIN_ADDR)
+    values = _get_account_values(MAIN_ADDR)
+    total = values['native'] + values['xyz']
+
+    lines = [f"📊 *Trading Terminal* — {ts}", f"Equity: `${total:,.2f}`", ""]
+
+    rows = []
+
+    if positions:
+        lines.append(f"*Positions* ({len(positions)})")
+        # Position buttons: 2 per row
+        pos_btns = []
+        for pos in positions[:6]:
+            coin = pos.get("coin", "?")
+            size = float(pos.get("szi", 0))
+            upnl = float(pos.get("unrealizedPnl", 0))
+            direction = "L" if size > 0 else "S"
+            pnl_icon = "🟢" if upnl >= 0 else "🔴"
+            label = f"{pnl_icon} {coin} {direction} {upnl:+.0f}"
+            pos_btns.append(_btn(label, f"mn:p:{coin}"))
+        # Lay out 2 per row
+        for i in range(0, len(pos_btns), 2):
+            rows.append(pos_btns[i:i+2])
+        if len(positions) > 6:
+            lines.append(f"  _...and {len(positions) - 6} more_")
+        lines.append("")
+    else:
+        lines.append("_No open positions_\n")
+
+    # Utility row
+    order_count = len(orders)
+    rows.append([
+        _btn(f"📋 Orders ({order_count})", "mn:ord"),
+        _btn("💰 PnL", "mn:pnl"),
+    ])
+    rows.append([
+        _btn("📊 Watchlist", "mn:watch"),
+        _btn("⚙️ Tools", "mn:tools"),
+    ])
+
+    return "\n".join(lines), rows
+
+
+def _build_position_detail(coin: str) -> tuple:
+    """Build position detail view. Returns (text, rows)."""
+    positions = _cached_positions()
+    pos = None
+    for p in positions:
+        if _coin_matches(p.get("coin", ""), coin):
+            pos = p
+            break
+
+    if not pos:
+        return f"No open position for `{coin}`", [[_btn("« Back", "mn:main")]]
+
+    size = float(pos.get("szi", 0))
+    entry = float(pos.get("entryPx", 0))
+    upnl = float(pos.get("unrealizedPnl", 0))
+    lev = pos.get("leverage", {})
+    lev_val = lev.get("value", "?") if isinstance(lev, dict) else lev
+    liq = pos.get("liquidationPx")
+    coin_name = pos.get("coin", coin)
+
+    direction = "LONG" if size > 0 else "SHORT"
+    dir_icon = "🟢" if size > 0 else "🔴"
+    pnl_sign = "+" if upnl >= 0 else ""
+    current = _get_current_price(coin_name)
+    px_str = f"${current:,.2f}" if current else "—"
+    notional = abs(size * entry)
+
+    lines = [
+        f"{dir_icon} *{coin_name}* — {direction}",
+        f"Entry `${entry:,.2f}` → Now `{px_str}`",
+        f"Size `{abs(size):.1f}` | `{lev_val}x` | Notional `${notional:,.0f}`",
+        f"uPnL `{pnl_sign}${upnl:,.2f}`",
+    ]
+
+    if liq and liq != "N/A":
+        liq_f = float(liq)
+        if current and current > 0:
+            dist = abs(current - liq_f) / current * 100
+            lines.append(f"Liq `${liq_f:,.2f}` ({dist:.1f}% away)")
+
+    # Check SL/TP from orders — smart grouping
+    orders = _get_all_orders(MAIN_ADDR)
+    sl_orders = []
+    tp_orders = []
+    pos_size = abs(size)
+
+    for o in orders:
+        if not _coin_matches(o.get("coin", ""), coin_name):
+            continue
+        tpsl = o.get("tpsl", "")
+        order_type = o.get("orderType", "")
+
+        is_sl = tpsl == "sl" or order_type in ("Stop Market", "Stop Limit")
+        is_tp = tpsl == "tp" or order_type in ("Take Profit Market", "Take Profit Limit")
+        if not is_tp and o.get("reduceOnly") and not is_sl:
+            is_tp = True  # reduceOnly non-SL = TP
+
+        o_sz = float(o.get("sz", 0))
+        o_px = o.get("triggerPx") or o.get("limitPx", "?")
+
+        if is_sl:
+            sl_orders.append({"px": o_px, "sz": o_sz, "type": order_type})
+        elif is_tp:
+            tp_orders.append({"px": o_px, "sz": o_sz, "type": order_type})
+
+    # Display SL orders
+    lines.append("")
+    if sl_orders:
+        for sl in sl_orders:
+            if sl["sz"] == 0:
+                lines.append(f"🛡 SL: `${sl['px']}` (whole position)")
+            else:
+                lines.append(f"🛡 SL: `${sl['px']}` ({sl['sz']:.1f} units)")
+    else:
+        lines.append("🛡 SL: ⚠️ *MISSING*")
+
+    # Display TP orders — smart: check coverage
+    if tp_orders:
+        # Sort by price (ascending for longs, descending for shorts)
+        tp_orders.sort(key=lambda x: float(x["px"]) if x["px"] != "?" else 0,
+                       reverse=(size < 0))  # shorts want descending
+        covered = 0.0
+        for tp in tp_orders:
+            if tp["sz"] == 0:
+                lines.append(f"🎯 TP: `${tp['px']}` (whole position)")
+                covered = pos_size  # whole position covers everything
+            else:
+                if covered >= pos_size:
+                    lines.append(f"🎯 TP: `${tp['px']}` ({tp['sz']:.1f} — _covered by earlier TP_)")
+                else:
+                    lines.append(f"🎯 TP: `${tp['px']}` ({tp['sz']:.1f} units)")
+                    covered += tp["sz"]
+        if covered < pos_size and not any(t["sz"] == 0 for t in tp_orders):
+            uncovered = pos_size - covered
+            lines.append(f"  ⚠️ `{uncovered:.1f}` units have no TP")
+    else:
+        lines.append("🎯 TP: ⚠️ *MISSING*")
+
+    rows = [
+        [_btn("🔴 Close Position", f"mn:cl:{coin_name}")],
+        [_btn("🛡 Set SL", f"mn:sl:{coin_name}"), _btn("🎯 Set TP", f"mn:tp:{coin_name}")],
+        [_btn("📉 4h", f"mn:ch:{coin_name}:4"), _btn("📊 24h", f"mn:ch:{coin_name}:24"), _btn("📈 7d", f"mn:ch:{coin_name}:168")],
+        [_btn("🔍 Technicals", f"mn:mk:{coin_name}")],
+        [_btn("« Back", "mn:main")],
+    ]
+
+    return "\n".join(lines), rows
+
+
+def _build_watchlist_menu() -> tuple:
+    """Build watchlist coin grid. Returns (text, rows)."""
+    from common.watchlist import load_watchlist
+    wl = load_watchlist()
+
+    lines = ["📊 *Watchlist*", ""]
+    rows = []
+    btns = []
+    for m in wl:
+        coin = m["coin"]
+        price = _get_current_price(coin)
+        if price:
+            label = f"{m['display']} ${price:,.2f}"
+        else:
+            label = m["display"]
+        btns.append(_btn(label, f"mn:mk:{coin}"))
+
+    # 2 per row
+    for i in range(0, len(btns), 2):
+        rows.append(btns[i:i+2])
+
+    rows.append([_btn("« Back", "mn:main")])
+    return "\n".join(lines), rows
+
+
+def _build_tools_menu() -> tuple:
+    """Build tools sub-menu. Returns (text, rows)."""
+    text = "⚙️ *Tools*"
+    rows = [
+        [_btn("📊 Status", "mn:run:status"), _btn("🏥 Health", "mn:run:health")],
+        [_btn("🔧 Diag", "mn:run:diag"), _btn("🤖 Models", "mn:run:models")],
+        [_btn("🔑 Authority", "mn:run:authority"), _btn("🧠 Memory", "mn:run:memory")],
+        [_btn("« Back", "mn:main")],
+    ]
+    return text, rows
+
+
+def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, message_id: int) -> None:
+    """Central router for all mn: prefixed callbacks."""
+    # Answer callback immediately to avoid Telegram timeout
+    tg_answer_callback(token, cb_id)
+
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "main":
+        text, rows = _build_main_menu()
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "p" and len(parts) >= 3:
+        coin = ":".join(parts[2:])  # handle xyz:BRENTOIL
+        text, rows = _build_position_detail(coin)
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "cl" and len(parts) >= 3:
+        coin = ":".join(parts[2:])
+        _handle_close_position(token, chat_id, coin)
+
+    elif action == "sl" and len(parts) >= 3:
+        coin = ":".join(parts[2:])
+        _handle_sl_prompt(token, chat_id, coin)
+
+    elif action == "tp" and len(parts) >= 3:
+        coin = ":".join(parts[2:])
+        _handle_tp_prompt(token, chat_id, coin)
+
+    elif action == "ch" and len(parts) >= 4:
+        coin = parts[2]
+        hours = parts[3]
+        # Handle xyz coins
+        if len(parts) >= 5 and parts[2] == "xyz":
+            coin = f"xyz:{parts[3]}"
+            hours = parts[4]
+        cmd_chart(token, chat_id, f"{coin} {hours}")
+
+    elif action == "mk" and len(parts) >= 3:
+        coin = ":".join(parts[2:])
+        cmd_market(token, chat_id, coin)
+
+    elif action == "watch":
+        text, rows = _build_watchlist_menu()
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "tools":
+        text, rows = _build_tools_menu()
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "ord":
+        cmd_orders(token, chat_id, "")
+
+    elif action == "pnl":
+        cmd_pnl(token, chat_id, "")
+
+    elif action == "run" and len(parts) >= 3:
+        cmd_name = parts[2]
+        run_map = {
+            "status": cmd_status, "health": cmd_health, "diag": cmd_diag,
+            "models": cmd_models, "authority": cmd_authority, "memory": cmd_memory,
+        }
+        handler = run_map.get(cmd_name)
+        if handler:
+            handler(token, chat_id, "")
+
+
+# ── Write action handlers ────────────────────────────────────
+
+def _find_position(coin: str) -> dict | None:
+    """Find a position by coin name (handles xyz: prefix matching)."""
+    for p in _cached_positions():
+        if _coin_matches(p.get("coin", ""), coin):
+            return p
+    return None
+
+
+def _handle_close_position(token: str, chat_id: str, coin: str) -> None:
+    """Build close-position confirmation with approval buttons."""
+    from cli.agent_tools import store_pending, format_confirmation
+
+    pos = _find_position(coin)
+    if not pos:
+        tg_send(token, chat_id, f"No open position for `{coin}`")
+        return
+
+    size = float(pos.get("szi", 0))
+    coin_name = pos.get("coin", coin)
+    close_side = "sell" if size > 0 else "buy"
+    current = _get_current_price(coin_name)
+
+    args = {"coin": coin_name, "side": close_side, "size": abs(size), "dex": pos.get("_dex", "")}
+    action_id = store_pending("close_position", args, chat_id)
+
+    direction = "LONG" if size > 0 else "SHORT"
+    px_str = f" @ ~`${current:,.2f}`" if current else ""
+    text = f"⚠️ *Close Position*\n\n{direction} `{abs(size):.1f}` {coin_name}{px_str}\n\nApprove or reject:"
+    buttons = [
+        {"text": "✅ Approve", "callback_data": f"approve:{action_id}"},
+        {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
+    ]
+    tg_send_buttons(token, chat_id, text, buttons)
+
+
+def _handle_sl_prompt(token: str, chat_id: str, coin: str) -> None:
+    """Prompt user for SL price, store pending input state."""
+    pos = _find_position(coin)
+    if not pos:
+        tg_send(token, chat_id, f"No open position for `{coin}`")
+        return
+
+    size = float(pos.get("szi", 0))
+    entry = float(pos.get("entryPx", 0))
+    coin_name = pos.get("coin", coin)
+    current = _get_current_price(coin_name)
+    px_str = f"${current:,.2f}" if current else "—"
+
+    _pending_inputs[chat_id] = {
+        "type": "sl",
+        "coin": coin_name,
+        "size": abs(size),
+        "side": "sell" if size > 0 else "buy",
+        "entry": entry,
+        "current": current,
+        "dex": pos.get("_dex", ""),
+        "ts": time.time(),
+    }
+
+    direction = "LONG" if size > 0 else "SHORT"
+    close_side = "SELL" if size > 0 else "BUY"
+    # SL should be BELOW entry for longs, ABOVE for shorts
+    sl_hint = "below" if size > 0 else "above"
+
+    tg_send(token, chat_id,
+        f"🛡 *Set Stop-Loss for {coin_name}*\n\n"
+        f"Position: {direction} `{abs(size):.1f}` @ `${entry:,.2f}`\n"
+        f"Now: `{px_str}`\n\n"
+        f"Order type: *Stop Market* (reduce-only)\n"
+        f"Side: {close_side} | Size: whole position\n"
+        f"Trigger should be _{sl_hint}_ current price\n\n"
+        f"Reply with trigger price:")
+
+
+def _handle_tp_prompt(token: str, chat_id: str, coin: str) -> None:
+    """Prompt user for TP price, store pending input state."""
+    pos = _find_position(coin)
+    if not pos:
+        tg_send(token, chat_id, f"No open position for `{coin}`")
+        return
+
+    size = float(pos.get("szi", 0))
+    entry = float(pos.get("entryPx", 0))
+    coin_name = pos.get("coin", coin)
+    current = _get_current_price(coin_name)
+    px_str = f"${current:,.2f}" if current else "—"
+
+    _pending_inputs[chat_id] = {
+        "type": "tp",
+        "coin": coin_name,
+        "size": abs(size),
+        "side": "sell" if size > 0 else "buy",
+        "entry": entry,
+        "current": current,
+        "dex": pos.get("_dex", ""),
+        "ts": time.time(),
+    }
+
+    direction = "LONG" if size > 0 else "SHORT"
+    close_side = "SELL" if size > 0 else "BUY"
+    # TP should be ABOVE entry for longs, BELOW for shorts
+    tp_hint = "above" if size > 0 else "below"
+
+    tg_send(token, chat_id,
+        f"🎯 *Set Take-Profit for {coin_name}*\n\n"
+        f"Position: {direction} `{abs(size):.1f}` @ `${entry:,.2f}`\n"
+        f"Now: `{px_str}`\n\n"
+        f"Order type: *Take Profit Market* (reduce-only)\n"
+        f"Side: {close_side} | Size: whole position\n"
+        f"Trigger should be _{tp_hint}_ current price\n\n"
+        f"Reply with trigger price:")
+
+
+def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
+    """Check if text is a pending SL/TP price reply. Returns True if handled."""
+    pending = _pending_inputs.get(chat_id)
+    if not pending:
+        return False
+
+    # 60-second TTL
+    if time.time() - pending["ts"] > 60:
+        del _pending_inputs[chat_id]
+        return False
+
+    # Try to parse as a number
+    try:
+        price = float(text.strip().replace("$", "").replace(",", ""))
+    except ValueError:
+        return False  # Not a number — let it fall through to normal routing
+
+    # Clear pending state
+    del _pending_inputs[chat_id]
+
+    from cli.agent_tools import store_pending
+
+    tool_name = "set_sl" if pending["type"] == "sl" else "set_tp"
+    args = {
+        "coin": pending["coin"],
+        "trigger_price": price,
+        "side": pending["side"],
+        "size": pending["size"],
+        "dex": pending.get("dex", ""),
+    }
+    action_id = store_pending(tool_name, args, chat_id)
+
+    label = "Stop-Loss" if pending["type"] == "sl" else "Take-Profit"
+    icon = "🛡" if pending["type"] == "sl" else "🎯"
+    order_type = "Stop Market" if pending["type"] == "sl" else "Take Profit Market"
+    text_msg = (
+        f"{icon} *Confirm {label}*\n\n"
+        f"*{pending['coin']}*\n"
+        f"Type: `{order_type}` (reduce-only)\n"
+        f"Trigger: `${price:,.2f}`\n"
+        f"Side: `{pending['side'].upper()}` | Size: whole position\n\n"
+        f"Approve or reject:"
+    )
+    buttons = [
+        {"text": "✅ Approve", "callback_data": f"approve:{action_id}"},
+        {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
+    ]
+    tg_send_buttons(token, chat_id, text_msg, buttons)
+    return True
+
+
+# ── New command handlers ──────────────────────────────────────
+
+def cmd_menu(token: str, chat_id: str, args: str) -> None:
+    """Interactive trading terminal with button navigation."""
+    if args.strip():
+        # Jump to position detail if a coin is given
+        coin = args.strip()
+        resolved = resolve_coin(coin) if 'resolve_coin' in dir() else coin
+        if resolved:
+            text, rows = _build_position_detail(resolved)
+        else:
+            text, rows = _build_position_detail(coin)
+        tg_send_grid(token, chat_id, text, rows)
+    else:
+        text, rows = _build_main_menu()
+        tg_send_grid(token, chat_id, text, rows)
+
+
+def cmd_close(token: str, chat_id: str, args: str) -> None:
+    """Close a position with approval. Usage: /close BTC"""
+    coin = args.strip()
+    if not coin:
+        tg_send(token, chat_id, "Usage: `/close <coin>`\nExample: `/close BTC`")
+        return
+    resolved = resolve_coin(coin)
+    _handle_close_position(token, chat_id, resolved or coin)
+
+
+def cmd_sl(token: str, chat_id: str, args: str) -> None:
+    """Set stop-loss. Usage: /sl BTC 65500 or /sl BTC (prompts for price)"""
+    parts = args.strip().split()
+    if not parts:
+        tg_send(token, chat_id, "Usage: `/sl <coin> [price]`\nExample: `/sl BTC 65500`")
+        return
+    coin = parts[0]
+    resolved = resolve_coin(coin) or coin
+
+    if len(parts) >= 2:
+        # Price given directly — skip prompt, go to approval
+        try:
+            price = float(parts[1].replace("$", "").replace(",", ""))
+        except ValueError:
+            tg_send(token, chat_id, f"Invalid price: `{parts[1]}`")
+            return
+        pos = _find_position(resolved)
+        if not pos:
+            tg_send(token, chat_id, f"No open position for `{resolved}`")
+            return
+        size = float(pos.get("szi", 0))
+        from cli.agent_tools import store_pending
+        args_dict = {
+            "coin": pos.get("coin", resolved),
+            "trigger_price": price,
+            "side": "sell" if size > 0 else "buy",
+            "size": abs(size),
+            "dex": pos.get("_dex", ""),
+        }
+        action_id = store_pending("set_sl", args_dict, chat_id)
+        text = f"🛡 *Confirm Stop-Loss*\n\n{pos.get('coin', resolved)} @ `${price:,.2f}`\nSize: `{abs(size):.1f}`\n\nApprove or reject:"
+        buttons = [
+            {"text": "✅ Approve", "callback_data": f"approve:{action_id}"},
+            {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
+        ]
+        tg_send_buttons(token, chat_id, text, buttons)
+    else:
+        # No price — prompt for it
+        _handle_sl_prompt(token, chat_id, resolved)
+
+
+def cmd_tp(token: str, chat_id: str, args: str) -> None:
+    """Set take-profit. Usage: /tp BTC 72000 or /tp BTC (prompts for price)"""
+    parts = args.strip().split()
+    if not parts:
+        tg_send(token, chat_id, "Usage: `/tp <coin> [price]`\nExample: `/tp BTC 72000`")
+        return
+    coin = parts[0]
+    resolved = resolve_coin(coin) or coin
+
+    if len(parts) >= 2:
+        try:
+            price = float(parts[1].replace("$", "").replace(",", ""))
+        except ValueError:
+            tg_send(token, chat_id, f"Invalid price: `{parts[1]}`")
+            return
+        pos = _find_position(resolved)
+        if not pos:
+            tg_send(token, chat_id, f"No open position for `{resolved}`")
+            return
+        size = float(pos.get("szi", 0))
+        from cli.agent_tools import store_pending
+        args_dict = {
+            "coin": pos.get("coin", resolved),
+            "trigger_price": price,
+            "side": "sell" if size > 0 else "buy",
+            "size": abs(size),
+            "dex": pos.get("_dex", ""),
+        }
+        action_id = store_pending("set_tp", args_dict, chat_id)
+        text = f"🎯 *Confirm Take-Profit*\n\n{pos.get('coin', resolved)} @ `${price:,.2f}`\nSize: `{abs(size):.1f}`\n\nApprove or reject:"
+        buttons = [
+            {"text": "✅ Approve", "callback_data": f"approve:{action_id}"},
+            {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
+        ]
+        tg_send_buttons(token, chat_id, text, buttons)
+    else:
+        _handle_tp_prompt(token, chat_id, resolved)
+
+
 HANDLERS = {
     "/status": cmd_status,
     "/price": cmd_price,
@@ -1703,6 +2426,14 @@ HANDLERS = {
     "model": cmd_models,
     "health": cmd_health,
     "h": cmd_health,
+    "/menu": cmd_menu,
+    "menu": cmd_menu,
+    "/close": cmd_close,
+    "close": cmd_close,
+    "/sl": cmd_sl,
+    "sl": cmd_sl,
+    "/tp": cmd_tp,
+    "tp": cmd_tp,
 }
 
 
@@ -1725,6 +2456,8 @@ def _set_last_update_id(uid: int) -> None:
 def _set_telegram_commands(token: str) -> None:
     """Set the Telegram bot command menu via setMyCommands API."""
     commands = [
+        # Interactive Menu
+        {"command": "menu", "description": "Trading terminal with buttons"},
         # Trading
         {"command": "status", "description": "Portfolio overview"},
         {"command": "position", "description": "Positions + risk + authority"},
@@ -1732,6 +2465,10 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "pnl", "description": "Profit & loss breakdown"},
         {"command": "price", "description": "Quick prices + 24h change"},
         {"command": "orders", "description": "Open orders"},
+        # Position Management
+        {"command": "close", "description": "Close a position"},
+        {"command": "sl", "description": "Set stop-loss"},
+        {"command": "tp", "description": "Set take-profit"},
         # Charts
         {"command": "chartoil", "description": "Oil price chart (add hours)"},
         {"command": "chartbtc", "description": "BTC price chart"},
@@ -1862,6 +2599,9 @@ def run() -> None:
                     action_id = cb_data[7:]
                     msg_id = cb.get("message", {}).get("message_id")
                     _handle_tool_approval(token, cb_chat, cb_id, action_id, approved=False, message_id=msg_id)
+                elif cb_sender == chat_id and cb_data.startswith("mn:"):
+                    msg_id = cb.get("message", {}).get("message_id")
+                    _handle_menu_callback(token, cb_chat, cb_id, cb_data, msg_id)
                 else:
                     tg_answer_callback(token, cb_id)
                 continue
@@ -1873,6 +2613,10 @@ def run() -> None:
 
             # Authorize by SENDER, not chat — works in both DMs and groups
             if sender_id != chat_id or not text:
+                continue
+
+            # Check for pending SL/TP price input (catches bare numbers)
+            if _handle_pending_input(token, reply_chat_id, text):
                 continue
 
             cmd = text.split()[0].lower().lstrip("/")

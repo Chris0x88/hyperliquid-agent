@@ -93,7 +93,33 @@ class AccountCollectorIterator:
 
         # Update context
         equity = float(snapshot.get("account_value", 0))
-        if equity > self._high_water_mark:
+
+        # Auto-reset HWM when flat (no open positions).
+        # Drawdown only matters while in a trade — if you closed everything,
+        # withdrew funds, or took profits off-exchange, the new equity IS your baseline.
+        has_positions = bool(
+            snapshot.get("positions_native")
+            or snapshot.get("positions_xyz")
+        )
+        # Filter to non-zero positions (HL returns closed positions with szi=0)
+        if has_positions:
+            all_pos = list(snapshot.get("positions_native", []))
+            all_pos.extend(
+                p.get("position", p) if isinstance(p, dict) and "position" in p else p
+                for p in snapshot.get("positions_xyz", [])
+            )
+            has_positions = any(
+                float(p.get("szi", 0)) != 0 for p in all_pos if isinstance(p, dict)
+            )
+
+        if not has_positions and equity > 0:
+            # Flat — reset HWM to current equity
+            if abs(self._high_water_mark - equity) > 0.01:
+                log.info("Flat (no positions) — resetting HWM from $%.2f to $%.2f",
+                         self._high_water_mark, equity)
+                self._high_water_mark = equity
+                self._save_hwm()
+        elif equity > self._high_water_mark:
             self._high_water_mark = equity
             self._save_hwm()
 
@@ -105,19 +131,19 @@ class AccountCollectorIterator:
         ctx.high_water_mark = self._high_water_mark
         ctx.account_drawdown_pct = drawdown_pct
 
-        # Alert on significant drawdowns
-        if drawdown_pct >= 25.0:
+        # Alert on significant drawdowns (only when in a position)
+        if has_positions and drawdown_pct >= 25.0:
             ctx.alerts.append(Alert(
                 severity="critical",
                 source=self.name,
-                message=f"DRAWDOWN ALERT: {drawdown_pct:.1f}% from HWM ${self._high_water_mark:.2f} — halting new entries",
+                message=f"DRAWDOWN: `${equity:,.0f}` is {drawdown_pct:.0f}% below peak `${self._high_water_mark:,.0f}` — halting new entries",
                 data={"drawdown_pct": drawdown_pct, "hwm": self._high_water_mark, "equity": equity},
             ))
-        elif drawdown_pct >= 15.0:
+        elif has_positions and drawdown_pct >= 15.0:
             ctx.alerts.append(Alert(
                 severity="warning",
                 source=self.name,
-                message=f"Drawdown {drawdown_pct:.1f}% from HWM — reduce risk",
+                message=f"Drawdown: `${equity:,.0f}` is {drawdown_pct:.0f}% below peak — reduce risk",
                 data={"drawdown_pct": drawdown_pct, "equity": equity},
             ))
 
@@ -165,9 +191,18 @@ class AccountCollectorIterator:
         except Exception as e:
             log.warning("Failed to fetch xyz state: %s", e)
 
+        # Compute total equity: perps (native + xyz) + spot USDC
+        # account_value may only have perps — spot USDC sits separately
+        perp_equity = float(snapshot.get("account_value", 0))
+        spot_usdc = float(snapshot.get("spot_usdc", 0))
+        total_equity = perp_equity + spot_usdc
+        snapshot["total_equity"] = total_equity
+        # Use total_equity for HWM/drawdown (not just perps)
+        snapshot["account_value"] = total_equity
+
         # Add drawdown info
         hwm = self._high_water_mark
-        equity = float(snapshot.get("account_value", 0))
+        equity = total_equity
         if equity > hwm:
             hwm = equity
         snapshot["high_water_mark"] = hwm

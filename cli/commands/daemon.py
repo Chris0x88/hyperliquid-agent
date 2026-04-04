@@ -92,10 +92,22 @@ def daemon_start(
 
     store = StateStore(data_dir)
 
-    # Check if already running
-    if store.is_running():
-        typer.echo(f"Daemon already running (PID {store.read_pid()}). Use 'hl daemon stop' first.", err=True)
-        raise typer.Exit(1)
+    # Single-instance enforcement (pacman pattern) — kill any existing daemon
+    old_pid = store.read_pid()
+    if old_pid and old_pid != os.getpid():
+        try:
+            os.kill(old_pid, 0)  # Check if alive
+            log.info("Killing previous daemon instance (PID %d)", old_pid)
+            os.kill(old_pid, signal.SIGTERM)
+            import time as _time
+            _time.sleep(1.0)
+            try:
+                os.kill(old_pid, signal.SIGKILL)  # Force if still alive
+            except OSError:
+                pass
+        except OSError:
+            pass  # Already dead
+        store.remove_pid()
 
     config = DaemonConfig(
         tier=tier,

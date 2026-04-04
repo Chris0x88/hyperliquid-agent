@@ -366,8 +366,8 @@ def _render_position_state(market: str, account_state: Dict) -> str:
     # Check for market-specific position data
     market_key = market.lower().replace(":", "_").replace("-", "_")
 
-    # Try brentoil-specific format
-    pos = account_state.get(market_key) or account_state.get("brentoil")
+    # Look up position data by market key (no hardcoded fallbacks)
+    pos = account_state.get(market_key)
     if pos and isinstance(pos, dict):
         lines.append(f"  Size: {pos.get('size', 0)} @ ${pos.get('entry', 0):.2f}")
         lines.append(f"  Current: ${pos.get('current_price', 0):.2f} | uPnL: ${pos.get('upnl', 0):.2f}")

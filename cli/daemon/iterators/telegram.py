@@ -37,6 +37,7 @@ class TelegramIterator:
         # Track state changes to avoid duplicate alerts
         self._last_gate: Optional[str] = None
         self._last_tier: Optional[str] = None
+        self._sent_alerts: dict = {}  # message_hash -> timestamp (dedup)
 
     def on_start(self, ctx: TickContext) -> None:
         self._bot_token = os.environ.get("HL_TELEGRAM_BOT_TOKEN")
@@ -74,11 +75,22 @@ class TelegramIterator:
         if not self._enabled:
             return
 
-        # Forward critical and warning alerts
+        # Forward critical and warning alerts (deduplicated — same message at most once per hour)
+        import hashlib
+        now = time.time()
         for alert in ctx.alerts:
             if alert.severity in ("critical", "warning"):
+                # Dedup key: source + first 60 chars of message (ignore changing numbers)
+                dedup_key = f"{alert.source}:{alert.message[:60]}"
+                msg_hash = hashlib.md5(dedup_key.encode()).hexdigest()[:8]
+                last_sent = self._sent_alerts.get(msg_hash, 0)
+                if now - last_sent < 3600:  # suppress repeats within 1 hour
+                    continue
+                self._sent_alerts[msg_hash] = now
                 icon = "\u26a0\ufe0f" if alert.severity == "warning" else "\u274c"
                 self._queue(f"{icon} {alert.source}: {alert.message}")
+        # Prune old dedup entries (keep last 24h)
+        self._sent_alerts = {k: v for k, v in self._sent_alerts.items() if now - v < 86400}
 
         # Notify on risk gate changes
         gate_val = ctx.risk_gate.value
@@ -99,21 +111,16 @@ class TelegramIterator:
                 f" [{intent.strategy_name}]"
             )
 
-        # P&L summary every 10 ticks
-        if ctx.tick_number > 0 and ctx.tick_number % 10 == 0:
+        # Periodic status every 30 ticks (less noisy)
+        if ctx.tick_number > 0 and ctx.tick_number % 30 == 0:
+            tier = "WATCH" if not ctx.active_strategies else "REBALANCE"
             equity = ctx.balances.get("USDC", ctx.balances.get("USD", 0))
             n_pos = len(ctx.positions)
             lines = [
-                f"\ud83d\udcca Tick #{ctx.tick_number} Summary",
+                f"Daemon alive — {tier} mode (read-only, no trades)",
                 f"Equity: ${float(equity):,.2f}" if equity else "Equity: --",
-                f"Positions: {n_pos}",
-                f"Gate: {gate_val}",
+                f"Tracking {n_pos} position{'s' if n_pos != 1 else ''}",
             ]
-            # Add position details
-            for pos in ctx.positions[:5]:
-                price = ctx.prices.get(pos.instrument, 0)
-                pnl = pos.total_pnl(price) if price else 0
-                lines.append(f"  {pos.instrument}: {float(pos.net_qty):+.4f} (PnL: ${float(pnl):+.2f})")
             self._queue("\n".join(lines))
 
         # Flush queue

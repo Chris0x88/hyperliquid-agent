@@ -26,7 +26,7 @@ _HL_API = "https://api.hyperliquid.xyz/info"
 _MAX_RESPONSE_CHARS = 3000
 
 # Write tools that require user approval before execution
-WRITE_TOOLS = {"place_trade", "update_thesis"}
+WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp"}
 
 # In-memory pending actions (action_id -> action dict). TTL 5 min.
 _pending_actions: Dict[str, dict] = {}
@@ -476,6 +476,55 @@ def _tool_update_thesis(args: dict) -> str:
         return f"Thesis update failed: {e}"
 
 
+def _tool_close_position(args: dict) -> str:
+    """Close a position via market order. Only called after user approval."""
+    coin = args.get("coin", "")
+    side = args.get("side", "")
+    size = args.get("size", 0)
+    try:
+        from cli.hl_adapter import DirectHLProxy
+        proxy = DirectHLProxy()
+        is_buy = side.lower() in ("buy", "long", "b")
+        result = proxy.market_order(coin=coin, is_buy=is_buy, sz=float(size))
+        return f"Position closed: {side.upper()} {size} {coin}\nResult: {result}"
+    except Exception as e:
+        return f"Close failed: {e}"
+
+
+def _tool_set_sl(args: dict) -> str:
+    """Set a stop-loss trigger order. Only called after user approval."""
+    coin = args.get("coin", "")
+    side = args.get("side", "")
+    size = args.get("size", 0)
+    trigger_price = args.get("trigger_price", 0)
+    try:
+        from cli.hl_adapter import DirectHLProxy
+        proxy = DirectHLProxy()
+        oid = proxy.place_trigger_order(coin, side, float(size), float(trigger_price))
+        if oid:
+            return f"SL set: {coin} @ ${trigger_price:,.2f} (oid={oid})"
+        return f"SL order placed but no OID returned for {coin} @ ${trigger_price:,.2f}"
+    except Exception as e:
+        return f"SL failed: {e}"
+
+
+def _tool_set_tp(args: dict) -> str:
+    """Set a take-profit trigger order. Only called after user approval."""
+    coin = args.get("coin", "")
+    side = args.get("side", "")
+    size = args.get("size", 0)
+    trigger_price = args.get("trigger_price", 0)
+    try:
+        from cli.hl_adapter import DirectHLProxy
+        proxy = DirectHLProxy()
+        oid = proxy.place_tp_trigger_order(coin, side, float(size), float(trigger_price))
+        if oid:
+            return f"TP set: {coin} @ ${trigger_price:,.2f} (oid={oid})"
+        return f"TP order placed but no OID returned for {coin} @ ${trigger_price:,.2f}"
+    except Exception as e:
+        return f"TP failed: {e}"
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -487,6 +536,9 @@ _TOOL_DISPATCH = {
     "check_funding": _tool_check_funding,
     "place_trade": _tool_place_trade,
     "update_thesis": _tool_update_thesis,
+    "close_position": _tool_close_position,
+    "set_sl": _tool_set_sl,
+    "set_tp": _tool_set_tp,
 }
 
 
@@ -563,6 +615,19 @@ def format_confirmation(tool: str, arguments: dict, action_id: str) -> Tuple[str
         direction = arguments.get("direction", "?")
         conv = arguments.get("conviction", "?")
         text = f"⚠️ *Confirm Thesis Update*\n\n{market} → {direction} conviction={conv}\n\nApprove or reject:"
+    elif tool == "close_position":
+        side = arguments.get("side", "?").upper()
+        size = arguments.get("size", "?")
+        coin = arguments.get("coin", "?")
+        text = f"⚠️ *Close Position*\n\n{side} {size} {coin}\n\nApprove or reject:"
+    elif tool == "set_sl":
+        coin = arguments.get("coin", "?")
+        price = arguments.get("trigger_price", "?")
+        text = f"🛡 *Set Stop-Loss*\n\n{coin} @ ${price}\n\nApprove or reject:"
+    elif tool == "set_tp":
+        coin = arguments.get("coin", "?")
+        price = arguments.get("trigger_price", "?")
+        text = f"🎯 *Set Take-Profit*\n\n{coin} @ ${price}\n\nApprove or reject:"
     else:
         text = f"⚠️ *Confirm Action*\n\n{tool}: {json.dumps(arguments)[:200]}\n\nApprove or reject:"
 

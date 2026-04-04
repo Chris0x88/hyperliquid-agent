@@ -10,6 +10,7 @@ TIER_ITERATORS = {
         "liquidity",
         "risk",
         "autoresearch",        # learning loop
+        "memory_consolidation", # compress old events hourly
         "journal",
         "telegram",
     ],
@@ -28,6 +29,7 @@ TIER_ITERATORS = {
         "funding_tracker",
         "catalyst_deleverage",
         "autoresearch",
+        "memory_consolidation",
         "journal",
         "telegram",
     ],
@@ -48,6 +50,7 @@ TIER_ITERATORS = {
         "funding_tracker",
         "catalyst_deleverage",
         "autoresearch",
+        "memory_consolidation",
         "journal",
         "telegram",
     ],

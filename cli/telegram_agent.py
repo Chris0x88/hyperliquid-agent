@@ -124,10 +124,13 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Call OpenRouter with tool definitions
         response = _call_openrouter(messages, tools=TOOL_DEFS)
 
-        # Tool-calling loop: handles both native function calling (paid models)
-        # and text-based tool parsing (free models)
+        # Tool-calling loop: handles three modes (tried in order):
+        # 1. Native function calling (paid models)
+        # 2. Text-based [TOOL: name {args}] (regex, free models)
+        # 3. Python code blocks (AST-parsed, free models)
         for _loop in range(_MAX_TOOL_LOOPS):
             tool_calls = response.get("tool_calls")
+            code_parsed = []  # Python code block results
 
             # If no native tool_calls, check for text-based tool invocations
             # Format: [TOOL: name {"arg": "val"}] anywhere in the content
@@ -139,48 +142,100 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     # Strip tool invocations from content for the final response
                     response["content"] = _strip_tool_calls(content)
 
+            # If still no tool calls, try Python code block parsing
             if not tool_calls:
+                content = response.get("content") or ""
+                from common.code_tool_parser import parse_tool_calls as parse_code_calls
+                from common.tools import TOOL_REGISTRY, WRITE_TOOLS as CORE_WRITE_TOOLS
+                code_parsed = parse_code_calls(content, TOOL_REGISTRY)
+                if code_parsed:
+                    log.info("Parsed %d tool calls from Python code blocks", len(code_parsed))
+
+            if not tool_calls and not code_parsed:
                 break
 
-            # Append assistant message (for native tool_calls, include them;
-            # for text-parsed, just include the cleaned content)
-            messages.append(response)
+            if code_parsed:
+                # Handle Python code block tool calls via the new system
+                from common.code_tool_parser import execute_parsed_calls, strip_code_blocks
+                from common.tool_renderers import render_for_ai
+                from common.tools import WRITE_TOOLS as CORE_WRITE_TOOLS
 
-            for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                raw_args = tc["function"]["arguments"]
-                fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-                call_id = tc.get("id", f"text_{_loop}_{fn_name}")
+                # Strip code blocks BEFORE appending to history (avoid mutation)
+                cleaned_content = strip_code_blocks(response.get("content") or "")
+                messages.append({"role": "assistant", "content": cleaned_content})
 
-                if is_write_tool(fn_name):
-                    # Store pending, send confirmation buttons
-                    action_id = store_pending(fn_name, fn_args, chat_id)
-                    conf_text, buttons = format_confirmation(fn_name, fn_args, action_id)
-                    from cli.telegram_bot import tg_send_buttons
-                    tg_send_buttons(token, chat_id, conf_text, buttons)
-                    messages.append({
-                        "role": "tool" if response.get("tool_calls") else "user",
-                        "tool_call_id": call_id,
-                        "content": "Action requires user approval. Confirmation sent to Telegram.",
-                    })
-                    log.info("Write tool %s pending approval: %s", fn_name, action_id)
-                else:
-                    # READ tool — execute immediately
-                    result = execute_tool(fn_name, fn_args)
-                    if response.get("tool_calls"):
-                        # Native tool calling — use proper tool message
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": call_id,
-                            "content": result,
-                        })
+                results = execute_parsed_calls(code_parsed, TOOL_REGISTRY, CORE_WRITE_TOOLS)
+
+                result_parts = []
+                for r in results:
+                    if r.error:
+                        result_parts.append(f"[{r.name}] ERROR: {r.error}")
+                    elif r.data.get("_pending"):
+                        # WRITE tool — go through approval flow
+                        fn_args = r.data.get("kwargs", {})
+                        # Also merge positional args
+                        import inspect
+                        fn = TOOL_REGISTRY.get(r.name)
+                        if fn and r.data.get("args"):
+                            sig = inspect.signature(fn)
+                            params = list(sig.parameters.keys())
+                            for i, val in enumerate(r.data["args"]):
+                                if i < len(params):
+                                    fn_args[params[i]] = val
+
+                        action_id = store_pending(r.name, fn_args, chat_id)
+                        conf_text, buttons = format_confirmation(r.name, fn_args, action_id)
+                        from cli.telegram_bot import tg_send_buttons
+                        tg_send_buttons(token, chat_id, conf_text, buttons)
+                        result_parts.append(f"[{r.name}] Action requires user approval. Confirmation sent.")
+                        log.info("Write tool %s pending approval: %s", r.name, action_id)
                     else:
-                        # Text-parsed — inject result as system message
+                        rendered = render_for_ai(r.name, r.data)
+                        result_parts.append(f"[{r.name}] {rendered}")
+                        log.info("Read tool %s executed via code parser", r.name)
+
+                messages.append({
+                    "role": "system",
+                    "content": "[Tool results]:\n" + "\n".join(result_parts) + "\n\nRespond to the user using this data. Do NOT call the tools again.",
+                })
+            else:
+                # Handle native/text-parsed tool calls (existing path)
+                messages.append(response)
+                for tc in tool_calls:
+                    fn_name = tc["function"]["name"]
+                    raw_args = tc["function"]["arguments"]
+                    fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    call_id = tc.get("id", f"text_{_loop}_{fn_name}")
+
+                    if is_write_tool(fn_name):
+                        # Store pending, send confirmation buttons
+                        action_id = store_pending(fn_name, fn_args, chat_id)
+                        conf_text, buttons = format_confirmation(fn_name, fn_args, action_id)
+                        from cli.telegram_bot import tg_send_buttons
+                        tg_send_buttons(token, chat_id, conf_text, buttons)
                         messages.append({
-                            "role": "user",
-                            "content": f"[Tool result for {fn_name}]:\n{result}\n\nNow respond to the user using this data. Do NOT call the tool again.",
+                            "role": "tool" if response.get("tool_calls") else "user",
+                            "tool_call_id": call_id,
+                            "content": "Action requires user approval. Confirmation sent to Telegram.",
                         })
-                    log.info("Read tool %s executed", fn_name)
+                        log.info("Write tool %s pending approval: %s", fn_name, action_id)
+                    else:
+                        # READ tool — execute immediately
+                        result = execute_tool(fn_name, fn_args)
+                        if response.get("tool_calls"):
+                            # Native tool calling — use proper tool message
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": call_id,
+                                "content": result,
+                            })
+                        else:
+                            # Text-parsed — inject result as system message
+                            messages.append({
+                                "role": "user",
+                                "content": f"[Tool result for {fn_name}]:\n{result}\n\nNow respond to the user using this data. Do NOT call the tool again.",
+                            })
+                        log.info("Read tool %s executed", fn_name)
 
             _tg_typing(token, chat_id)
             # Only pass tools param for native tool calling models
@@ -189,7 +244,10 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Extract final text response
         response_text = response.get("content") or ""
         # Clean any remaining tool call syntax from final response
-        response_text = _strip_tool_calls(response_text).strip()
+        response_text = _strip_tool_calls(response_text)
+        # Also strip Python code blocks that were tool calls
+        from common.code_tool_parser import strip_code_blocks
+        response_text = strip_code_blocks(response_text).strip()
         if not response_text:
             response_text = "Sorry, I couldn't get a response from the AI. Try again or use /status for live data."
 
@@ -243,9 +301,20 @@ def _build_live_context() -> str:
         # Build market snapshots with position-aware signals
         market_snapshots = _fetch_market_snapshots(positions=account_state.get("positions", []))
 
+        # Build market list: watchlist + any coins with open positions
+        # This ensures we ALWAYS show position data even for unwatched markets
+        markets = list(get_watchlist_coins())
+        for pos in account_state.get("positions", []):
+            coin = pos.get("coin", "")
+            # Normalize: position coins may lack xyz: prefix
+            if coin and coin not in markets:
+                # Try with xyz: prefix too
+                if f"xyz:{coin}" not in markets:
+                    markets.append(coin)
+
         # Assemble with token budget (3500 tokens for context + signal summaries)
         assembled = build_multi_market_context(
-            markets=get_watchlist_coins(),
+            markets=markets,
             account_state=account_state,
             market_snapshots=market_snapshots,
             token_budget=3500,
@@ -336,44 +405,43 @@ def _fetch_account_state_for_harness() -> dict:
     return result
 
 
-def _refresh_candle_cache(cache, coins: list, interval: str = "1h", lookback_hours: int = 72) -> None:
+def _refresh_candle_cache(cache, coins: list, intervals: list = None, lookback_hours: int = 168) -> None:
     """Fetch fresh candles from HL API and write to cache.
 
     Called before every prompt build so technicals are never stale.
+    Fetches 1h, 4h, 1d by default — all three needed for full signal engine.
     Only fetches from the last cached candle (or lookback_hours if empty).
     """
+    if intervals is None:
+        intervals = ["1h", "4h", "1d"]
+
     now_ms = int(time.time() * 1000)
 
     for coin in coins:
-        try:
-            # Check how fresh the cache is
-            date_range = cache.date_range(coin, interval)
-            if date_range and (now_ms - date_range[1]) < 3_600_000:
-                # Cache is less than 1 hour old, skip
-                continue
+        for interval in intervals:
+            try:
+                date_range = cache.date_range(coin, interval)
+                if date_range and (now_ms - date_range[1]) < 3_600_000:
+                    continue  # Fresh enough
 
-            # Fetch from last cached candle or lookback
-            if date_range:
-                start_ms = date_range[1]  # from last cached candle
-            else:
-                start_ms = now_ms - (lookback_hours * 3_600_000)
+                start_ms = date_range[1] if date_range else now_ms - (lookback_hours * 3_600_000)
 
-            payload = {
-                "type": "candleSnapshot",
-                "req": {"coin": coin, "interval": interval,
-                        "startTime": start_ms, "endTime": now_ms},
-            }
-            r = requests.post("https://api.hyperliquid.xyz/info",
-                              json=payload, timeout=10)
-            if r.status_code == 200:
-                candles = r.json()
-                if isinstance(candles, list) and candles:
-                    stored = cache.store_candles(coin, interval, candles)
-                    if stored:
-                        log.info("Refreshed %d %s candles for %s", stored, interval, coin)
-            time.sleep(0.15)  # rate limit between coins
-        except Exception as e:
-            log.debug("Candle refresh failed for %s: %s", coin, e)
+                payload = {
+                    "type": "candleSnapshot",
+                    "req": {"coin": coin, "interval": interval,
+                            "startTime": start_ms, "endTime": now_ms},
+                }
+                r = requests.post("https://api.hyperliquid.xyz/info",
+                                  json=payload, timeout=10)
+                if r.status_code == 200:
+                    candles = r.json()
+                    if isinstance(candles, list) and candles:
+                        stored = cache.store_candles(coin, interval, candles)
+                        if stored:
+                            log.info("Refreshed %d %s candles for %s", stored, interval, coin)
+                time.sleep(0.15)
+            except Exception as e:
+                log.debug("Candle refresh failed for %s %s: %s", coin, interval, e)
 
 
 def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
@@ -402,9 +470,16 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
 
         watchlist = {c: c for c in get_watchlist_coins()}
 
+        # Also include coins with open positions (even if not watchlisted)
+        for pos in (positions or []):
+            c = pos.get("coin", "")
+            if c and c not in watchlist:
+                if f"xyz:{c}" not in watchlist:
+                    watchlist[c] = c
+
         # ── FRESH CANDLE INJECTION ──
-        # Fetch fresh candles from HL API and write to cache BEFORE building snapshots
-        _refresh_candle_cache(cache, list(watchlist.values()), interval="1h")
+        # Fetch fresh candles (1h, 4h, 1d) from HL API BEFORE building snapshots
+        _refresh_candle_cache(cache, list(watchlist.values()))
 
         # Get current prices for snapshot building
         prices = {}

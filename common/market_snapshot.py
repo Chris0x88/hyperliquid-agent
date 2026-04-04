@@ -546,7 +546,7 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
         overall = "NEUTRAL"
         emoji = "⚪"
 
-    lines = [f"SIGNAL: {emoji} {overall} (score: {bias_score:+d})"]
+    lines = [f"SIGNAL: {emoji} {overall}"]
     for s in signals:
         lines.append(f"  • {s}")
 
@@ -574,9 +574,9 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
     if primary.vol_regime:
         vr = primary.vol_regime
         if vr.regime == "extreme":
-            lines.append(f"  • 🔥 EXTREME volatility ({vr.percentile:.0f}th percentile) — reduce size, widen stops")
+            lines.append(f"  • 🔥 EXTREME volatility — reduce size, widen stops")
         elif vr.regime == "low":
-            lines.append(f"  • 💤 LOW volatility ({vr.percentile:.0f}th percentile) — compression before breakout?")
+            lines.append(f"  • 💤 LOW volatility — compression, breakout setup")
 
     # Position guidance — explicit about WHAT HAPPENS TO PRICE
     # (models get confused about "exhaustion helps shorts" so spell it out)
@@ -616,12 +616,13 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
             else:
                 lines.append(f"  ➡️ YOUR {pos_dir.upper()}: Signal is neutral for your position")
 
-    # Volatility context
+    # Volatility context (only if not already covered by vol_regime above)
     vol_pct = primary.atr_pct
-    if vol_pct > 3:
-        lines.append(f"  ⚡ HIGH volatility (ATR {vol_pct:.1f}%) — size conservatively")
-    elif vol_pct < 0.5:
-        lines.append(f"  💤 LOW volatility (ATR {vol_pct:.1f}%) — breakout setup possible")
+    if not primary.vol_regime:
+        if vol_pct > 3:
+            lines.append(f"  ⚡ HIGH volatility (ATR {vol_pct:.1f}%) — size conservatively")
+        elif vol_pct < 0.5:
+            lines.append(f"  💤 LOW volatility (ATR {vol_pct:.1f}%) — breakout setup possible")
 
     return "\n".join(lines)
 

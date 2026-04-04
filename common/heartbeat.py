@@ -494,6 +494,12 @@ def fetch_with_retry(
     return None
 
 
+def _should_send_status(state: WorkingState, now_ms: int, interval_hours: float = 1) -> bool:
+    """Return True if enough time has passed since last status summary."""
+    last_ms = getattr(state, "last_status_summary_ms", 0)
+    return (now_ms - last_ms) >= interval_hours * 3600 * 1000
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 11. run_heartbeat (orchestrator — the ONLY function that does I/O)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -643,6 +649,7 @@ def run_heartbeat(
 
 
     # 3. For each position
+    from common.authority import get_authority, is_watched
     positions = account_state.get("positions", [])
     for pos in positions:
         coin = pos.get("coin", "?")
@@ -656,7 +663,15 @@ def run_heartbeat(
         margin_used = pos.get("margin_used", 0)
         account_label = pos.get("account", "main")
 
-        pos_summary = {"coin": coin, "side": side, "size": size, "entry": entry}
+        # Authority check — skip assets set to 'off'
+        if not is_watched(coin):
+            log.debug("Skipping %s — authority: off", coin)
+            continue
+
+        asset_authority = get_authority(coin)
+
+        pos_summary = {"coin": coin, "side": side, "size": size, "entry": entry,
+                       "authority": asset_authority}
 
         # Liq distance (use pre-computed from API, fallback to 100 if no liq price)
         if liq_dist <= 0 and (not liq_price or liq_price <= 0):
@@ -846,9 +861,9 @@ def run_heartbeat(
             adj_spike_take_pct = min(adj_spike_take_pct * 1.5, 30.0)
             pos_summary["near_roll"] = True
 
-        # Profit-take: fires for ALL positions when should_take_profit triggers.
-        # With thesis: conviction modulates take size. Without thesis: uses base take_pct.
-        if profit_check["take"] and not dry_run:
+        # Profit-take: only for agent-managed assets.
+        # Manual assets get SL/TP safety net above, but no active profit-taking.
+        if profit_check["take"] and not dry_run and asset_authority == "agent":
             mod_take_pct = modulate_spike_take_pct(profit_check["take_pct"], effective_conv) if (thesis and effective_conv > 0) else profit_check["take_pct"]
             take_size = round(size * mod_take_pct / 100, 6)
 
@@ -899,7 +914,7 @@ def run_heartbeat(
             elif thesis_direction == "long" and funding_rate > 0.0005:
                 pos_summary["funding_signal"] = "warning_carry_cost"
 
-        if spike_dip["type"] == "spike" and spike_dip["pct"] >= config.spike_config.spike_profit_threshold_pct:
+        if spike_dip["type"] == "spike" and spike_dip["pct"] >= config.spike_config.spike_profit_threshold_pct and asset_authority == "agent":
             take_pct = adj_spike_take_pct  # conviction-modulated
             take_size = round(size * take_pct / 100, 6)
             if take_size >= 0.001 and not dry_run:
@@ -974,9 +989,9 @@ def run_heartbeat(
                 log.warning("Failed to fetch consolidation candles for %s: %s", coin, e)
 
 
-        # Dip add check — conviction engine activates actual execution
+        # Dip add check — only for agent-managed assets
         # Initialize consolidator instead of buying immediately
-        if spike_dip["type"] == "dip":
+        if spike_dip["type"] == "dip" and asset_authority == "agent":
             if not consolidator_state.get("active"):
                 # Rough estimate of spike volume, ideally we fetch the last X candles
                 state.consolidators[coin] = {
@@ -989,7 +1004,7 @@ def run_heartbeat(
                 pos_summary["consolidation_started"] = True
                 log.info("Started consolidation tracking for %s at %.2f", coin, current_price)
 
-        if dip_add_triggered:
+        if dip_add_triggered and asset_authority == "agent":
             dd_pct = (state.session_peak_equity - equity) / max(state.session_peak_equity, 1) * 100
             last_add = state.last_add_ms.get(coin, 0)
             if should_add_on_dip(liq_dist, dd_pct, last_add, now_ms, config.spike_config):
