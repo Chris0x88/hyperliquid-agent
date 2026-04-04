@@ -14,6 +14,8 @@ import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+import requests
+
 from cli.daemon.context import TickContext
 from common.market_snapshot import MarketSnapshot, build_snapshot_from_candles, render_snapshot
 from modules.candle_cache import CandleCache
@@ -36,7 +38,7 @@ class MarketStructureIterator:
         recompute_s: int = RECOMPUTE_INTERVAL_S,
     ):
         self._cache = candle_cache
-        self._intervals = intervals or ["1h", "4h"]
+        self._intervals = intervals or ["1h", "4h", "1d"]
         self._recompute_s = recompute_s
         self._last_compute: float = 0.0
         self._snapshots: Dict[str, MarketSnapshot] = {}
@@ -60,6 +62,46 @@ class MarketStructureIterator:
             ctx.market_snapshots.update(self._snapshots)
             return
         self._compute(ctx)
+
+    def _refresh_candles(self, markets: set, lookback_hours: int = 168) -> None:
+        """Fetch fresh candles from HL API for all markets and store in cache.
+
+        Mirrors telegram_agent._refresh_candle_cache — fetches 1h, 4h, 1d for
+        every market. Only fetches if data is >1h stale to avoid hammering the API.
+        """
+        if not self._cache:
+            return
+
+        now_ms = int(time.time() * 1000)
+        intervals = ["1h", "4h", "1d"]
+
+        for coin in markets:
+            for interval in intervals:
+                try:
+                    date_range = self._cache.date_range(coin, interval)
+                    if date_range and (now_ms - date_range[1]) < 3_600_000:
+                        continue  # Fresh enough
+
+                    start_ms = date_range[1] if date_range else now_ms - (lookback_hours * 3_600_000)
+
+                    payload = {
+                        "type": "candleSnapshot",
+                        "req": {"coin": coin, "interval": interval,
+                                "startTime": start_ms, "endTime": now_ms},
+                    }
+                    r = requests.post("https://api.hyperliquid.xyz/info",
+                                      json=payload, timeout=10)
+                    if r.status_code == 200:
+                        candles = r.json()
+                        if isinstance(candles, list) and candles:
+                            stored = self._cache.store_candles(coin, interval, candles)
+                            if stored:
+                                log.info("MarketStructure: cached %d %s candles for %s",
+                                         stored, interval, coin)
+                    time.sleep(0.15)
+                except Exception as e:
+                    log.debug("MarketStructure: candle refresh failed for %s %s: %s",
+                              coin, interval, e)
 
     def _compute(self, ctx: TickContext) -> None:
         self._last_compute = time.monotonic()
@@ -86,6 +128,9 @@ class MarketStructureIterator:
 
         if not markets:
             return
+
+        # Refresh candle cache for all markets (fills gaps for xyz:GOLD, xyz:SILVER, etc.)
+        self._refresh_candles(markets)
 
         # Fetch prices for markets not in ctx.prices (watchlist coins may not be
         # in the Connector's instrument list)
