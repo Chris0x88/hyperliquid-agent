@@ -381,7 +381,43 @@ class RiskManager:
             "consecutive_losses": self.state.consecutive_losses,
             "daily_pnl": str(self.state.daily_pnl),
             "daily_drawdown": str(self.state.daily_drawdown),
+            "blocked_wallets": self.state.blocked_wallets,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RiskManager":
+        """Restore RiskManager from serialized state."""
+        rm = cls()
+        rm.state.risk_gate = RiskGate(data.get("gate", "OPEN"))
+        rm.state.safe_mode = data.get("safe_mode", False)
+        rm.state.safe_mode_reason = data.get("safe_mode_reason", "")
+        rm.state.reduce_only = data.get("reduce_only", False)
+        rm.state.consecutive_losses = data.get("consecutive_losses", 0)
+        rm.state.daily_pnl = Decimal(data.get("daily_pnl", "0"))
+        rm.state.daily_drawdown = Decimal(data.get("daily_drawdown", "0"))
+        rm.state.blocked_wallets = data.get("blocked_wallets", {})
+        return rm
+
+    def check_wallet_daily_loss(self, wallet_id: str, pnl: float, limit: float) -> bool:
+        """Check if a wallet's daily loss exceeds its limit.
+
+        Returns True if blocked. Clears block if loss recovers below limit.
+        """
+        if limit <= 0:
+            return False
+        if abs(min(pnl, 0)) >= limit:
+            self.state.blocked_wallets[wallet_id] = {
+                "reason": f"daily_loss {pnl:.2f} >= limit {limit:.2f}",
+                "ts": int(time.time() * 1000),
+            }
+            return True
+        else:
+            self.state.blocked_wallets.pop(wallet_id, None)
+            return False
+
+    def clear_wallet_blocks(self) -> None:
+        """Clear all wallet blocks (e.g. on daily reset)."""
+        self.state.blocked_wallets.clear()
 
     def daily_reset(self) -> None:
         """Reset gate to OPEN and clear counters (called at day boundary)."""
