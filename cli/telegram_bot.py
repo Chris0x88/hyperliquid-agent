@@ -314,8 +314,8 @@ def _get_all_orders(addr: str) -> list:
 
 
 def _get_account_values(addr: str) -> dict:
-    """Get account values from both clearinghouses."""
-    result = {'native': 0.0, 'xyz': 0.0}
+    """Get account values from both clearinghouses + spot USDC."""
+    result = {'native': 0.0, 'xyz': 0.0, 'spot': 0.0}
     for dex in ['', 'xyz']:
         payload = {'type': 'clearinghouseState', 'user': addr}
         if dex:
@@ -323,6 +323,11 @@ def _get_account_values(addr: str) -> dict:
         state = _hl_post(payload)
         val = float(state.get('marginSummary', {}).get('accountValue', 0))
         result[dex or 'native'] = val
+    # Spot USDC
+    spot = _hl_post({"type": "spotClearinghouseState", "user": addr})
+    for b in spot.get("balances", []):
+        if b.get("coin") == "USDC":
+            result['spot'] = float(b.get("total", 0))
     return result
 
 
@@ -482,7 +487,9 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
     # Account values
     values = _get_account_values(MAIN_ADDR)
     total_perps = values['native'] + values['xyz']
-    grand_total = total_perps + spot_total
+    grand_total = total_perps + values.get('spot', 0)
+    if spot_total > grand_total:  # spot_total fetched above, use whichever is higher
+        grand_total = total_perps + spot_total
 
     lines.append(f"\n*Equity*")
     lines.append(f"  `${grand_total:,.2f}`")
@@ -634,9 +641,18 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
     upnl_sign = "+" if total_upnl >= 0 else ""
     lines.append(f"\n{upnl_emoji} *Unrealized*")
     lines.append(f"  `{upnl_sign}${total_upnl:,.2f}`")
+    spot_val = values.get('spot', 0)
+    grand_total = main_val + spot_val + vault_val
     lines.append(f"\n💎 *Balances*")
-    lines.append(f"  Main: `${main_val:,.2f}` | Vault: `${vault_val:,.2f}`")
-    lines.append(f"  Total: `${main_val + vault_val:,.2f}`")
+    if main_val > 0 and spot_val > 0:
+        lines.append(f"  Perps: `${main_val:,.2f}` | Spot: `${spot_val:,.2f}`")
+    elif spot_val > 0:
+        lines.append(f"  Spot: `${spot_val:,.2f}`")
+    elif main_val > 0:
+        lines.append(f"  Perps: `${main_val:,.2f}`")
+    if vault_val > 0:
+        lines.append(f"  Vault: `${vault_val:,.2f}`")
+    lines.append(f"  Total: `${grand_total:,.2f}`")
 
     # Profit lock ledger
     ledger = Path("data/daemon/profit_locks.jsonl")
@@ -1208,7 +1224,7 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
 
     positions = _get_all_positions(MAIN_ADDR)
     values = _get_account_values(MAIN_ADDR)
-    total_equity = values['native'] + values['xyz']
+    total_equity = values['native'] + values['xyz'] + values.get('spot', 0)
 
     if not positions:
         tg_send(token, chat_id, "No open positions.")
@@ -1920,7 +1936,7 @@ def _build_main_menu() -> tuple:
     positions = _cached_positions()
     orders = _get_all_orders(MAIN_ADDR)
     values = _get_account_values(MAIN_ADDR)
-    total = values['native'] + values['xyz']
+    total = values['native'] + values['xyz'] + values.get('spot', 0)
 
     lines = [f"📊 *Trading Terminal* — {ts}", f"Equity: `${total:,.2f}`", ""]
 
