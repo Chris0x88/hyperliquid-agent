@@ -1,65 +1,65 @@
-# common/ — Shared Utilities
+# common/ — Shared Utilities + Infrastructure
 
-Foundational utilities used by every other package. 32 modules. The `models` module alone has 39 importers — the most-depended-on file in the project.
+Foundational utilities used by every other package. ~35 modules. The `models` module alone has 39 importers.
 
 ## Key Files
 
-| File | Purpose | Importers |
-|------|---------|-----------|
-| `models.py` | Data structures (MarketSnapshot, StrategyContext, etc.) | 39 — everything uses this |
-| `heartbeat.py` | Simplified 2-min monitoring loop (launchd). **Stopgap for daemon.** | 4 |
-| `heartbeat_config.py` | Heartbeat config: markets, escalation thresholds, conviction bands | 3 |
-| `heartbeat_state.py` | ATR computation, working state helpers | 2 |
-| `thesis.py` | ThesisState dataclass — the shared contract between AI and execution | 5 |
-| `conviction_engine.py` | Conviction bands → position sizing (Druckenmiller model) | 2 |
-| `credentials.py` | Pluggable key backends: OWS → Keychain → Encrypted → Env → File | 8 |
-| `account_resolver.py` | Wallet address resolution from `~/.hl-agent/wallets.json` (lazy) | 3 |
-| `context_harness.py` | **v2/v3 core** — relevance-scored context assembly, 3000 token budget | Used by telegram_agent.py + agent_tools.py |
-| `market_snapshot.py` | `build_snapshot()` + `render_snapshot()` — technicals, S/R, BBands, flags | Used by telegram_agent.py + agent_tools.py |
-| `memory.py` | SQLite-based 6-table action/event log | 5 |
-| `memory_consolidator.py` | Event compression for context injection | Used by context_harness |
-| `memory_telegram.py` | Direct Telegram Bot API wrapper for alerts | 2 |
-| `diagnostics.py` | Tool call logging, error tracking, chat logging | 3 |
-| `calendar.py` | Economic calendar + catalyst tracking | 2 |
-| `venue_adapter.py` | Abstract exchange interface (HL + mock implementations) | 3 |
-| `market_structure.py` | OI/volume aggregation, term structure | 2 |
-| `authority.py` | Per-asset delegation: agent vs manual vs off | Used by heartbeat |
-| `funding_tracker.py` | Cumulative funding cost tracking | 2 |
-| `watchlist.py` | **Centralized watchlist** — single source of truth for tracked markets, CRUD, HL search | Used by telegram_bot, telegram_agent, agent_tools, mcp_server, scheduled_check |
+| File | Purpose |
+|------|---------|
+| `models.py` | Data structures (MarketSnapshot, StrategyContext, etc.) — 39 importers |
+| `market_snapshot.py` | `build_snapshot()` + `render_snapshot()` + `render_signal_summary()` — full signal engine |
+| `context_harness.py` | Relevance-scored context assembly, 3500 token budget, position-aware |
+| `tools.py` | **Unified tool core** — 11 pure functions returning dicts (status, live_price, etc.) |
+| `code_tool_parser.py` | **AST-based Python code parser** — parses tool calls from free model code blocks |
+| `tool_renderers.py` | Compact AI renderer for tool output (42 tokens avg per tool) |
+| `renderer.py` | **UI portability** — Renderer ABC + TelegramRenderer + BufferRenderer |
+| `telemetry.py` | TelemetryRecorder + **HealthWindow** (Passivbot-style error budget) |
+| `watchlist.py` | Centralized watchlist — single source for tracked markets, CRUD, HL search |
+| `thesis.py` | ThesisState dataclass — shared contract between AI and execution |
+| `conviction_engine.py` | Conviction bands → position sizing (Druckenmiller model) |
+| `credentials.py` | Pluggable key backends: OWS → Keychain → Encrypted → Env → File |
+| `account_resolver.py` | Wallet address resolution |
+| `authority.py` | Per-asset delegation: agent vs manual vs off |
+| `diagnostics.py` | Tool call logging, error tracking, chat logging |
+| `memory.py` | SQLite-based 6-table action/event log |
+| `memory_consolidator.py` | Event compression for context injection |
+| `venue_adapter.py` | Abstract exchange interface (Protocol pattern) |
+| `heartbeat.py` | Simplified 2-min monitoring (launchd stopgap) |
 
-## v2/v3 Critical Path
+## Signal Engine Pipeline
 
-The AI agent's context pipeline flows through `common/`:
-```
-telegram_agent.py → context_harness.py → market_snapshot.py → (candle_cache, thesis, memory_consolidator)
-                                       → account_resolver.py → hl_proxy
-```
+`market_snapshot.py` is the core:
+1. `build_snapshot(coin, cache, price)` — computes indicators across 1h/4h/1d
+2. `render_snapshot(snap, detail)` — brief/standard/full text output
+3. `render_signal_summary(snap, position)` — **actionable analysis**: exhaustion, divergence, multi-TF confluence, volume flow, position guidance
 
-When modifying `context_harness.py` or `market_snapshot.py`, be aware that changes affect every AI agent response.
+Used by: `/market` command, AI LIVE CONTEXT, daemon MarketStructure iterator.
 
-## Upstream (what uses common/)
-- `cli/` — all commands, telegram bot, AI agent, agent tools
-- `cli/daemon/` — all iterators
-- `modules/` — all engines
-- `parent/` — exchange layer
-- `scripts/` — heartbeat, scheduled check
+## Tool Core (common/tools.py)
 
-## Downstream (what common/ uses)
-- `parent/hl_proxy.py` — for exchange calls in heartbeat
-- `modules/candle_cache.py` — for OHLCV data in market snapshots
-- Standard library only for most modules
+11 functions returning dicts. Single source of truth for tool logic:
+- READ: `status()`, `live_price()`, `analyze_market()`, `market_brief()`, `check_funding()`, `get_orders()`, `trade_journal()`, `thesis_state()`, `daemon_health()`
+- WRITE: `place_trade()`, `update_thesis()`
 
-## Current Status (v3)
-- **heartbeat.py**: Running via launchd, rate-limiting fix, lazy wallet resolution
-- **thesis.py**: Works but thesis files go stale (no auto-write path yet — Phase 2)
-- **conviction_engine.py**: Works, pure computation
-- **context_harness.py**: Running, relevance-scored assembly for AI agent
-- **market_snapshot.py**: Running, build_snapshot + render_snapshot with technicals
-- **memory_consolidator.py**: Running, event compression for AI context
-- **account_resolver.py**: Works after wallets.json was created
-- **credentials.py**: Works, OWS + Keychain dual-write
+Consumed by: AI agent (via code_tool_parser), Telegram commands (future), agent_tools.py (backward compat).
 
-## Testing
-```bash
-.venv/bin/python -m pytest tests/test_heartbeat.py tests/test_conviction_engine.py tests/test_credentials.py tests/test_heartbeat_config.py tests/test_heartbeat_state.py tests/test_context_harness.py -x -q
-```
+## Renderer Interface (common/renderer.py)
+
+`Renderer` ABC for UI portability:
+- `TelegramRenderer` — wraps tg_send functions (production)
+- `BufferRenderer` — captures output for tests and future web API
+- 5 commands migrated: cmd_status, cmd_price, cmd_orders, cmd_health, cmd_menu
+
+## Health Monitoring (common/telemetry.py)
+
+- `TelemetryRecorder` — per-cycle metrics, writes to state/telemetry.json
+- `HealthWindow` — Passivbot-style 15min sliding window with error budget (10 errors max)
+- Wired into daemon Clock: records errors + order events, auto-downgrades on budget exhaustion
+
+## Current Status (v3.2)
+- All modules production-ready
+- Signal engine: 1h/4h/1d with candle refresh
+- Tools: 11 core functions, AST parser for free models
+- Renderer: ABC exists, 5 commands migrated
+- Health: HealthWindow live in daemon, reporting to telemetry.json
+- 1694 tests passing

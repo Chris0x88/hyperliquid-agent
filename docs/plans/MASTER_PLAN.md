@@ -37,16 +37,18 @@ VAULT REBALANCER (hourly launchd) ──BTC Power Law──► HyperLiquid
 | v1 | 2026-03 | Daemon-centric: 19 iterators, REFLECT, 4-phase plan | `SYSTEM_ARCHITECTURE.md` |
 | v2 | 2026-04-02 AM | Interface-first: rich context, model selector, formatting | `SYSTEM_ARCHITECTURE_v2.md` |
 | v3 | 2026-04-02 PM | Agentic: 9 tools, dual-mode calling, approval gates | `SYSTEM_ARCHITECTURE_v3.md` |
+| v3.2 | 2026-04-04 | Interactive menu + hardening: buttons, write commands, protection chain, health window, renderer | (this doc) |
 
-Key pattern: each version ADDS a capability layer. v1 daemon design → v2 context pipeline → v3 tool-calling. All layers are live.
+Key pattern: each version ADDS a capability layer. v1 daemon → v2 context → v3 tools → v3.2 interactive UX + infrastructure hardening.
 
 ## Current Phase Status
 
 | Phase | Goal | Status |
 |-------|------|--------|
 | **Phase 1: Foundation** | Heartbeat, thesis contract, conviction engine, single-instance | ✅ DONE |
-| **Phase 1.5: Agentic Interface** | Telegram 28 commands, AI agent with tools, context pipeline, model selector, centralized watchlist | ✅ DONE |
-| **Phase 2: Daemon Switch** | Replace heartbeat with full daemon (WATCH tier, 120s tick, mainnet) | ✅ DONE — tick 997+ as of 2026-04-03 |
+| **Phase 1.5: Agentic Interface** | Telegram 31 commands, AI agent with tools, context pipeline, model selector, centralized watchlist | ✅ DONE |
+| **Phase 2: Daemon Switch** | Replace heartbeat with full daemon (WATCH tier, 120s tick, mainnet) | ✅ DONE — tick 1728+ as of 2026-04-04 |
+| **Phase 2.5: Interactive UX + Hardening** | Button menu, write commands, signal engine, protection chain, health window, renderer interface | ✅ DONE |
 | **Phase 3: REFLECT Loop** | Wire meta-evaluation, journal, playbook into daemon | NEXT |
 | **Phase 4: Self-Improving** | Auto-tuning, catalyst calendar, convergence tracking | Future |
 
@@ -54,10 +56,10 @@ Key pattern: each version ADDS a capability layer. v1 daemon design → v2 conte
 
 | Process | Script | Schedule | Purpose |
 |---------|--------|----------|---------|
-| **Daemon** | `cli/daemon/clock.py` | launchd 120s, WATCH tier | 19 iterators, account snapshots, thesis engine, liquidity regime, autoresearch, memory consolidation |
-| Commands Bot | `cli/telegram_bot.py` | background | 25 handlers + AI router |
-| AI Agent | `cli/telegram_agent.py` | on-demand | OpenRouter + 9 tools |
-| Vault Rebalancer | `scripts/run_vault_rebalancer.py` | launchd hourly | BTC Power Law |
+| **Daemon** | `cli/daemon/clock.py` | launchd 120s, WATCH tier | 19 iterators, protection chain (4), health window, 10 market snapshots |
+| Commands Bot | `cli/telegram_bot.py` | background | 31 handlers + interactive menu + AI router |
+| AI Agent | `cli/telegram_agent.py` | on-demand | OpenRouter + 12 tools, triple-mode calling |
+| Vault Rebalancer | `scripts/run_vault_rebalancer.py` | launchd hourly | BTC Power Law (not currently active) |
 
 Note: Heartbeat (`common/heartbeat.py`) has been replaced by the daemon. Heartbeat plist still exists as fallback.
 

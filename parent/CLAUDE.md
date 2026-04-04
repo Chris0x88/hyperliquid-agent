@@ -1,72 +1,59 @@
-# parent/ — Exchange Layer
+# parent/ — Exchange Layer + Risk Management
 
-All communication with HyperLiquid flows through this package. `hl_proxy.py` is the single gateway with 17 importers — the second most-depended-on module after `common/models.py`.
+All communication with HyperLiquid flows through this package. `hl_proxy.py` is the single gateway. `risk_manager.py` has the composable protection chain.
 
 ## Key Files
 
-| File | Purpose | Importers |
-|------|---------|-----------|
-| `hl_proxy.py` | HyperLiquid SDK wrapper. Market data, order execution, account state. Real + mock modes. | 17 |
-| `risk_manager.py` | Risk limit enforcement: max position, max notional, max leverage, daily drawdown | 9 |
-| `position_tracker.py` | Track open positions across ticks | 6 |
-| `store.py` | Persistent state for trades and fills | 3 |
-| `house_risk.py` | House-level (portfolio) risk aggregation | 2 |
-| `sdk_patches.py` | Monkey-patches for the HL Python SDK (spot meta indexing) | 1 |
+| File | Purpose |
+|------|---------|
+| `hl_proxy.py` | HyperLiquid SDK wrapper. Market data, order execution, account state. |
+| `risk_manager.py` | **Composable protection chain** (Freqtrade + LEAN pattern) + risk gate machine |
+| `position_tracker.py` | Track open positions across ticks |
+| `store.py` | Persistent state for trades and fills |
+| `house_risk.py` | House-level (portfolio) risk aggregation |
 
-## HLProxy Key Methods
+## Risk Manager (Hardened)
+
+### Risk Gate Machine
+| State | Behavior |
+|-------|----------|
+| `OPEN` | Normal trading |
+| `COOLDOWN` | Exits allowed, new entries blocked, auto-expires after 30min |
+| `CLOSED` | All trading halted, exchange SLs remain |
+
+Methods: `can_trade()`, `can_open_position()`, `record_loss()`, `record_win()`, `check_auto_expiry()`, `daily_reset()`
+
+### Composable Protection Chain
 
 ```python
-# Market data
-get_snapshot(instrument) → MarketSnapshot
-get_candles(coin, interval, lookback_ms) → List[Dict]
-get_all_markets() → list
-get_all_mids() → Dict[str, str]
-
-# Execution
-place_order(instrument, side, size, price, tif="Ioc") → Optional[Fill]
-place_trigger_order(coin, is_buy, size, trigger_px, order_type, tpsl) → Dict
-cancel_order(instrument, oid) → bool
-
-# Account
-get_account_state() → Dict
-set_leverage(leverage, coin, is_cross=True)
+chain = ProtectionChain([
+    MaxDrawdownProtection(warn_pct=15, halt_pct=25),  # LEAN-style
+    StoplossGuardProtection(max_consecutive=3),         # Freqtrade-style
+    DailyLossProtection(max_daily_loss_pct=5),
+    RuinProtection(ruin_pct=40),                        # Hummingbot kill switch
+])
+gate, triggered = chain.check_all(equity=450, hwm=500, ...)
 ```
 
-## Critical Notes
+Each protection is independent. Chain runs ALL, worst gate wins, all reasons collected. Adding a new protection = one class + append to chain list.
 
-- **xyz clearinghouse**: Oil, gold, silver trades need `dex='xyz'` in API calls. The SDK handles this via `_exchange` object.
-- **Coin name normalization**: xyz returns `xyz:BRENTOIL`, native returns `BTC`. Always handle both forms.
-- **Vault trading**: Pass `vault_address` to HLProxy constructor for vault operations.
-- **Fill model**: Venue-agnostic `Fill` dataclass with Decimal precision.
-- **Rate limits**: HL API returns 429 at ~3+ requests/second. Add 300ms delays between sequential calls.
+Wired into daemon via `cli/daemon/iterators/risk.py`. Also: `to_dict()`/`from_dict()` for state persistence, `check_wallet_daily_loss()` for per-wallet limits, `configure_gate()` for runtime config.
 
-## v3 Context: Agent Tools Path
+## DirectHLProxy (cli/hl_adapter.py)
 
-The AI agent's tools call through hl_proxy:
-```
-agent_tools.py → live_price → hl_proxy.get_all_mids()
-agent_tools.py → check_funding → hl_proxy (metaAndAssetCtxs)
-agent_tools.py → place_trade → hl_proxy.place_order()
-agent_tools.py → account_summary → hl_proxy (clearinghouseState, both dex)
-```
+| Method | Purpose |
+|--------|---------|
+| `market_order(coin, is_buy, sz)` | IOC market order with slippage |
+| `place_order(coin, is_buy, sz, price, tif)` | Limit/ALO with retry |
+| `place_trigger_order(instrument, side, size, trigger_price)` | Stop-loss (tpsl="sl") |
+| `place_tp_trigger_order(instrument, side, size, trigger_price)` | Take-profit (tpsl="tp") |
+| `cancel_order(instrument, oid)` | Cancel by order ID |
+| `get_account_state()` | Positions + equity |
+| `get_xyz_state()` | xyz clearinghouse state |
 
-## Upstream
-- `cli/agent_tools.py` — v3 agent tools (live_price, place_trade, check_funding)
-- `cli/daemon/iterators/connector.py` — daemon data feed
-- `cli/mcp_server.py` — MCP tool calls
-- `common/heartbeat.py` — heartbeat position checks
-- `common/market_snapshot.py` — snapshot building
-
-## Downstream
-- `hyperliquid-python-sdk` (external dependency)
-- `common/models.py` — data structures
-
-## Current Status (v3)
-- Working. SDK patches applied. Both mainnet and testnet supported.
-- Rate limiting fix applied in heartbeat (not in proxy itself — could be added as middleware).
-- Used by both the running heartbeat AND the AI agent tools.
-
-## Testing
-```bash
-.venv/bin/python -m pytest tests/test_hl_adapter.py tests/test_store.py tests/test_sdk_patches.py -x -q
-```
+## Current Status (v3.2)
+- Protection chain live in daemon (4 protections active)
+- Risk gate machine: OPEN/COOLDOWN/CLOSED with auto-expiry
+- All RiskManager methods implemented (was 8 gaps, now 0)
+- Per-wallet loss tracking for multi-wallet support
+- 1694 tests passing
