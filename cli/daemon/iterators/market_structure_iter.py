@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from cli.daemon.context import TickContext
@@ -85,6 +86,23 @@ class MarketStructureIterator:
 
         if not markets:
             return
+
+        # Fetch prices for markets not in ctx.prices (watchlist coins may not be
+        # in the Connector's instrument list)
+        missing = [m for m in markets if m not in ctx.prices or float(ctx.prices.get(m, 0)) <= 0]
+        if missing:
+            try:
+                import requests
+                all_mids = requests.post("https://api.hyperliquid.xyz/info",
+                                         json={"type": "allMids"}, timeout=8).json()
+                xyz_mids = requests.post("https://api.hyperliquid.xyz/info",
+                                         json={"type": "allMids", "dex": "xyz"}, timeout=8).json()
+                all_mids.update(xyz_mids)
+                for m in missing:
+                    if m in all_mids:
+                        ctx.prices[m] = Decimal(str(all_mids[m]))
+            except Exception as e:
+                log.debug("MarketStructure: failed to fetch missing prices: %s", e)
 
         computed = 0
         for market in markets:
