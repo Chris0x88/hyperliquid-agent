@@ -636,3 +636,44 @@ def format_confirmation(tool: str, arguments: dict, action_id: str) -> Tuple[str
         {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
     ]
     return text, buttons
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Pending Action Maintenance (Nautilus-inspired cleanup)
+# ═══════════════════════════════════════════════════════════════════════
+
+_PENDING_TTL = 300  # 5 minutes
+
+
+def cleanup_expired_pending() -> int:
+    """Remove expired pending actions. Returns count removed.
+
+    Called periodically from the polling loop to prevent memory accumulation.
+    Passivbot-inspired: proactive cleanup, not just lazy expiry on retrieval.
+    """
+    now = time.time()
+    expired = [k for k, v in _pending_actions.items() if now - v["ts"] > _PENDING_TTL]
+    for k in expired:
+        _pending_actions.pop(k, None)
+    if expired:
+        log.info("Cleaned up %d expired pending actions", len(expired))
+    return len(expired)
+
+
+def pending_count() -> int:
+    """Number of pending actions (including potentially expired)."""
+    return len(_pending_actions)
+
+
+def pending_summary() -> list:
+    """Return summary of all pending actions for /health diagnostics."""
+    now = time.time()
+    return [
+        {
+            "id": k,
+            "tool": v["tool"],
+            "age_s": int(now - v["ts"]),
+            "expired": now - v["ts"] > _PENDING_TTL,
+        }
+        for k, v in _pending_actions.items()
+    ]

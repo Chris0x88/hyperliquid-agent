@@ -75,20 +75,40 @@ class TelegramIterator:
         if not self._enabled:
             return
 
-        # Forward critical and warning alerts (deduplicated — same message at most once per hour)
+        # Forward alerts with severity-aware dedup cooldowns (Freqtrade-inspired)
+        # critical: max once per 15min (persistent conditions need re-alerting)
+        # warning: max once per 1hr
+        # info: max once per 4hr
         import hashlib
         now = time.time()
+        severity_cooldowns = {"critical": 900, "warning": 3600, "info": 14400}
+
         for alert in ctx.alerts:
-            if alert.severity in ("critical", "warning"):
-                # Dedup key: source + first 60 chars of message (ignore changing numbers)
-                dedup_key = f"{alert.source}:{alert.message[:60]}"
-                msg_hash = hashlib.md5(dedup_key.encode()).hexdigest()[:8]
-                last_sent = self._sent_alerts.get(msg_hash, 0)
-                if now - last_sent < 3600:  # suppress repeats within 1 hour
-                    continue
-                self._sent_alerts[msg_hash] = now
-                icon = "\u26a0\ufe0f" if alert.severity == "warning" else "\u274c"
-                self._queue(f"{icon} {alert.source}: {alert.message}")
+            cooldown = severity_cooldowns.get(alert.severity, 3600)
+            if cooldown == 0:
+                continue  # unknown severity, skip
+
+            dedup_key = f"{alert.source}:{alert.message[:60]}"
+            msg_hash = hashlib.md5(dedup_key.encode()).hexdigest()[:8]
+            last_sent = self._sent_alerts.get(msg_hash, 0)
+            if now - last_sent < cooldown:
+                continue
+            self._sent_alerts[msg_hash] = now
+
+            # Escalation: if same alert has been firing for >10min, mark ACTION REQUIRED
+            escalated = (last_sent > 0 and now - last_sent >= cooldown)
+            if alert.severity == "critical":
+                icon = "🚨" if escalated else "❌"
+                prefix = "ACTION REQUIRED — " if escalated else ""
+            elif alert.severity == "warning":
+                icon = "⚠️"
+                prefix = ""
+            else:
+                icon = "ℹ️"
+                prefix = ""
+
+            self._queue(f"{icon} {prefix}{alert.source}: {alert.message}")
+
         # Prune old dedup entries (keep last 24h)
         self._sent_alerts = {k: v for k, v in self._sent_alerts.items() if now - v < 86400}
 

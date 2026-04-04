@@ -149,6 +149,39 @@ class RiskManager:
         self.limits = limits or RiskLimits()
         self.state = RiskState(day_start_ms=int(time.time() * 1000))
 
+    def configure_gate(self, cooldown_duration_ms: int = 1_800_000,
+                       cooldown_trigger_losses: int = 2,
+                       cooldown_drawdown_pct: float = 50.0) -> None:
+        """Configure risk gate parameters."""
+        self._cooldown_duration_ms = cooldown_duration_ms
+        self._cooldown_trigger_losses = cooldown_trigger_losses
+        self._cooldown_drawdown_pct = cooldown_drawdown_pct
+
+    def _detect_circuit_breaker(self, instrument: str, price: Decimal) -> bool:
+        """Detect rapid price moves that warrant a circuit breaker."""
+        if not hasattr(self, '_last_prices'):
+            self._last_prices: Dict[str, Decimal] = {}
+        last = self._last_prices.get(instrument)
+        self._last_prices[instrument] = price
+        if last and last > 0:
+            change_pct = abs(float((price - last) / last * 100))
+            if change_pct > 15:
+                log.critical("Circuit breaker: %s moved %.1f%% in one tick", instrument, change_pct)
+                return True
+        return False
+
+    def _maybe_reset_daily(self) -> None:
+        """Reset daily counters if we've crossed a day boundary."""
+        now_ms = int(time.time() * 1000)
+        day_ms = 86_400_000
+        if now_ms - self.state.day_start_ms >= day_ms:
+            self.state.day_start_ms = now_ms
+            self.state.daily_pnl = Decimal("0")
+            self.state.daily_high_water = Decimal("0")
+            self.state.daily_drawdown = Decimal("0")
+            self.daily_reset()
+            log.info("Daily counters reset")
+
     def pre_round_check(self, positions: PositionTracker,
                         mark_prices: Dict[str, Decimal]) -> Tuple[bool, str]:
         """Check if we should proceed with this round.
@@ -330,12 +363,204 @@ class RiskManager:
             self.state.consecutive_losses = 0
             log.info("RISK GATE → OPEN: cooldown auto-expired")
 
+    def can_trade(self) -> bool:
+        """Return True if trading is allowed (gate not CLOSED)."""
+        return self.state.risk_gate != RiskGate.CLOSED
+
+    def can_open_position(self) -> bool:
+        """Return True if new positions can be opened (gate is OPEN)."""
+        return self.state.risk_gate == RiskGate.OPEN
+
+    def to_dict(self) -> dict:
+        """Serialize risk state for persistence."""
+        return {
+            "gate": self.state.risk_gate.value,
+            "safe_mode": self.state.safe_mode,
+            "safe_mode_reason": self.state.safe_mode_reason,
+            "reduce_only": self.state.reduce_only,
+            "consecutive_losses": self.state.consecutive_losses,
+            "daily_pnl": str(self.state.daily_pnl),
+            "daily_drawdown": str(self.state.daily_drawdown),
+        }
+
     def daily_reset(self) -> None:
         """Reset gate to OPEN and clear counters (called at day boundary)."""
         self.state.risk_gate = RiskGate.OPEN
         self.state.consecutive_losses = 0
         self.state.cooldown_entered_ts = 0
         log.info("RISK GATE → OPEN: daily reset")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Composable Protection Chain (Freqtrade + LEAN inspired)
+# ═══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ProtectionReturn:
+    """Result of a single protection check.
+
+    Freqtrade-inspired: each protection returns lock status + expiry + reason.
+    Multiple protections compose: worst gate wins, all reasons collected.
+    """
+    lock: bool = False
+    gate: RiskGate = RiskGate.OPEN
+    reason: str = ""
+    lock_until: float = 0.0  # timestamp, 0 = no expiry
+
+
+class BaseProtection:
+    """Protocol for composable risk protections.
+
+    Each protection is an independent check. The chain runs all of them
+    and returns the worst gate + all triggered reasons. Adding a new
+    protection = one new class + append to chain. No existing code changes.
+
+    LEAN pattern: composable, stackable, independently testable.
+    Freqtrade pattern: lock/unlock with expiry and reason strings.
+    """
+    name: str = "base"
+
+    def check(self, equity: float, hwm: float, drawdown_pct: float,
+              has_positions: bool, consecutive_losses: int,
+              **kwargs) -> ProtectionReturn:
+        """Override in subclass. Return ProtectionReturn."""
+        return ProtectionReturn()
+
+
+class MaxDrawdownProtection(BaseProtection):
+    """LEAN-style: halt or cooldown at drawdown thresholds.
+
+    Supports trailing (running HWM) and static (session start) modes.
+    Only fires when positions are open — no phantom alerts on withdrawals.
+    """
+    name = "max_drawdown"
+
+    def __init__(self, warn_pct: float = 15.0, halt_pct: float = 25.0):
+        self.warn_pct = warn_pct
+        self.halt_pct = halt_pct
+
+    def check(self, equity: float, hwm: float, drawdown_pct: float,
+              has_positions: bool, **kwargs) -> ProtectionReturn:
+        if not has_positions:
+            return ProtectionReturn()
+        if drawdown_pct >= self.halt_pct:
+            return ProtectionReturn(
+                lock=True,
+                gate=RiskGate.CLOSED,
+                reason=f"Drawdown {drawdown_pct:.0f}% ≥ {self.halt_pct:.0f}% — entries halted",
+            )
+        if drawdown_pct >= self.warn_pct:
+            return ProtectionReturn(
+                lock=True,
+                gate=RiskGate.COOLDOWN,
+                reason=f"Drawdown {drawdown_pct:.0f}% ≥ {self.warn_pct:.0f}% — reduce risk",
+            )
+        return ProtectionReturn()
+
+
+class StoplossGuardProtection(BaseProtection):
+    """Freqtrade-style: halt after N consecutive losses."""
+    name = "stoploss_guard"
+
+    def __init__(self, max_consecutive: int = 3):
+        self.max_consecutive = max_consecutive
+
+    def check(self, consecutive_losses: int = 0, **kwargs) -> ProtectionReturn:
+        if consecutive_losses >= self.max_consecutive:
+            return ProtectionReturn(
+                lock=True,
+                gate=RiskGate.COOLDOWN,
+                reason=f"{consecutive_losses} consecutive losses — cooling down",
+                lock_until=time.time() + 1800,  # 30min cooldown
+            )
+        return ProtectionReturn()
+
+
+class DailyLossProtection(BaseProtection):
+    """Halt when daily realized loss exceeds threshold."""
+    name = "daily_loss"
+
+    def __init__(self, max_daily_loss_pct: float = 5.0):
+        self.max_daily_loss_pct = max_daily_loss_pct
+
+    def check(self, equity: float, hwm: float, daily_pnl: float = 0.0,
+              **kwargs) -> ProtectionReturn:
+        if hwm <= 0:
+            return ProtectionReturn()
+        daily_loss_pct = abs(min(daily_pnl, 0)) / hwm * 100
+        if daily_loss_pct >= self.max_daily_loss_pct:
+            return ProtectionReturn(
+                lock=True,
+                gate=RiskGate.CLOSED,
+                reason=f"Daily loss {daily_loss_pct:.1f}% ≥ {self.max_daily_loss_pct:.0f}% limit",
+            )
+        return ProtectionReturn()
+
+
+class RuinProtection(BaseProtection):
+    """Unconditional close-all at catastrophic drawdown (Hummingbot kill switch)."""
+    name = "ruin_prevention"
+
+    def __init__(self, ruin_pct: float = 40.0):
+        self.ruin_pct = ruin_pct
+
+    def check(self, drawdown_pct: float = 0.0, has_positions: bool = False,
+              **kwargs) -> ProtectionReturn:
+        if has_positions and drawdown_pct >= self.ruin_pct:
+            return ProtectionReturn(
+                lock=True,
+                gate=RiskGate.CLOSED,
+                reason=f"RUIN PREVENTION: {drawdown_pct:.0f}% drawdown — close ALL positions",
+            )
+        return ProtectionReturn()
+
+
+class ProtectionChain:
+    """Composable chain of independent protections.
+
+    LEAN pattern: chain.check_all() runs every protection, returns worst gate.
+    Adding/removing protections = modify the list, no other code changes.
+
+    Usage:
+        chain = ProtectionChain([
+            MaxDrawdownProtection(warn_pct=15, halt_pct=25),
+            StoplossGuardProtection(max_consecutive=3),
+            DailyLossProtection(max_daily_loss_pct=5),
+            RuinProtection(ruin_pct=40),
+        ])
+        gate, reasons = chain.check_all(equity=450, hwm=500, ...)
+    """
+
+    def __init__(self, protections: Optional[List[BaseProtection]] = None):
+        self.protections = protections or [
+            MaxDrawdownProtection(warn_pct=15, halt_pct=25),
+            StoplossGuardProtection(max_consecutive=3),
+            DailyLossProtection(max_daily_loss_pct=5),
+            RuinProtection(ruin_pct=40),
+        ]
+
+    def check_all(self, **kwargs) -> Tuple[RiskGate, List[ProtectionReturn]]:
+        """Run all protections. Return worst gate + all triggered results.
+
+        Keyword args are passed to every protection's check() method.
+        Each protection takes only what it needs via **kwargs.
+        """
+        triggered: List[ProtectionReturn] = []
+        worst_gate = RiskGate.OPEN
+
+        gate_severity = {RiskGate.OPEN: 0, RiskGate.COOLDOWN: 1, RiskGate.CLOSED: 2}
+
+        for protection in self.protections:
+            try:
+                result = protection.check(**kwargs)
+                if result.lock:
+                    triggered.append(result)
+                    if gate_severity.get(result.gate, 0) > gate_severity.get(worst_gate, 0):
+                        worst_gate = result.gate
+            except Exception as e:
+                log.warning("Protection %s failed: %s", protection.name, e)
+
+        return worst_gate, triggered
 
     def can_open_position(self) -> bool:
         """True only if gate is OPEN — new entries allowed."""

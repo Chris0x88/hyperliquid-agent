@@ -12,6 +12,29 @@ from parent.risk_manager import RiskGate
 # ThesisState imported lazily to avoid circular imports — use Any type hint here
 
 
+import enum
+
+
+class OrderState(enum.Enum):
+    """Nautilus-inspired order state tracking.
+
+    Minimal FSM: tracks order from approval through execution.
+    Terminal states: FILLED, REJECTED, CANCELLED, EXPIRED.
+    """
+    PENDING_APPROVAL = "pending_approval"
+    SUBMITTED = "submitted"
+    ACCEPTED = "accepted"
+    FILLED = "filled"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (OrderState.FILLED, OrderState.REJECTED,
+                        OrderState.CANCELLED, OrderState.EXPIRED)
+
+
 @dataclass
 class OrderIntent:
     """Order queued by an iterator for post-tick execution.
@@ -26,6 +49,10 @@ class OrderIntent:
     reduce_only: bool = False
     order_type: str = "Gtc"
     meta: Dict[str, Any] = field(default_factory=dict)
+    # Order lifecycle tracking (Nautilus-inspired)
+    state: OrderState = OrderState.SUBMITTED
+    submitted_at: float = 0.0  # time.time()
+    oid: str = ""              # exchange order ID once accepted
 
 
 @dataclass

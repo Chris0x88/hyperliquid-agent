@@ -2671,6 +2671,14 @@ def run() -> None:
                         log.error("AI handler failed: %s", e)
                         tg_send(token, reply_chat_id, f"AI error: {e}\n\nUse /help for commands.")
 
+        # Periodic maintenance (every ~60s = 30 poll cycles)
+        if running and offset % 30 == 0:
+            try:
+                from cli.agent_tools import cleanup_expired_pending
+                cleanup_expired_pending()
+            except Exception:
+                pass
+
         if running:
             time.sleep(POLL_INTERVAL)
 

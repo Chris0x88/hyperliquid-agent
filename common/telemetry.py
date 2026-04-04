@@ -180,3 +180,79 @@ class TelemetryRecorder:
     @property
     def current_cycle(self) -> Optional[CycleMetrics]:
         return self._current
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Health Metrics Window (Passivbot-inspired error budget)
+# ═══════════════════════════════════════════════════════════════════════
+
+class HealthWindow:
+    """Sliding window health metrics with error budget.
+
+    Passivbot pattern: track events in a rolling window. If errors exceed
+    the budget, the system should auto-downgrade (caller's responsibility).
+
+    Usage:
+        hw = HealthWindow(window_s=900, error_budget=10)
+        hw.record("order_placed")
+        hw.record("error")
+        if hw.budget_exhausted():
+            # auto-downgrade tier
+    """
+
+    def __init__(self, window_s: int = 900, error_budget: int = 10):
+        from collections import deque
+        self._events: deque = deque()
+        self._window_s = window_s
+        self._error_budget = error_budget
+
+    def record(self, event_type: str) -> None:
+        """Record an event. Types: order_placed, order_cancelled, fill, error, timeout."""
+        self._events.append((time.time(), event_type))
+        self._prune()
+
+    def _prune(self) -> None:
+        """Remove events outside the window."""
+        cutoff = time.time() - self._window_s
+        while self._events and self._events[0][0] < cutoff:
+            self._events.popleft()
+
+    def counts(self) -> Dict[str, int]:
+        """Return event counts in the current window."""
+        self._prune()
+        result: Dict[str, int] = {}
+        for _, event_type in self._events:
+            result[event_type] = result.get(event_type, 0) + 1
+        return result
+
+    def error_count(self) -> int:
+        """Number of errors in the current window."""
+        return self.counts().get("error", 0)
+
+    def budget_exhausted(self) -> bool:
+        """True if errors in window >= error_budget."""
+        return self.error_count() >= self._error_budget
+
+    def budget_summary(self) -> str:
+        """Human-readable summary: '3/10 errors (15min window)'."""
+        return f"{self.error_count()}/{self._error_budget} errors ({self._window_s // 60}min window)"
+
+    def to_dict(self) -> dict:
+        """For /health command and telemetry file."""
+        c = self.counts()
+        import resource
+        try:
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+        except Exception:
+            rss_mb = 0
+        return {
+            "window_s": self._window_s,
+            "error_budget": self._error_budget,
+            "errors": c.get("error", 0),
+            "orders_placed": c.get("order_placed", 0),
+            "orders_cancelled": c.get("order_cancelled", 0),
+            "fills": c.get("fill", 0),
+            "timeouts": c.get("timeout", 0),
+            "budget_exhausted": self.budget_exhausted(),
+            "rss_mb": round(rss_mb, 1),
+        }
