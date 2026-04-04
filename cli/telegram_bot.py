@@ -2434,6 +2434,8 @@ HANDLERS = {
     "sl": cmd_sl,
     "/tp": cmd_tp,
     "tp": cmd_tp,
+    "/start": cmd_menu,
+    "start": cmd_menu,
 }
 
 
@@ -2457,6 +2459,7 @@ def _set_telegram_commands(token: str) -> None:
     """Set the Telegram bot command menu via setMyCommands API."""
     commands = [
         # Interactive Menu
+        {"command": "start", "description": "Open trading terminal"},
         {"command": "menu", "description": "Trading terminal with buttons"},
         # Trading
         {"command": "status", "description": "Portfolio overview"},

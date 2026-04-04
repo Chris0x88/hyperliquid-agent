@@ -66,7 +66,13 @@ class MarketStructureIterator:
         lookback_ms = 30 * 86_400_000  # 30 days
 
         # Determine which markets to compute snapshots for
+        # Start with watchlist (all tracked markets), then add positions + thesis
         markets = set()
+        try:
+            from common.watchlist import get_watchlist_coins
+            markets.update(get_watchlist_coins())
+        except Exception:
+            pass
         for pos in ctx.positions:
             if hasattr(pos, "instrument"):
                 markets.add(pos.instrument)
