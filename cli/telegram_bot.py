@@ -422,13 +422,8 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
     lines = [f"*Portfolio* — {ts}", ""]
 
-    # Spot balances
-    spot = _hl_post({"type": "spotClearinghouseState", "user": MAIN_ADDR})
-    spot_total = 0.0
-    for b in spot.get("balances", []):
-        total = float(b.get("total", 0))
-        if total > 0.01 and b.get("coin") == "USDC":
-            spot_total = total
+    # Spot balances (fetched via _get_account_values below, but need display here)
+    spot_total = 0.0  # populated from _get_account_values
 
     # ALL perp positions (native + xyz clearinghouses)
     positions = _get_all_positions(MAIN_ADDR)
@@ -487,9 +482,8 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
     # Account values
     values = _get_account_values(MAIN_ADDR)
     total_perps = values['native'] + values['xyz']
-    grand_total = total_perps + values.get('spot', 0)
-    if spot_total > grand_total:  # spot_total fetched above, use whichever is higher
-        grand_total = total_perps + spot_total
+    spot_total = values.get('spot', 0)
+    grand_total = total_perps + spot_total
 
     lines.append(f"\n*Equity*")
     lines.append(f"  `${grand_total:,.2f}`")
@@ -504,8 +498,8 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
             side_dot = "🟢" if o.get("side") == "B" else "🔴"
             lines.append(f"  {side_dot} {o.get('sz')} {o.get('coin')} @ `${o.get('limitPx')}`")
 
-    # Vault
-    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
+    # Vault (skip API call if no vault configured)
+    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR}) if VAULT_ADDR else {}
     vmarg = vault.get("marginSummary", {})
     vpos = vault.get("assetPositions", [])
     val = float(vmarg.get("accountValue", 0))
@@ -626,8 +620,8 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
         emoji = "✅" if upnl >= 0 else "🔻"
         lines.append(f"{emoji} {pos.get('coin')}: `{pnl_sign}${upnl:,.2f}`")
 
-    # Vault
-    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
+    # Vault (skip if no vault configured)
+    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR}) if VAULT_ADDR else {}
     vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
     for p in vault.get("assetPositions", []):
         pos = p["position"]
@@ -1194,7 +1188,7 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
             asset_ctxs = meta[1]
             universe = meta[0].get("universe", [])
             for i, u in enumerate(universe):
-                if u.get("name") == coin or u.get("name") == coin.replace("xyz:", ""):
+                if _coin_matches(u.get("name", ""), coin):
                     if i < len(asset_ctxs):
                         fr = float(asset_ctxs[i].get("funding", 0))
                         oi_raw = float(asset_ctxs[i].get("openInterest", 0))
@@ -1276,11 +1270,18 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
         sl_found = False
         tp_found = False
         for o in all_orders:
-            if o.get('coin') == coin:
-                if o.get('orderType') == 'Stop Market' or (o.get('triggerCondition') and o.get('side') != ('B' if size > 0 else 'A')):
-                    sl_found = True
-                elif o.get('reduceOnly'):
-                    tp_found = True
+            if not _coin_matches(o.get('coin', ''), coin):
+                continue
+            tpsl = o.get('tpsl', '')
+            order_type = o.get('orderType', '')
+            is_sl = tpsl == 'sl' or order_type in ('Stop Market', 'Stop Limit')
+            is_tp = tpsl == 'tp' or order_type in ('Take Profit Market', 'Take Profit Limit')
+            if not is_tp and o.get('reduceOnly') and not is_sl:
+                is_tp = True
+            if is_sl:
+                sl_found = True
+            elif is_tp:
+                tp_found = True
         sl_str = "SET" if sl_found else "MISSING"
         tp_str = "SET" if tp_found else "MISSING"
         warn = ""
@@ -2123,6 +2124,15 @@ def _build_tools_menu() -> tuple:
     return text, rows
 
 
+def _menu_dispatch(token: str, chat_id: str, handler, args: str) -> None:
+    """Call a command handler with correct signature (Renderer-based or legacy)."""
+    if handler in RENDERER_COMMANDS:
+        from common.renderer import TelegramRenderer
+        handler(TelegramRenderer(token, chat_id), args)
+    else:
+        handler(token, chat_id, args)
+
+
 def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, message_id: int) -> None:
     """Central router for all mn: prefixed callbacks."""
     # Answer callback immediately to avoid Telegram timeout
@@ -2174,10 +2184,10 @@ def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, messa
         tg_edit_grid(token, chat_id, message_id, text, rows)
 
     elif action == "ord":
-        cmd_orders(token, chat_id, "")
+        _menu_dispatch(token, chat_id, cmd_orders, "")
 
     elif action == "pnl":
-        cmd_pnl(token, chat_id, "")
+        _menu_dispatch(token, chat_id, cmd_pnl, "")
 
     elif action == "run" and len(parts) >= 3:
         cmd_name = parts[2]
@@ -2187,7 +2197,7 @@ def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, messa
         }
         handler = run_map.get(cmd_name)
         if handler:
-            handler(token, chat_id, "")
+            _menu_dispatch(token, chat_id, handler, "")
 
 
 # ── Write action handlers ────────────────────────────────────
