@@ -54,6 +54,10 @@ class Clock:
         self.telemetry = TelemetryRecorder("daemon")
         self.trajectory: Optional[TrajectoryLogger] = None
 
+        # Passivbot-style health window: sliding window error budget
+        from common.telemetry import HealthWindow
+        self.health_window = HealthWindow(window_s=900, error_budget=10)
+
     # ── Iterator management ──────────────────────────────────
 
     def register(self, iterator: Iterator) -> None:
@@ -143,6 +147,9 @@ class Clock:
                     self.telemetry.end_cycle()
                     return
 
+                # Record error in health window
+                self.health_window.record("error")
+
                 if failures >= self.config.max_consecutive_failures:
                     log.warning("[%s] circuit breaker open — %d consecutive failures",
                                 it.name, failures)
@@ -152,6 +159,15 @@ class Clock:
                         message=f"Circuit breaker: {failures} consecutive failures",
                     ))
                     self._maybe_downgrade_tier(ctx)
+
+        # Check health budget — auto-downgrade if too many errors
+        if self.health_window.budget_exhausted():
+            ctx.alerts.append(Alert(
+                severity="critical",
+                source="health_budget",
+                message=f"Error budget exhausted ({self.health_window.budget_summary()}) — auto-downgrading",
+            ))
+            self._maybe_downgrade_tier(ctx)
 
         # Execute queued orders
         self._execute_orders(ctx)
@@ -224,8 +240,10 @@ class Clock:
             try:
                 self._submit_order(intent)
                 self.state.total_trades += 1
+                self.health_window.record("order_placed")
             except Exception as e:
                 log.error("Order execution failed: %s — %s", intent, e)
+                self.health_window.record("error")
 
         ctx.order_queue.clear()
 

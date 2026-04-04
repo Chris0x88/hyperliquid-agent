@@ -1,90 +1,86 @@
-# cli/daemon/ — Daemon Architecture (The Real Workhorse)
+# cli/daemon/ — Daemon Architecture (Running in Production)
 
-Hummingbot-style tick engine with 19 iterators, 3 tiers, and ordered execution. This is the full system — the heartbeat in `common/heartbeat.py` is a simplified stopgap.
+Hummingbot-style tick engine with 19 iterators, 3 tiers, and ordered execution. Running on mainnet in WATCH tier via launchd.
 
-**Status: BUILT, NOT RUNNING. Phase 2 activates this.**
+**Status: RUNNING (WATCH tier, ~120s ticks, mainnet)**
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `clock.py` | Main tick loop. Configurable interval (default 60s). Circuit breaker (5 failures → auto-downgrade). Mock mode. Max-ticks. Graceful shutdown. |
-| `context.py` | `TickContext` — carries all data between iterators each tick. 21 importers. Hub node. |
-| `config.py` | `DaemonConfig` — tier, tick_interval, mock, mainnet, max_ticks, circuit_breaker |
+| `clock.py` | Main tick loop. HealthWindow error budget. Circuit breaker (5 failures → auto-downgrade). |
+| `context.py` | `TickContext` — hub node. `OrderState` enum for order lifecycle tracking. |
+| `config.py` | `DaemonConfig` — tier, tick_interval, mock, mainnet |
 | `tiers.py` | Maps tiers → iterator sets. WATCH (10), REBALANCE (+7), OPPORTUNISTIC (+2) |
-| `state.py` | `StateStore` — persistent daemon state across restarts |
-| `roster.py` | `Roster` — manages strategy slots for rebalancer |
+| `state.py` | `StateStore` — PID management, persistent state |
+| `roster.py` | `Roster` — manages strategy slots |
 
-## Iterator Inventory (19 total)
+## Risk Architecture (Hardened)
 
-### WATCH tier (observation only, safe):
-| Iterator | File | Purpose | Tick Rate |
-|----------|------|---------|-----------|
-| Connector | `iterators/connector.py` | Fetch prices, positions, balances from HL | Every tick |
-| AccountCollector | `iterators/account_collector.py` | Timestamped equity snapshots, HWM, drawdown | 5 min |
-| MarketStructure | `iterators/market_structure_iter.py` | Pre-compute 1h/4h technicals | 5 min |
-| ThesisEngine | `iterators/thesis_engine.py` | Load conviction from thesis files | Every tick |
-| Liquidity | `iterators/liquidity.py` | Regime detection: NORMAL/LOW/WEEKEND/DANGEROUS | Every tick |
-| Risk | `iterators/risk.py` | Risk gate: OPEN/COOLDOWN/CLOSED | Every tick |
-| AutoResearch | `iterators/autoresearch.py` | 30-min learning loop evaluation | 30 min |
-| MemoryConsolidation | `iterators/memory_consolidation.py` | Compress old events | 1 hour |
-| Journal | `iterators/journal.py` | Log tick snapshot to ticks.jsonl | Every tick |
-| Telegram | `iterators/telegram.py` | Send alerts, rate-limited | As needed |
+### Composable Protection Chain (Freqtrade + LEAN pattern)
 
-### REBALANCE tier (adds position management):
-| Iterator | File | Purpose |
-|----------|------|---------|
-| ExecutionEngine | `iterators/execution_engine.py` | Conviction → position sizing (Druckenmiller bands) |
-| ExchangeProtection | `iterators/exchange_protection.py` | Place liq-buffer SL (ruin prevention only) |
-| Guard | `iterators/guard.py` | Trailing stops, profit protection |
-| Rebalancer | `iterators/rebalancer.py` | Run roster strategies |
-| ProfitLock | `iterators/profit_lock.py` | Sweep 25% realized profits |
-| FundingTracker | `iterators/funding_tracker.py` | Hourly funding cost accounting |
-| CatalystDeleverage | `iterators/catalyst_deleverage.py` | Pre-event leverage reduction |
+`parent/risk_manager.py` — `ProtectionChain` runs independent protections, worst gate wins:
 
-### OPPORTUNISTIC tier (adds scanning):
-| Iterator | File | Purpose |
-|----------|------|---------|
-| Radar | `iterators/radar.py` | Opportunity scanner (5 min) |
-| Pulse | `iterators/pulse.py` | Momentum detector (2 min) |
+| Protection | Trigger | Gate |
+|-----------|---------|------|
+| `MaxDrawdownProtection` | 15% drawdown → COOLDOWN, 25% → CLOSED | Position-aware (flat = no alert) |
+| `StoplossGuardProtection` | 3 consecutive losses → COOLDOWN (30min) | Auto-expires |
+| `DailyLossProtection` | 5% daily loss → CLOSED | Resets daily |
+| `RuinProtection` | 40% drawdown → CLOSED + close all | Kill switch |
 
-## Execution Order (per tick)
-```
-1. Connector → 2. AccountCollector → 3. MarketStructure →
-4. ThesisEngine → 5. Liquidity → 6. Risk →
-7. ExchangeProtection → 8. Guard → 9. ExecutionEngine →
-10. Rebalancer → 11. ProfitLock → 12. FundingTracker →
-13. CatalystDeleverage → 14. Radar → 15. Pulse →
-16. AutoResearch → 17. Journal → 18. MemoryConsolidation →
-19. Telegram
-```
+Chain wired into `RiskIterator.tick()`. Results merged with existing pre_round_check. Single consolidated alert per tick (no spam).
 
-## Safety
-- **Circuit breaker**: 5 consecutive tick failures → auto-downgrade tier
-- **Mock mode**: `--mock` → no real orders
-- **Max ticks**: `--max-ticks N` → auto-stop
-- **Ruin prevention**: 25% drawdown halts entries, 40% closes all (unconditional)
-- **Graceful shutdown**: SIGINT/SIGTERM handled
+### Health Window (Passivbot error budget)
 
-## Relationship to Current Running System
+`common/telemetry.py` → `HealthWindow` — 15min sliding window tracking: orders_placed, cancelled, fills, errors, timeouts. If errors ≥ 10/window → auto-downgrade tier.
 
-The heartbeat (`common/heartbeat.py`) is a simplified version that handles:
-- Position monitoring + stop placement
-- Escalation alerts
-- Conviction engine integration
-- Hourly status reports
+Wired into `Clock._tick()`: records errors on iterator failures, records order events in `_execute_orders()`.
 
-The daemon adds 12 more capabilities: guard trailing stops, radar scanning, pulse detection, auto-research, journal, memory consolidation, profit locking, funding tracking, catalyst deleverage, and full execution engine.
+### Alert System
 
-**Phase 2 plan:** Start daemon in WATCH alongside heartbeat for 24h comparison. Then switch launchd to daemon, keep heartbeat as fallback.
+`iterators/telegram.py` — Severity-aware dedup cooldowns:
+- critical: 15min (persistent conditions re-alert)
+- warning: 1hr
+- info: 4hr
 
-## CLI Commands
+Escalation: if same critical alert fires twice → "🚨 ACTION REQUIRED" prefix.
+
+### HWM / Drawdown
+
+`iterators/account_collector.py`:
+- Auto-resets HWM when flat (no positions) — no phantom drawdowns
+- total_equity = perps (native + xyz) + spot USDC
+- Alerts only fire when has_positions == True
+
+### Risk Gate States
+
+| State | Behavior |
+|-------|----------|
+| `OPEN` | Normal trading |
+| `COOLDOWN` | Exits allowed, new entries blocked |
+| `CLOSED` | All trading halted, exchange SLs remain |
+
+Gate transitions: `record_loss()` escalates OPEN→COOLDOWN→CLOSED. `check_auto_expiry()` de-escalates COOLDOWN→OPEN after 30min. `daily_reset()` clears everything.
+
+## MarketStructure Iterator
+
+Computes `MarketSnapshot` for ALL watchlist coins (not just position coins). Self-fetches prices from both clearinghouses for coins not in Connector's instrument list.
+
+## Process Management
+
+- Single-instance: pacman kill pattern (SIGTERM → sleep → SIGKILL)
+- LaunchD: `com.hyperliquid.daemon` with KeepAlive=true
+- PID file: `data/daemon/daemon.pid`
+
+## Launch
+
 ```bash
-hl daemon start --tier watch --mock --max-ticks 10   # Safest test
-hl daemon start --tier watch --max-ticks 100          # Real data, no trading
-hl daemon start --tier rebalance --mainnet            # Production (careful!)
-hl daemon stop                                         # Graceful stop
-hl daemon status                                       # Health check
+# Via launchd (production):
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hyperliquid.daemon.plist
+
+# Direct (testing):
+hl daemon start --tier watch --mainnet --tick 120
+hl daemon start --tier watch --mock --max-ticks 10  # safest test
 ```
 
 ## Testing

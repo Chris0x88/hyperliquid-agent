@@ -1,80 +1,87 @@
-# cli/ — Commands, Telegram Bot, AI Agent, Tools
+# cli/ — Commands, Telegram Bot, Interactive Menu, AI Agent, Tools
 
-The primary interface layer. Contains 23 CLI commands, the Telegram bot (28 handlers), the AI agent with tool-calling, and the MCP server. This is the v2/v3 heart of the system.
+The primary interface layer. Telegram bot with 31 commands + interactive button menu, AI agent with triple-mode tool-calling, position management write commands, and the MCP server.
 
 ## Key Areas
 
-### Telegram Bot + AI Agent (v2/v3 core)
+### Telegram Bot (v3.2 — Interactive Menu System)
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `telegram_bot.py` | ~1900+ | Polling loop (2s), 28 command handlers, callback router (model/approve/reject), AI message routing, /addmarket /removemarket |
-| `telegram_agent.py` | ~830+ | OpenRouter integration, tool-calling loop (max 3), context pipeline, fresh candle injection, chat history sanitization |
-| `agent_tools.py` | ~550 | 9 tools (7 READ auto-execute, 2 WRITE with approval gates), pending action store (5min TTL) |
+| `telegram_bot.py` | ~2700 | 31 command handlers, interactive button menu, callback router (model/approve/reject/mn:), write commands (/close /sl /tp), AI routing |
+| `telegram_agent.py` | ~850 | OpenRouter integration, triple-mode tool-calling, context pipeline, candle refresh (1h/4h/1d) |
+| `agent_tools.py` | ~700 | 12 tools (7 READ, 5 WRITE with approval), pending action store + cleanup |
 
-**Data flow:** User message → `telegram_bot.py` (polling) → free text routed to `telegram_agent.py` → refreshes candle cache from HL API → builds context (account + positions + technicals + thesis + memory) → calls OpenRouter with tool definitions → tool results fed back → response to Telegram.
+### Interactive Menu System
 
-**Centralized watchlist:** All market lists read from `common/watchlist.py` (backed by `data/config/watchlist.json`). `/addmarket` searches HL API and adds to config. `/removemarket` removes. No more editing 6+ files to add a market.
+Entry: `/menu` or `/start` → button grid adapts to your actual positions.
 
-**Context poisoning defenses (v3.1):** Fresh candle injection every prompt via `_refresh_candle_cache()`. Freshness guard skips technicals if candles >4h stale. Chat history sanitizer strips RSI/Signal/BB/EMA/ATR from old messages. `<thought>` tag extracts intent for memory-safe logging.
-
-**Dual-mode tool calling:** Paid models use native `tool_calls`. Free models use text-based `[TOOL: name {args}]` parsed by `_parse_text_tool_calls()`. Both paths converge at `execute_tool()`.
-
-**WRITE tool approval:** `place_trade` and `update_thesis` store pending actions, send Telegram inline keyboard [Approve/Reject], execute only on approval. 5-min TTL auto-expire.
-
-**Coin name normalization (RECURRING BUG):** xyz clearinghouse returns `xyz:BRENTOIL`, native returns `BTC`. Use `_coin_matches()` or compare both `name` and `name.replace("xyz:", "")`. This has caused silent failures multiple times.
-
-### CLI Commands (23 total)
-
-Entry point: `cli/main.py` — Typer app. Run via `hl <command>`.
-
-| Command | File | Purpose |
-|---------|------|---------|
-| `hl status` | `commands/status.py` | Positions, PnL, risk |
-| `hl trade` | `commands/trade.py` | Manual order placement |
-| `hl daemon` | `commands/daemon.py` | Monitoring loop |
-| `hl reflect` | `commands/reflect.py` | Performance review |
-| `hl mcp` | `commands/mcp.py` | MCP server (`hl mcp serve`) |
-| `hl telegram` | `commands/telegram.py` | Telegram bot control |
-| + 17 more | `commands/` | account, strategies, guard, radar, pulse, apex, wallet, setup, skills, journal, keys, markets, data, backtest, heartbeat_cmd, commands |
-
-### MCP Server
-
-`cli/mcp_server.py` — FastMCP with 17 tools. Launch: `hl mcp serve`. Used by OpenClaw agent (legacy) and potentially future integrations.
-
-### Other Files
-
-| File | Purpose |
-|------|---------|
-| `strategy_registry.py` | 27 registered strategies |
-| `config.py` | TradingConfig + YAML loading |
-| `engine.py` | Legacy single-strategy engine |
-| `hl_adapter.py` | DirectHLProxy wrapper for SDK |
-| `chart_engine.py` | Price chart generation (matplotlib) |
-| `telegram_handler.py` | Legacy handler (not actively used) |
-
-## Upstream
-- `main.py` routes to all commands
-- launchd launches telegram_bot.py
-- OpenClaw gateway calls MCP server (legacy path)
-
-## Downstream
-- Commands call into `common/`, `modules/`, `parent/`
-- AI agent calls `common/context_harness.py`, `common/market_snapshot.py`
-- Agent tools call `parent/hl_proxy.py`, `common/thesis.py`, `modules/candle_cache.py`
-
-## Current Status (v3.1)
-- All 23 CLI commands work
-- Telegram bot running with 28 handlers + AI router + inline keyboards
-- AI agent running with 9 tools, dual-mode calling, approval gates
-- MCP server starts with 17 tools
-- Context pipeline: account + positions + fresh candle injection + technicals + thesis + memory (3500 token budget)
-- 18 curated models (10 free, 8 paid) switchable via /models
-- Centralized watchlist: `common/watchlist.py` → `data/config/watchlist.json`
-- Tool call diagnostics wired to `common/diagnostics.py` (visible in /diag)
-
-## Testing
-```bash
-.venv/bin/python -m pytest tests/test_config.py tests/test_engine.py tests/test_strategy_registry.py -x -q
-# Note: telegram_agent.py and agent_tools.py lack test coverage (gap)
 ```
+/menu (main)
+├── [Position buttons] → position detail
+│   ├── [Close] [SL] [TP] → approval flow
+│   ├── [Chart 4h/24h/7d]
+│   └── [Technicals] → full signal engine
+├── [Orders] [PnL]
+├── [Watchlist] → coin grid → market detail
+└── [Tools] → Status/Health/Diag/Models/Authority/Memory
+```
+
+Button callbacks use `mn:` prefix, routed by `_handle_menu_callback()`. Menu navigation edits messages in-place (no chat flooding). Every button has a slash command fallback.
+
+### Write Commands (with approval flow)
+
+| Command | What it does | Approval |
+|---------|-------------|----------|
+| `/close BTC` | Market close position | Yes |
+| `/sl BTC 65500` | Set stop-loss trigger order | Yes |
+| `/tp BTC 72000` | Set take-profit trigger order | Yes |
+
+All use `DirectHLProxy` methods: `market_order()`, `place_trigger_order()`, `place_tp_trigger_order()`. Approval reuses `store_pending()`/`pop_pending()` from agent_tools.py.
+
+### Signal Engine
+
+`/market <coin>` fires the full signal engine:
+1. Refreshes candles for 1h, 4h, 1d via `_refresh_candle_cache_for_market()`
+2. `build_snapshot()` computes all indicators
+3. `render_signal_summary()` produces actionable analysis:
+   - Multi-timeframe confluence, exhaustion/capitulation detection
+   - RSI divergence, BB squeeze, volume flow, volatility regime
+   - Position-specific guidance (supports/against your position)
+
+### Order Display
+
+Uses `frontendOpenOrders` API (not basic `openOrders`) — returns `orderType`, `triggerPx`, `tpsl`, `reduceOnly`. Orders labeled as 🛡 SL, 🎯 TP, or BUY/SELL. `sz=0` displayed as "whole position". Position detail shows SL/TP coverage analysis.
+
+### Triple-Mode Tool Calling
+
+1. Native `tool_calls` (paid models) → execute via `agent_tools.execute_tool()`
+2. Regex `[TOOL: name {args}]` (free models) → `_parse_text_tool_calls()`
+3. Python code blocks (free models) → AST parser `common/code_tool_parser.py`
+
+Fallback chain: native → regex → code blocks. All converge at execution.
+
+### Context Pipeline
+
+Every AI message: fetch account state → refresh candles (1h/4h/1d for ALL watchlist + position coins) → build_multi_market_context with 3500 token budget → inject as LIVE CONTEXT.
+
+Position-aware: coins with open positions automatically included even if not watchlisted.
+
+### Infrastructure
+
+- **Pending action cleanup:** `cleanup_expired_pending()` runs every 60s in polling loop
+- **Position cache:** 5s TTL for rapid menu navigation
+- **Candle cache:** 1h freshness check before any snapshot build
+- **Single instance:** PID file + pgrep scan (pacman pattern)
+
+### UI Portability
+
+`common/renderer.py` defines `Renderer` ABC with `TelegramRenderer` and `BufferRenderer`. Future web app: implement `WebRenderer`, migrate commands to accept `renderer` instead of `(token, chat_id)`. Migration is incremental — 5 commands at a time.
+
+## Current Status (v3.2)
+- Telegram bot: 31 handlers + interactive menu + 5 write tools + signal engine
+- AI agent: 12 tools, triple-mode calling, approval gates
+- Context: fresh 1h/4h/1d candles, position-aware, 3500 token budget
+- Orders: frontendOpenOrders API, SL/TP labels, coverage analysis
+- Renderer interface exists for future web app portability
+- 1631 tests passing
