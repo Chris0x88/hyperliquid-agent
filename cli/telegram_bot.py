@@ -26,6 +26,8 @@ from typing import Optional
 
 import requests
 
+from common.renderer import Renderer, TelegramRenderer
+
 # Ensure project root on path
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
@@ -411,7 +413,7 @@ def _liquidity_regime() -> str:
 
 # ── Command handlers (fixed code, zero AI) ───────────────────
 
-def cmd_status(token: str, chat_id: str, _args: str) -> None:
+def cmd_status(renderer: Renderer, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
     lines = [f"*Portfolio* — {ts}", ""]
 
@@ -509,10 +511,10 @@ def cmd_status(token: str, chat_id: str, _args: str) -> None:
             vpnl_sign = "+" if vupnl >= 0 else ""
             lines.append(f"  BTC `{pos['szi']}` @ `${pos['entryPx']}` • uPnL `{vpnl_sign}${vupnl:,.2f}`")
 
-    tg_send(token, chat_id, "\n".join(lines))
+    renderer.send_text("\n".join(lines))
 
 
-def cmd_price(token: str, chat_id: str, _args: str) -> None:
+def cmd_price(renderer: Renderer, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
     lines = [f"💲 *Prices* — {ts}", ""]
 
@@ -539,7 +541,7 @@ def cmd_price(token: str, chat_id: str, _args: str) -> None:
         else:
             lines.append(f"{emoji} {name}: `${price:,.2f}`")
 
-    tg_send(token, chat_id, "\n".join(lines))
+    renderer.send_text("\n".join(lines))
 
 
 def _format_order_line(o: dict) -> str:
@@ -579,10 +581,10 @@ def _format_order_line(o: dict) -> str:
     return f"{icon} *{label}* {coin} — {sz_str} @ `${px}`"
 
 
-def cmd_orders(token: str, chat_id: str, _args: str) -> None:
+def cmd_orders(renderer: Renderer, _args: str) -> None:
     orders = _get_all_orders(MAIN_ADDR)
     if not orders:
-        tg_send(token, chat_id, "📋 No open orders")
+        renderer.send_text("📋 No open orders")
         return
 
     # Group by coin
@@ -598,7 +600,7 @@ def cmd_orders(token: str, chat_id: str, _args: str) -> None:
             lines.append(f"  {_format_order_line(o)}")
         lines.append("")
 
-    tg_send(token, chat_id, "\n".join(lines))
+    renderer.send_text("\n".join(lines))
 
 
 def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
@@ -1360,7 +1362,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "\n`/help` for full command list")
 
 
-def cmd_health(token: str, chat_id: str, _args: str) -> None:
+def cmd_health(renderer: Renderer, _args: str) -> None:
     """App health check — shows what's running and what isn't."""
     from common.authority import get_all as get_all_authority
 
@@ -1474,9 +1476,48 @@ def cmd_health(token: str, chat_id: str, _args: str) -> None:
     else:
         lines.append("  Authority: all manual")
 
+    # 8. Health metrics (HealthWindow + pending actions)
+    lines.append("")
+    lines.append("*Health Metrics*")
+
+    tel_path = Path("state/telemetry.json")
+    hw_shown = False
+    if tel_path.exists():
+        try:
+            tel = json.loads(tel_path.read_text())
+            hw = tel.get("health_window")
+            if hw:
+                window_min = hw.get("window_s", 900) // 60
+                placed = hw.get("orders_placed", 0)
+                cancelled = hw.get("orders_cancelled", 0)
+                fills = hw.get("fills", 0)
+                errors = hw.get("errors", 0)
+                budget = hw.get("error_budget", 10)
+                rss_mb = hw.get("rss_mb", 0)
+                exhausted = hw.get("budget_exhausted", False)
+                err_icon = "🔴" if exhausted else ("🟡" if errors > 0 else "🟢")
+                lines.append(
+                    f"  Orders ({window_min}min): placed `{placed}` · cancelled `{cancelled}` · filled `{fills}`"
+                )
+                lines.append(f"  {err_icon} Errors: `{errors}/{budget}` budget")
+                lines.append(f"  RSS memory: `{rss_mb:.1f} MB`")
+                hw_shown = True
+        except Exception:
+            pass
+
+    if not hw_shown:
+        lines.append("  No telemetry data (daemon not running?)")
+
+    try:
+        from cli.agent_tools import pending_count
+        pc = pending_count()
+        lines.append(f"  Pending actions: `{pc}`")
+    except Exception:
+        pass
+
     lines.append("")
     lines.append("`/diag` for error details")
-    tg_send(token, chat_id, "\n".join(lines))
+    renderer.send_text("\n".join(lines))
 
 
 def cmd_memory(token: str, chat_id: str, _args: str) -> None:
@@ -1791,6 +1832,56 @@ def cmd_diag(token: str, chat_id: str, _args: str) -> None:
                 src = data.get('source', data.get('tool', '?'))
                 msg = data.get('message', data.get('error', '?'))[:80]
                 lines.append(f"  `{src}`: {msg}")
+
+    tg_send(token, chat_id, "\n".join(lines))
+
+
+def cmd_thesis(token: str, chat_id: str, _args: str) -> None:
+    """Show all thesis states with age and conviction. Usage: /thesis"""
+    from common.thesis import ThesisState, DEFAULT_THESIS_DIR
+    from cli.daemon.iterators.thesis_engine import _WARN_AGE_H, _CLAMP_AGE_H
+
+    states = ThesisState.load_all(DEFAULT_THESIS_DIR)
+    if not states:
+        tg_send(token, chat_id, "*Thesis States*\n\nNo thesis files found.")
+        return
+
+    lines = ["*Thesis States*", ""]
+    for market, state in sorted(states.items()):
+        age_h = state.age_hours
+        raw_conv = state.conviction
+        if age_h > _CLAMP_AGE_H:
+            effective = raw_conv * 0.5 * (1.0 if not state.is_stale else state.effective_conviction() / raw_conv)
+            clamp_note = f" ⚠️ clamped 50%"
+        else:
+            effective = state.effective_conviction()
+            clamp_note = ""
+
+        if age_h > _CLAMP_AGE_H:
+            age_icon = "🔴"
+        elif age_h > _WARN_AGE_H:
+            age_icon = "🟡"
+        else:
+            age_icon = "🟢"
+
+        if age_h >= 48:
+            age_str = f"{age_h:.0f}h"
+        else:
+            age_str = f"{age_h:.1f}h"
+
+        direction_icon = {"long": "📈", "short": "📉", "flat": "➡️"}.get(state.direction, "")
+        short_market = market.split(":")[-1]
+        lines.append(
+            f"{age_icon} *{short_market}* {direction_icon} {state.direction.upper()}"
+        )
+        lines.append(
+            f"  Conviction: `{raw_conv:.2f}` → effective `{effective:.2f}`{clamp_note}"
+        )
+        lines.append(f"  Age: `{age_str}`")
+        if state.thesis_summary:
+            summary = state.thesis_summary[:80] + ("…" if len(state.thesis_summary) > 80 else "")
+            lines.append(f"  _{summary}_")
+        lines.append("")
 
     tg_send(token, chat_id, "\n".join(lines))
 
@@ -2250,7 +2341,7 @@ def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
 
 # ── New command handlers ──────────────────────────────────────
 
-def cmd_menu(token: str, chat_id: str, args: str) -> None:
+def cmd_menu(renderer: Renderer, args: str) -> None:
     """Interactive trading terminal with button navigation."""
     if args.strip():
         # Jump to position detail if a coin is given
@@ -2260,10 +2351,10 @@ def cmd_menu(token: str, chat_id: str, args: str) -> None:
             text, rows = _build_position_detail(resolved)
         else:
             text, rows = _build_position_detail(coin)
-        tg_send_grid(token, chat_id, text, rows)
+        renderer.send_grid(text, rows)
     else:
         text, rows = _build_main_menu()
-        tg_send_grid(token, chat_id, text, rows)
+        renderer.send_grid(text, rows)
 
 
 def cmd_close(token: str, chat_id: str, args: str) -> None:
@@ -2356,6 +2447,12 @@ def cmd_tp(token: str, chat_id: str, args: str) -> None:
         _handle_tp_prompt(token, chat_id, resolved)
 
 
+# Commands that have been migrated to accept (renderer, args) instead of (token, chat_id, args).
+# The dispatch shim in the polling loop creates a TelegramRenderer for these.
+RENDERER_COMMANDS = {
+    cmd_status, cmd_price, cmd_orders, cmd_health, cmd_menu,
+}
+
 HANDLERS = {
     "/status": cmd_status,
     "/price": cmd_price,
@@ -2390,6 +2487,7 @@ HANDLERS = {
     "/model": cmd_models,
     "/health": cmd_health,
     "/h": cmd_health,
+    "/thesis": cmd_thesis,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -2426,6 +2524,7 @@ HANDLERS = {
     "model": cmd_models,
     "health": cmd_health,
     "h": cmd_health,
+    "thesis": cmd_thesis,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -2645,7 +2744,11 @@ def run() -> None:
                 log.info("Command: %s (chat=%s)", cmd_key, reply_chat_id)
                 try:
                     args = text[len(text.split()[0]):].strip()
-                    HANDLERS[cmd_key](token, reply_chat_id, args)
+                    handler = HANDLERS[cmd_key]
+                    if handler in RENDERER_COMMANDS:
+                        handler(TelegramRenderer(token, reply_chat_id), args)
+                    else:
+                        handler(token, reply_chat_id, args)
                     # Log to chat history so AI knows what commands were used
                     try:
                         from cli.telegram_agent import _log_chat

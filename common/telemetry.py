@@ -85,6 +85,7 @@ class TelemetryRecorder:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.filepath = self.state_dir / "telemetry.json"
         self._current: Optional[CycleMetrics] = None
+        self._health_window_data: Optional[Dict[str, Any]] = None
 
         # Rolling history for trend detection (last N cycles)
         self._history: List[Dict[str, Any]] = []
@@ -130,6 +131,10 @@ class TelemetryRecorder:
             return
         self._current.orders_executed += count
 
+    def set_health_window(self, data: Dict[str, Any]) -> None:
+        """Store health window snapshot to be included in the next end_cycle() write."""
+        self._health_window_data = data
+
     def end_cycle(self) -> None:
         """Finalize the current cycle and write metrics to disk."""
         if not self._current:
@@ -158,11 +163,14 @@ class TelemetryRecorder:
             self._history = self._history[-self._max_history:]
 
         # Write to file — atomic via tmp + rename
-        output = {
+        output: Dict[str, Any] = {
             "latest": summary,
             "current_cycle_actions": [asdict(a) for a in self._current.actions],
             "history": self._history,
         }
+        if self._health_window_data is not None:
+            output["health_window"] = self._health_window_data
+            self._health_window_data = None
 
         tmp_path = self.filepath.with_suffix(".tmp")
         try:

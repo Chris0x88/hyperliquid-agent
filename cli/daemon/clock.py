@@ -184,6 +184,7 @@ class Clock:
         self.roster.save()
 
         # Finalize telemetry + trajectory for this tick
+        self.telemetry.set_health_window(self.health_window.to_dict())
         self.telemetry.end_cycle()
         if self.trajectory:
             self.trajectory.log("tick_complete", details={
