@@ -1939,7 +1939,8 @@ def _build_main_menu() -> tuple:
     values = _get_account_values(MAIN_ADDR)
     total = values['native'] + values['xyz'] + values.get('spot', 0)
 
-    lines = [f"📊 *Trading Terminal* — {ts}", f"Equity: `${total:,.2f}`", ""]
+    acct_label = "Vault" if _active_account == "vault" else "Main"
+    lines = [f"📊 *Trading Terminal* — {ts}", f"Account: *{acct_label}* | Equity: `${total:,.2f}`", ""]
 
     rows = []
 
@@ -1964,14 +1965,17 @@ def _build_main_menu() -> tuple:
     else:
         lines.append("_No open positions_\n")
 
-    # Utility row
+    # Trade + utility rows
     order_count = len(orders)
     rows.append([
+        _btn("📈 New Trade", "mn:trade"),
         _btn(f"📋 Orders ({order_count})", "mn:ord"),
-        _btn("💰 PnL", "mn:pnl"),
     ])
     rows.append([
+        _btn("💰 PnL", "mn:pnl"),
         _btn("📊 Watchlist", "mn:watch"),
+    ])
+    rows.append([
         _btn("⚙️ Tools", "mn:tools"),
     ])
 
@@ -2112,10 +2116,110 @@ def _build_watchlist_menu() -> tuple:
     return "\n".join(lines), rows
 
 
+def _build_trade_menu() -> tuple:
+    """Build trade market selection. Returns (text, rows)."""
+    from common.watchlist import load_watchlist
+    wl = load_watchlist()
+
+    lines = ["📈 *New Trade — Select Market*", ""]
+    rows = []
+    btns = []
+    for m in wl:
+        coin = m["coin"]
+        price = _get_current_price(coin)
+        if price:
+            label = f"{m['display']} ${price:,.2f}"
+        else:
+            label = m["display"]
+        btns.append(_btn(label, f"mn:buy:{coin}"))
+
+    for i in range(0, len(btns), 2):
+        rows.append(btns[i:i+2])
+
+    rows.append([_btn("« Back", "mn:main")])
+    return "\n".join(lines), rows
+
+
+def _build_trade_side_menu(coin: str) -> tuple:
+    """Build buy/sell selection for a specific coin. Returns (text, rows)."""
+    price = _get_current_price(coin)
+    px_str = f"${price:,.2f}" if price else "—"
+    display = coin.replace("xyz:", "")
+
+    # Check if already have a position
+    pos = _find_position(coin)
+    pos_line = ""
+    if pos:
+        size = float(pos.get("szi", 0))
+        direction = "LONG" if size > 0 else "SHORT"
+        upnl = float(pos.get("unrealizedPnl", 0))
+        pos_line = f"\nExisting: {direction} `{abs(size):.1f}` | uPnL `${upnl:+,.2f}`"
+
+    # Active account
+    acct_label = "Vault" if _active_account == "vault" else "Main"
+
+    lines = [
+        f"📈 *Trade {display}*",
+        f"Price: `{px_str}`",
+        f"Account: *{acct_label}*",
+    ]
+    if pos_line:
+        lines.append(pos_line)
+
+    rows = [
+        [_btn(f"🟢 BUY {display}", f"mn:side:{coin}:buy"),
+         _btn(f"🔴 SELL {display}", f"mn:side:{coin}:sell")],
+        [_btn("« Back", "mn:trade")],
+    ]
+
+    return "\n".join(lines), rows
+
+
+# ── Account context ────────────────────────────────────────────
+_active_account = "main"  # "main" or "vault"
+
+
+def _get_active_addr() -> str:
+    """Return address for the active account context."""
+    if _active_account == "vault" and VAULT_ADDR:
+        return VAULT_ADDR
+    return MAIN_ADDR
+
+
+def _build_account_menu() -> tuple:
+    """Build account switcher. Returns (text, rows)."""
+    lines = [f"🔄 *Account Switcher*", ""]
+
+    # Main account
+    main_vals = _get_account_values(MAIN_ADDR)
+    main_total = main_vals['native'] + main_vals['xyz'] + main_vals.get('spot', 0)
+    main_check = " ✅" if _active_account == "main" else ""
+    lines.append(f"Main: `${main_total:,.2f}`{main_check}")
+
+    # Vault
+    if VAULT_ADDR:
+        vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
+        vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
+        vault_check = " ✅" if _active_account == "vault" else ""
+        lines.append(f"Vault: `${vault_val:,.2f}`{vault_check}")
+
+    rows = [
+        [_btn(f"👤 Main{main_check}", "mn:acct:main")],
+    ]
+    if VAULT_ADDR:
+        vault_check_btn = " ✅" if _active_account == "vault" else ""
+        rows.append([_btn(f"🏦 Vault{vault_check_btn}", "mn:acct:vault")])
+
+    rows.append([_btn("« Back", "mn:tools")])
+    return "\n".join(lines), rows
+
+
 def _build_tools_menu() -> tuple:
     """Build tools sub-menu. Returns (text, rows)."""
-    text = "⚙️ *Tools*"
+    acct_label = "Vault" if _active_account == "vault" else "Main"
+    text = f"⚙️ *Tools* — Account: *{acct_label}*"
     rows = [
+        [_btn(f"🔄 Switch Account ({acct_label})", "mn:acct")],
         [_btn("📊 Status", "mn:run:status"), _btn("🏥 Health", "mn:run:health")],
         [_btn("🔧 Diag", "mn:run:diag"), _btn("🤖 Models", "mn:run:models")],
         [_btn("🔑 Authority", "mn:run:authority"), _btn("🧠 Memory", "mn:run:memory")],
@@ -2199,8 +2303,77 @@ def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, messa
         if handler:
             _menu_dispatch(token, chat_id, handler, "")
 
+    # ── Trade flow ──
+    elif action == "trade":
+        text, rows = _build_trade_menu()
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "buy" and len(parts) >= 3:
+        coin = ":".join(parts[2:])
+        text, rows = _build_trade_side_menu(coin)
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
+    elif action == "side" and len(parts) >= 4:
+        # mn:side:xyz:CL:buy → coin=xyz:CL, side=buy
+        # Find the last part as side, rest is coin
+        side = parts[-1]
+        coin = ":".join(parts[2:-1])
+        _handle_trade_size_prompt(token, chat_id, coin, side)
+
+    # ── Account switching ──
+    elif action == "acct" and len(parts) >= 3:
+        global _active_account
+        _active_account = parts[2]
+        tg_send(token, chat_id, f"✅ Switched to *{_active_account.title()}* account")
+        # Refresh main menu
+        text, rows = _build_main_menu()
+        tg_send_grid(token, chat_id, text, rows)
+
+    elif action == "acct":
+        text, rows = _build_account_menu()
+        tg_edit_grid(token, chat_id, message_id, text, rows)
+
 
 # ── Write action handlers ────────────────────────────────────
+
+def _handle_trade_size_prompt(token: str, chat_id: str, coin: str, side: str) -> None:
+    """Prompt user for trade size, store pending input state."""
+    coin_name = coin
+    current = _get_current_price(coin_name)
+    px_str = f"${current:,.2f}" if current else "—"
+    display = coin.replace("xyz:", "")
+    side_label = "BUY (LONG)" if side == "buy" else "SELL (SHORT)"
+    side_icon = "🟢" if side == "buy" else "🔴"
+
+    # Check existing position
+    pos = _find_position(coin)
+    pos_line = ""
+    if pos:
+        sz = float(pos.get("szi", 0))
+        direction = "LONG" if sz > 0 else "SHORT"
+        pos_line = f"\nExisting position: {direction} `{abs(sz):.1f}`"
+
+    # Active account
+    acct_label = "Vault" if _active_account == "vault" else "Main"
+    values = _get_account_values(_get_active_addr())
+    equity = values['native'] + values['xyz'] + values.get('spot', 0)
+
+    _pending_inputs[chat_id] = {
+        "type": "trade",
+        "coin": coin_name,
+        "side": side,
+        "current": current,
+        "account": _active_account,
+        "ts": time.time(),
+    }
+
+    tg_send(token, chat_id,
+        f"{side_icon} *{side_label} {display}*\n\n"
+        f"Price: `{px_str}`\n"
+        f"Account: *{acct_label}* (`${equity:,.2f}`)"
+        f"{pos_line}\n\n"
+        f"Reply with size (number of contracts):")
+
 
 def _find_position(coin: str) -> dict | None:
     """Find a position by coin name (handles xyz: prefix matching)."""
@@ -2328,7 +2501,7 @@ def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
 
     # Try to parse as a number
     try:
-        price = float(text.strip().replace("$", "").replace(",", ""))
+        value = float(text.strip().replace("$", "").replace(",", ""))
     except ValueError:
         return False  # Not a number — let it fall through to normal routing
 
@@ -2337,27 +2510,52 @@ def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
 
     from cli.agent_tools import store_pending
 
-    tool_name = "set_sl" if pending["type"] == "sl" else "set_tp"
-    args = {
-        "coin": pending["coin"],
-        "trigger_price": price,
-        "side": pending["side"],
-        "size": pending["size"],
-        "dex": pending.get("dex", ""),
-    }
-    action_id = store_pending(tool_name, args, chat_id)
+    if pending["type"] == "trade":
+        # Trade: value is size (contracts)
+        size = value
+        args = {
+            "coin": pending["coin"],
+            "side": pending["side"],
+            "size": size,
+        }
+        action_id = store_pending("place_trade", args, chat_id)
 
-    label = "Stop-Loss" if pending["type"] == "sl" else "Take-Profit"
-    icon = "🛡" if pending["type"] == "sl" else "🎯"
-    order_type = "Stop Market" if pending["type"] == "sl" else "Take Profit Market"
-    text_msg = (
-        f"{icon} *Confirm {label}*\n\n"
-        f"*{pending['coin']}*\n"
-        f"Type: `{order_type}` (reduce-only)\n"
-        f"Trigger: `${price:,.2f}`\n"
-        f"Side: `{pending['side'].upper()}` | Size: whole position\n\n"
-        f"Approve or reject:"
-    )
+        side_icon = "🟢" if pending["side"] == "buy" else "🔴"
+        side_label = "BUY" if pending["side"] == "buy" else "SELL"
+        current = pending.get("current")
+        px_str = f" @ ~`${current:,.2f}`" if current else ""
+        acct = pending.get("account", "main").title()
+        text_msg = (
+            f"{side_icon} *Confirm Trade*\n\n"
+            f"*{side_label} `{size:.1f}` {pending['coin']}*{px_str}\n"
+            f"Account: *{acct}*\n"
+            f"Type: Market order\n\n"
+            f"Approve or reject:"
+        )
+    else:
+        # SL/TP: value is trigger price
+        price = value
+        tool_name = "set_sl" if pending["type"] == "sl" else "set_tp"
+        args = {
+            "coin": pending["coin"],
+            "trigger_price": price,
+            "side": pending["side"],
+            "size": pending["size"],
+            "dex": pending.get("dex", ""),
+        }
+        action_id = store_pending(tool_name, args, chat_id)
+
+        label = "Stop-Loss" if pending["type"] == "sl" else "Take-Profit"
+        icon = "🛡" if pending["type"] == "sl" else "🎯"
+        order_type = "Stop Market" if pending["type"] == "sl" else "Take Profit Market"
+        text_msg = (
+            f"{icon} *Confirm {label}*\n\n"
+            f"*{pending['coin']}*\n"
+            f"Type: `{order_type}` (reduce-only)\n"
+            f"Trigger: `${price:,.2f}`\n"
+            f"Side: `{pending['side'].upper()}` | Size: whole position\n\n"
+            f"Approve or reject:"
+        )
     buttons = [
         {"text": "✅ Approve", "callback_data": f"approve:{action_id}"},
         {"text": "❌ Reject", "callback_data": f"reject:{action_id}"},
