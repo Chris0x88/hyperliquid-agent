@@ -429,12 +429,11 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         )
 
         # First call — route based on model.
-        # Sonnet/Opus: use Claude CLI proxy (streaming not supported via CLI,
-        # but the CLI is the only path that reliably works for premium models).
+        # Sonnet/Opus: use Agent SDK (no streaming, but only path that works
+        # for premium models with session tokens).
         # Haiku: use streaming for real-time Telegram output.
         active_model = _get_active_model()
-        use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model
-                   and _CLAUDE_CLI.exists())
+        use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model)
 
         if use_cli:
             _tg_typing(token, chat_id)
@@ -1276,29 +1275,32 @@ def _get_anthropic_client(model: str = ""):
         ), session_id
 
 
-_CLAUDE_CLI = Path.home() / "Library" / "Application Support" / "Claude" / "claude-code" / "2.1.87" / "claude.app" / "Contents" / "MacOS" / "claude"
+def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] = None) -> Optional[dict]:
+    """Call Anthropic via the Claude Agent SDK — same auth path as OpenClaw.
 
+    The Agent SDK (claude-agent-sdk) handles OAuth session tokens natively.
+    This is the official way to use subscription tokens for Sonnet/Opus.
 
-def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list] = None) -> Optional[dict]:
-    """Call Anthropic via the Claude Code CLI binary.
-
-    This uses the EXACT same auth + SDK path as OpenClaw/Claude Code desktop.
-    The CLI binary handles OAuth token refresh, correct headers, connection
-    pooling, and all the server-side session magic that makes Sonnet/Opus work.
-
-    Tool support: the CLI doesn't support native function calling, so tool
-    definitions are injected into the prompt as text. The model outputs tool
-    calls in [TOOL: name {"arg": "val"}] format which the existing triple-mode
-    parser in handle_ai_message picks up.
+    Uses max_turns=1 so the SDK returns after one model response without
+    running its own tool loop (we handle tools ourselves).
 
     Returns OpenAI-compatible response dict, or None on failure.
     """
-    import subprocess as sp
+    import asyncio
+    import os
 
-    if not _CLAUDE_CLI.exists():
+    try:
+        from claude_agent_sdk import query, ClaudeAgentOptions
+    except ImportError:
+        log.warning("claude-agent-sdk not installed — pip install claude-agent-sdk")
         return None
 
-    # Extract the user's actual message (last user message)
+    # Set OAuth token from keychain so the SDK can authenticate
+    token = _get_anthropic_key()
+    if token and _is_session_token(token):
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token
+
+    # Extract user message and system prompt
     prompt = ""
     for msg in reversed(messages):
         if msg.get("role") == "user":
@@ -1312,12 +1314,12 @@ def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list]
     if not prompt:
         return None
 
-    # Build full prompt with system context + conversation history
     system_text = ""
     for msg in messages:
         if msg.get("role") == "system":
             system_text += msg.get("content", "") + "\n"
 
+    # Include conversation history
     history_parts = []
     for msg in messages:
         if msg.get("role") in ("user", "assistant") and msg.get("content"):
@@ -1325,9 +1327,10 @@ def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list]
             if isinstance(content, str) and len(content) < 500:
                 history_parts.append(f"[{msg['role']}]: {content}")
 
+    # Build full prompt with context
     full_prompt = ""
     if system_text.strip():
-        full_prompt += f"[System context]: {system_text.strip()[:2000]}\n\n"
+        full_prompt += f"{system_text.strip()[:3000]}\n\n"
 
     # Inject tool definitions so the model can invoke them via text
     if tools:
@@ -1346,31 +1349,33 @@ def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list]
 
     full_prompt += prompt
 
+    async def _run():
+        text = ""
+        async for message in query(
+            prompt=full_prompt,
+            options=ClaudeAgentOptions(
+                model=model,
+                max_turns=1,
+            ),
+        ):
+            if hasattr(message, "result") and message.result:
+                text = message.result
+        return text
+
     try:
-        result = sp.run(
-            [str(_CLAUDE_CLI), "--model", model, "--output-format", "json",
-             "-p", full_prompt],
-            capture_output=True, text=True, timeout=90,
-        )
-        if result.returncode != 0:
-            log.warning("Claude CLI failed (rc=%d): %s", result.returncode, result.stderr[:200])
-            return None
+        # Run async in sync context (Telegram bot is synchronous)
+        loop = asyncio.new_event_loop()
+        try:
+            text = loop.run_until_complete(_run())
+        finally:
+            loop.close()
 
-        data = json.loads(result.stdout)
-        if data.get("is_error"):
-            log.warning("Claude CLI error: %s", data.get("result", "")[:200])
-            return None
-
-        text = data.get("result", "")
         if text:
             return {"role": "assistant", "content": text}
         return None
 
-    except sp.TimeoutExpired:
-        log.warning("Claude CLI timed out")
-        return None
     except Exception as e:
-        log.warning("Claude CLI call failed: %s", e)
+        log.warning("Agent SDK call failed: %s", e)
         return None
 
 
@@ -1386,17 +1391,15 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
     model = _get_active_model()
     anthropic_model = model_override or model.replace("anthropic/", "", 1)
 
-    # Sonnet/Opus: try Claude CLI first (uses same auth path as OpenClaw).
-    # The CLI binary handles OAuth, headers, and connection management that
-    # makes premium models work.
-    # Tool calls: CLI doesn't support native function calling, but we inject
-    # tool descriptions into the prompt and parse text-based [TOOL: name {args}]
-    # invocations from the response (the existing triple-mode parser handles this).
-    if "haiku" not in anthropic_model and _CLAUDE_CLI.exists():
-        cli_result = _call_via_claude_cli(messages, anthropic_model, tools=tools)
-        if cli_result:
-            return cli_result
-        log.warning("Claude CLI failed for %s, falling back to SDK", anthropic_model)
+    # Sonnet/Opus: use Claude Agent SDK (same auth path as OpenClaw/Claude Code).
+    # The Agent SDK handles OAuth session tokens natively — the Python anthropic
+    # SDK gets 429 on premium models but the Agent SDK works.
+    # See docs/wiki/operations/anthropic-session-token-guide.md for full details.
+    if "haiku" not in anthropic_model:
+        sdk_result = _call_via_agent_sdk(messages, anthropic_model, tools=tools)
+        if sdk_result:
+            return sdk_result
+        log.warning("Agent SDK failed for %s, falling back to Python SDK", anthropic_model)
 
     result = _get_anthropic_client(anthropic_model)
     if not result:
