@@ -932,26 +932,18 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
 
 
 def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict:
-    """Call OpenRouter API with retry/backoff for 429 rate limits.
+    """Route to Anthropic API directly. OpenRouter disabled.
 
-    Returns the full message dict from the response (may contain tool_calls
-    or content). Free models that don't support tools will ignore the tools
-    parameter and return a normal content response.
-
-    For anthropic/* models, routes to Anthropic API directly.
-    See docs/wiki/operations/api-reference.md for maintenance notes.
-
-    Sets _call_openrouter._last_fallback to the fallback model name if
-    Anthropic rate-limited, so the tool loop can stay on the fallback.
+    Only Anthropic models are active. Select via /models.
     """
-    _call_openrouter._last_fallback = None  # reset each call
+    _call_openrouter._last_fallback = None
 
-    # Route anthropic models directly to Anthropic API
     model = _get_active_model()
     if _is_anthropic_model(model):
         return _call_anthropic(messages, tools)
 
-    return _call_openrouter_direct(messages, tools, model_override=model)
+    # Non-Anthropic model — OpenRouter disabled, prompt to switch
+    return {"content": "Please select an Anthropic model via /models (Opus, Sonnet, or Haiku)."}
 
 
 def _call_openrouter_direct(
