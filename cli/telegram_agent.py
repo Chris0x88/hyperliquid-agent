@@ -849,14 +849,31 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
     # Route anthropic models directly to Anthropic API
     model = _get_active_model()
     if _is_anthropic_model(model):
-        return _call_anthropic(messages, tools)
+        result = _call_anthropic(messages, tools)
+        # If Anthropic is rate limited, fall back to free model
+        if result.get("content", "").startswith("AI rate limited"):
+            log.info("Anthropic rate limited — falling back to %s", _DEFAULT_MODEL)
+            result = _call_openrouter_direct(messages, tools, model_override=_DEFAULT_MODEL)
+            if result.get("content"):
+                result["content"] = f"[⚡ {_DEFAULT_MODEL.split('/')[-1].split(':')[0]}] " + result["content"]
+        return result
 
+    return _call_openrouter_direct(messages, tools, model_override=model)
+
+
+def _call_openrouter_direct(
+    messages: List[Dict],
+    tools: Optional[list] = None,
+    model_override: Optional[str] = None,
+) -> dict:
+    """Raw OpenRouter API call. Used by _call_openrouter and as fallback."""
     api_key = _get_openrouter_key()
     if not api_key:
         return {"content": "Error: No OpenRouter API key found."}
 
+    use_model = model_override or _get_active_model()
     payload: dict = {
-        "model": model,
+        "model": use_model,
         "messages": messages,
         "max_tokens": _MAX_RESPONSE_TOKENS,
         "temperature": 0.3,
