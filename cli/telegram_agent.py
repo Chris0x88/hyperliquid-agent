@@ -962,20 +962,22 @@ def set_active_model(model_id: str) -> None:
 # Free: 20 RPM / ~200 req/day limits. Paid: require OR credit balance.
 # To update: see docs/wiki/operations/api-reference.md
 _CURATED_MODELS = [
-    # ── Free ──
+    # ── Free (OpenRouter) ──
+    {"id": "stepfun/step-3.5-flash:free", "name": "Step 3.5", "tier": "free"},
     {"id": "qwen/qwen3.6-plus-preview:free", "name": "Qwen 3.6+", "tier": "free"},
     {"id": "qwen/qwen3-coder:free", "name": "Qwen3 Coder", "tier": "free"},
+    {"id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3", "tier": "free"},
     {"id": "openai/gpt-oss-120b:free", "name": "GPT-OSS 120B", "tier": "free"},
     {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "Nemotron 3", "tier": "free"},
     {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B", "tier": "free"},
     {"id": "nousresearch/hermes-3-llama-3.1-405b:free", "name": "Hermes 405B", "tier": "free"},
     {"id": "google/gemma-3-27b-it:free", "name": "Gemma 3 27B", "tier": "free"},
     {"id": "minimax/minimax-m2.5:free", "name": "MiniMax M2.5", "tier": "free"},
-    {"id": "stepfun/step-3.5-flash:free", "name": "Step 3.5", "tier": "free"},
-    {"id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3", "tier": "free"},
-    # ── Paid ──
-    {"id": "anthropic/claude-sonnet-4.6", "name": "Sonnet 4.6", "tier": "paid"},
-    {"id": "anthropic/claude-opus-4.6", "name": "Opus 4.6", "tier": "paid"},
+    # ── Anthropic (direct API — free via token) ──
+    {"id": "anthropic/claude-opus-4-6", "name": "Opus 4.6", "tier": "anthropic"},
+    {"id": "anthropic/claude-sonnet-4-6", "name": "Sonnet 4.6", "tier": "anthropic"},
+    {"id": "anthropic/claude-haiku-4-5", "name": "Haiku 4.5", "tier": "anthropic"},
+    # ── Paid (OpenRouter credits) ──
     {"id": "google/gemini-2.5-flash", "name": "Gemini Flash", "tier": "paid"},
     {"id": "google/gemini-2.5-pro", "name": "Gemini Pro", "tier": "paid"},
     {"id": "deepseek/deepseek-r1-0528", "name": "DS R1", "tier": "paid"},

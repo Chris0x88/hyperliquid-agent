@@ -1710,33 +1710,61 @@ def cmd_memory(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_models(token: str, chat_id: str, args: str) -> None:
-    """Show AI model selector with inline keyboard buttons."""
+    """Show AI model selector with compact inline keyboard grid."""
     from cli.telegram_agent import get_available_models, _get_active_model
 
     models = get_available_models()
     current = _get_active_model()
+    current_name = next((m["name"] for m in models if m["id"] == current), current)
 
     free = [m for m in models if m.get("tier") == "free"]
-    paid = [m for m in models if m.get("tier") != "free"]
+    anthropic = [m for m in models if m.get("tier") == "anthropic"]
+    paid = [m for m in models if m.get("tier") == "paid"]
 
-    # Free models
-    free_buttons = []
-    for m in free:
-        label = f"{'✅ ' if m['id'] == current else ''}{m['name']}"
-        free_buttons.append({"text": label, "callback_data": f"model:{m['id']}"})
+    def _make_grid(model_list: list, cols: int = 2) -> list:
+        """Build inline keyboard rows with `cols` buttons per row."""
+        rows = []
+        row = []
+        for m in model_list:
+            check = "✅ " if m["id"] == current else ""
+            row.append({"text": f"{check}{m['name']}", "callback_data": f"model:{m['id']}"})
+            if len(row) >= cols:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        return rows
 
-    current_name = next((m["name"] for m in models if m["id"] == current), current)
-    tg_send_buttons(token, chat_id,
-        f"🤖 *AI Models*\n\nActive: *{current_name}*\n\n*Free models* (rate limited):",
-        free_buttons)
+    # Build all sections into one message with one keyboard
+    keyboard = []
 
-    # Paid models
+    # Section header row for Anthropic (free via token)
+    if anthropic:
+        keyboard.append([{"text": "── Anthropic (free) ──", "callback_data": "noop"}])
+        keyboard.extend(_make_grid(anthropic, cols=3))
+
+    # Section header row for Free
+    keyboard.append([{"text": "── Free (OpenRouter) ──", "callback_data": "noop"}])
+    keyboard.extend(_make_grid(free, cols=2))
+
+    # Section header row for Paid
     if paid:
-        paid_buttons = []
-        for m in paid:
-            label = f"{'✅ ' if m['id'] == current else ''}{m['name']}"
-            paid_buttons.append({"text": label, "callback_data": f"model:{m['id']}"})
-        tg_send_buttons(token, chat_id, "*Paid models* (require credits):", paid_buttons)
+        keyboard.append([{"text": "── Paid (credits) ──", "callback_data": "noop"}])
+        keyboard.extend(_make_grid(paid, cols=2))
+
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "text": f"🤖 *AI Models*\n\nActive: *{current_name}*",
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": keyboard},
+        }
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload, timeout=10,
+        )
+    except Exception as e:
+        log.warning("Models command failed: %s", e)
 
 
 def _handle_model_callback(token: str, chat_id: str, callback_id: str, model_id: str) -> None:
@@ -2915,7 +2943,9 @@ def run() -> None:
                 cb_chat = str(cb.get("message", {}).get("chat", {}).get("id", ""))
                 cb_data = cb.get("data", "")
                 cb_id = cb.get("id", "")
-                if cb_sender == chat_id and cb_data.startswith("model:"):
+                if cb_data == "noop":
+                    tg_answer_callback(token, cb_id, "")
+                elif cb_sender == chat_id and cb_data.startswith("model:"):
                     model_id = cb_data[6:]  # strip "model:" prefix
                     _handle_model_callback(token, cb_chat, cb_id, model_id)
                 elif cb_sender == chat_id and cb_data.startswith("approve:"):
