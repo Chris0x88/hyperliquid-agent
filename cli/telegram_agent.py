@@ -51,7 +51,7 @@ _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "mod
 
 _CACHE: Dict[str, dict] = {}
 
-_MAX_TOOL_LOOPS = 3  # Hard limit — prevents infinite tool loops on fallback models
+_MAX_TOOL_LOOPS = 12  # Safety cap — model drives iteration via tool calls
 
 # Regex for text-based tool calls: [TOOL: name {"arg": "val"}]
 import re
@@ -265,11 +265,11 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
         # Extract thought tag for intent-based memory
         import re
-        thought_match = re.search(r'<thought>(.*?)</thought>', response_text, re.IGNORECASE | re.DOTALL)
+        thought_match = re.search(r'<(?:thought|thinking)>(.*?)</(?:thought|thinking)>', response_text, re.IGNORECASE | re.DOTALL)
         if thought_match:
             memory_intent = thought_match.group(1).strip()
-            # Strip the thought tag from what the user sees
-            tg_text = re.sub(r'<thought>.*?</thought>\s*', '', response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+            # Strip thought/thinking tags from what the user sees
+            tg_text = re.sub(r'<(?:thought|thinking)>.*?</(?:thought|thinking)>\s*', '', response_text, flags=re.IGNORECASE | re.DOTALL).strip()
         else:
             memory_intent = _sanitize_assistant_history(response_text)
             tg_text = response_text

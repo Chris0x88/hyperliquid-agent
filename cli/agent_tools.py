@@ -23,7 +23,7 @@ log = logging.getLogger("agent_tools")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HL_API = "https://api.hyperliquid.xyz/info"
-_MAX_RESPONSE_CHARS = 3000
+_MAX_RESPONSE_CHARS = 12000
 
 # Write tools that require user approval before execution
 WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash"}
@@ -648,8 +648,8 @@ def _tool_read_file(args: dict) -> str:
     if "error" in result:
         return result["error"]
     content = result.get("content", "")
-    if len(content) > 2500:
-        content = content[:2500] + "\n... (truncated)"
+    if len(content) > 10000:
+        content = content[:10000] + "\n... (truncated)"
     return content
 
 def _tool_search_code(args: dict) -> str:
