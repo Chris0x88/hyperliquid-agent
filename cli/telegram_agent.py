@@ -51,7 +51,7 @@ _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "mod
 
 _CACHE: Dict[str, dict] = {}
 
-_MAX_TOOL_LOOPS = 8
+_MAX_TOOL_LOOPS = 3  # Hard limit — prevents infinite tool loops on fallback models
 
 # Regex for text-based tool calls: [TOOL: name {"arg": "val"}]
 import re
@@ -753,10 +753,15 @@ _OR_BACKOFF_BASE = 2.0
 
 
 def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None):
-    """Try each model in the fallback chain. Returns (response, model_name) or (None, None)."""
+    """Try each model in the fallback chain. Returns (response, model_name) or (None, None).
+    
+    IMPORTANT: tools are stripped for fallback models. Free models don't support
+    function calling — they return 404, causing infinite retry loops.
+    """
     for model in _FALLBACK_CHAIN:
         log.info("Trying fallback: %s", model)
-        result = _call_openrouter_direct(messages, tools, model_override=model)
+        # Always strip tools for fallback — free models 404 on tool_use requests
+        result = _call_openrouter_direct(messages, tools=None, model_override=model)
         content = result.get("content") or ""
         # Skip if rate limited or error
         if "rate limited" in content.lower() or "API error" in content:
