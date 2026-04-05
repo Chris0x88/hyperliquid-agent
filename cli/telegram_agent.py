@@ -952,15 +952,7 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
     # Route anthropic models directly to Anthropic API
     model = _get_active_model()
     if _is_anthropic_model(model):
-        result = _call_anthropic(messages, tools)
-        # If Anthropic is rate limited, fall back to free model
-        if result.get("content", "").startswith("AI rate limited"):
-            result, fallback_model = _try_fallback_chain(messages, tools)
-            if result:
-                _call_openrouter._last_fallback = fallback_model
-                return result
-            return {"content": "All models busy — try again in a minute. Use /status for instant data."}
-        return result
+        return _call_anthropic(messages, tools)
 
     return _call_openrouter_direct(messages, tools, model_override=model)
 
