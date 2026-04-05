@@ -39,11 +39,12 @@ _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
-# Fallback waterfall: try free first, then cheap paid as last resort
+# Fallback waterfall: free models only
 _FALLBACK_CHAIN = [
     "google/gemma-3-27b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.5-flash",  # cheap paid — always available
+    "stepfun/step-3.5-flash:free",
+    "deepseek/deepseek-chat-v3-0324:free",
 ]
 _MODEL_CONFIG = _PROJECT_ROOT / "data" / "config" / "model_config.json"
 _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "models.json"
