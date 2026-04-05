@@ -133,7 +133,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         response = _call_openrouter(messages, tools=TOOL_DEFS)
 
         # Track if we fell back from Anthropic rate limit — stay on fallback for remaining loops
-        _session_fallback_model = getattr(_call_openrouter, "_last_fallback", None)
+        _session_fallback_model = None  # Disabled — was causing silent failures on tool loops
 
         # Tool-calling loop: handles three modes (tried in order):
         # 1. Native function calling (paid models)
@@ -249,12 +249,9 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                         log.info("Read tool %s executed", fn_name)
 
             _tg_typing(token, chat_id)
-            # If we fell back from Anthropic rate limit, stay on fallback model
-            if _session_fallback_model:
-                response = _call_openrouter_direct(messages, tools=TOOL_DEFS, model_override=_session_fallback_model)
-            else:
-                response = _call_openrouter(messages, tools=TOOL_DEFS)
-                _session_fallback_model = _call_openrouter._last_fallback
+            # Always use the main routing (Anthropic direct or OpenRouter)
+            # _session_fallback_model is no longer used — removed to prevent silent failures
+            response = _call_openrouter(messages, tools=TOOL_DEFS)
 
         # Extract final text response
         response_text = response.get("content") or ""
