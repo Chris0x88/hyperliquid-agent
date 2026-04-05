@@ -497,8 +497,11 @@ def edit_file(path: str, old_str: str, new_str: str) -> dict:
         if count > 1:
             return {"error": f"old_str matches {count} times in {path} — must be unique"}
         new_content = content.replace(old_str, new_str, 1)
+        # Create backup before editing
+        backup_path = target.with_suffix(target.suffix + ".bak")
+        backup_path.write_text(content)
         target.write_text(new_content)
-        return {"path": path, "status": "edited", "replacements": 1}
+        return {"path": path, "status": "edited", "replacements": 1, "backup": str(backup_path.relative_to(_PROJECT_ROOT))}
     except Exception as e:
         return {"error": f"edit_file failed: {e}"}
 
@@ -528,6 +531,51 @@ def run_bash(command: str) -> dict:
         return {"error": f"run_bash failed: {e}"}
 
 
+def get_errors(limit: int = 10) -> dict:
+    """Get recent agent errors from diagnostics log."""
+    try:
+        errors_file = _PROJECT_ROOT / "data" / "diagnostics" / "errors.jsonl"
+        if not errors_file.exists():
+            return {"errors": [], "count": 0}
+        lines = errors_file.read_text().strip().split("\n")
+        recent = []
+        for line in lines[-limit:]:
+            try:
+                entry = json.loads(line)
+                recent.append({
+                    "time": entry.get("ts", ""),
+                    "event": entry.get("event", ""),
+                    "details": str(entry.get("data", ""))[:200],
+                })
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return {"errors": recent, "count": len(recent)}
+    except Exception as e:
+        return {"error": f"get_errors failed: {e}"}
+
+
+def get_feedback(limit: int = 10) -> dict:
+    """Get recent user feedback from /feedback command."""
+    try:
+        feedback_file = _PROJECT_ROOT / "data" / "feedback.jsonl"
+        if not feedback_file.exists():
+            return {"feedback": [], "count": 0}
+        lines = feedback_file.read_text().strip().split("\n")
+        recent = []
+        for line in lines[-limit:]:
+            try:
+                entry = json.loads(line)
+                recent.append({
+                    "time": entry.get("timestamp", ""),
+                    "text": entry.get("text", ""),
+                })
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return {"feedback": recent, "count": len(recent)}
+    except Exception as e:
+        return {"error": f"get_feedback failed: {e}"}
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Registry
 # ═══════════════════════════════════════════════════════════════════════
@@ -552,6 +600,8 @@ TOOL_REGISTRY: Dict[str, Any] = {
     "memory_write": memory_write,
     "edit_file": edit_file,
     "run_bash": run_bash,
+    "get_errors": get_errors,
+    "get_feedback": get_feedback,
     # Back-compat aliases
     "account_summary": status,
 }
@@ -579,4 +629,6 @@ TOOL_DESCRIPTIONS = {
     "memory_write": "Write to agent memory (requires approval)",
     "edit_file": "Edit a file by string replacement (requires approval)",
     "run_bash": "Run a shell command (requires approval)",
+    "get_errors": "Recent agent errors from diagnostics",
+    "get_feedback": "Recent user feedback from /feedback",
 }

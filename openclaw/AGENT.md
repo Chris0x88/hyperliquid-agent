@@ -45,6 +45,10 @@ funding = check_funding("BRENTOIL")
 ### Memory (READ / WRITE)
 `memory_read(topic)` `memory_write(topic, content)` — write requires approval
 
+### Introspection (READ)
+`get_errors(limit)` — recent agent errors from diagnostics
+`get_feedback(limit)` — recent user feedback from /feedback
+
 ### System (WRITE — approval required)
 `edit_file(path, old_str, new_str)` `run_bash(command)`
 

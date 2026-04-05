@@ -167,6 +167,26 @@ def _render_bash_ai(data: dict) -> str:
     return "\n".join(parts)
 
 
+def _render_errors_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    errors = data.get("errors", [])
+    if not errors:
+        return "No recent errors."
+    lines = [f"{e['time']} {e['event']}: {e['details']}" for e in errors]
+    return f"{data['count']} errors:\n" + "\n".join(lines)
+
+
+def _render_feedback_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    fb = data.get("feedback", [])
+    if not fb:
+        return "No feedback recorded."
+    lines = [f"{f['time']}: {f['text']}" for f in fb]
+    return f"{data['count']} feedback entries:\n" + "\n".join(lines)
+
+
 _AI_RENDERERS: Dict[str, Any] = {
     "status": _render_status_ai,
     "account_summary": _render_status_ai,
@@ -186,4 +206,6 @@ _AI_RENDERERS: Dict[str, Any] = {
     "memory_write": _render_memory_ai,
     "edit_file": _render_generic_ai,
     "run_bash": _render_bash_ai,
+    "get_errors": _render_errors_ai,
+    "get_feedback": _render_feedback_ai,
 }

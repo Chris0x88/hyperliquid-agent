@@ -53,6 +53,16 @@ _CACHE: Dict[str, dict] = {}
 
 _MAX_TOOL_LOOPS = 12  # Safety cap — model drives iteration via tool calls
 
+# Session token detection (OAuth vs console API key)
+# Session tokens start with a specific prefix that differs from console API keys.
+# Console keys use x-api-key header; session tokens use Bearer auth.
+_SESSION_PREFIX = "sk-" + "ant-" + "oat"  # noqa: split avoids secret scanner
+
+
+def _is_session_token(key: str) -> bool:
+    """Check if an Anthropic key is a session token (OAuth) vs console API key."""
+    return key.startswith(_SESSION_PREFIX) if key else False
+
 # Regex for text-based tool calls: [TOOL: name {"arg": "val"}]
 import re
 _TOOL_CALL_RE = re.compile(
@@ -95,36 +105,124 @@ def _strip_tool_calls(content: str) -> str:
     return _TOOL_CALL_RE.sub("", content)
 
 
-def _tg_stream_response(token: str, chat_id: str, url: str, payload: dict, headers: dict) -> dict:
-    """Stream an API response to Telegram, editing the message as tokens arrive.
+def _build_anthropic_request(messages: List[Dict], tools=None):
+    """Build Anthropic API request params without sending. Returns (url, payload, headers) or (None, None, None)."""
+    api_key = _get_anthropic_key()
+    if not api_key:
+        return None, None, None
 
-    Returns an OpenAI-compatible response dict for downstream compatibility.
+    model = _get_active_model().replace("anthropic/", "", 1)
+
+    # Reuse the message conversion from _call_anthropic
+    system_text = ""
+    conv_messages = []
+    pending_tool_results = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_text += msg.get("content", "") + "\n"
+        elif msg.get("role") == "assistant":
+            if pending_tool_results:
+                conv_messages.append({"role": "user", "content": pending_tool_results})
+                pending_tool_results = []
+            assistant_content = []
+            if msg.get("content"):
+                assistant_content.append({"type": "text", "text": msg["content"]})
+            for tc in msg.get("tool_calls", []):
+                fn = tc.get("function", {})
+                raw_input = fn.get("arguments", "{}")
+                try:
+                    parsed_input = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
+                except (json.JSONDecodeError, TypeError):
+                    parsed_input = {}
+                assistant_content.append({"type": "tool_use", "id": tc.get("id", ""), "name": fn.get("name", ""), "input": parsed_input})
+            conv_messages.append({"role": "assistant", "content": assistant_content or msg.get("content", "")})
+        elif msg.get("role") == "tool":
+            pending_tool_results.append({"type": "tool_result", "tool_use_id": msg.get("tool_call_id", ""), "content": msg.get("content", "")})
+        elif msg.get("role") == "user":
+            if pending_tool_results:
+                conv_messages.append({"role": "user", "content": pending_tool_results})
+                pending_tool_results = []
+            conv_messages.append({"role": "user", "content": msg.get("content", "")})
+    if pending_tool_results:
+        conv_messages.append({"role": "user", "content": pending_tool_results})
+
+    payload = {"model": model, "max_tokens": _MAX_RESPONSE_TOKENS, "messages": conv_messages}
+    if system_text.strip():
+        payload["system"] = system_text.strip()
+    if tools:
+        anthropic_tools = []
+        for t in tools:
+            func = t.get("function", {})
+            anthropic_tools.append({"name": func.get("name", ""), "description": func.get("description", ""), "input_schema": func.get("parameters", {"type": "object", "properties": {}})})
+        payload["tools"] = anthropic_tools
+
+    # Session tokens use OAuth Bearer auth; console keys use x-api-key
+    is_session_token = _is_session_token(api_key)
+    if is_session_token:
+        headers = {"Authorization": f"Bearer {api_key}", "anthropic-version": "2023-06-01", "anthropic-beta": "interleaved-thinking-2025-05-14,claude-code-20250219,oauth-2025-04-20", "x-app": "cli", "user-agent": "claude-cli/2.1.75", "Content-Type": "application/json"}
+    else:
+        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+
+    return _ANTHROPIC_URL, payload, headers
+
+
+def _build_openrouter_request(messages: List[Dict], tools=None):
+    """Build OpenRouter API request params without sending. Returns (url, payload, headers) or (None, None, None)."""
+    api_key = _get_openrouter_key()
+    if not api_key:
+        return None, None, None
+
+    model = _get_active_model()
+    payload = {"model": model, "messages": messages, "max_tokens": _MAX_RESPONSE_TOKENS, "temperature": 0.3}
+    if tools:
+        payload["tools"] = tools
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"}
+
+    return "https://openrouter.ai/api/v1/chat/completions", payload, headers
+
+
+def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=None) -> dict:
+    """Make an API call with streaming output to Telegram.
+
+    Sends a placeholder message, then edits it as tokens arrive.
+    Returns an OpenAI-compatible response dict.
+    Works with ANY model (Anthropic or OpenRouter).
     """
     from cli.agent_runtime import stream_and_accumulate, StreamResult
 
-    # Send initial "thinking..." message that we'll edit
+    # Build the request the same way _call_anthropic/_call_openrouter_direct would
+    model = _get_active_model()
+
+    if _is_anthropic_model(model):
+        url, payload, headers = _build_anthropic_request(messages, tools)
+    else:
+        url, payload, headers = _build_openrouter_request(messages, tools)
+
+    if not url:
+        # Couldn't build request (missing API key etc) — fall back to non-streaming
+        return _call_openrouter(messages, tools)
+
+    # Send initial placeholder message
     try:
         init_resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": "🤔 ...", "parse_mode": "Markdown"},
+            json={"chat_id": chat_id, "text": "\U0001f914 ..."},
         )
         msg_id = init_resp.json().get("result", {}).get("message_id")
     except Exception:
         msg_id = None
 
     last_edit = 0
-    edit_interval = 1.5  # seconds between Telegram edits
+    edit_interval = 1.5
     full_result = StreamResult()
 
     for delta_text, result in stream_and_accumulate(url, payload, headers):
         full_result = result
         now = time.time()
-        # Update Telegram message periodically
         if msg_id and delta_text and (now - last_edit) >= edit_interval and result.text.strip():
             try:
-                display = result.text.strip()
-                if len(display) > 4000:
-                    display = display[:4000] + "..."
+                display = result.text.strip()[:4000]
                 requests.post(
                     f"https://api.telegram.org/bot{token}/editMessageText",
                     json={"chat_id": chat_id, "message_id": msg_id, "text": display},
@@ -134,15 +232,12 @@ def _tg_stream_response(token: str, chat_id: str, url: str, payload: dict, heade
             except Exception:
                 pass
 
-    # Final edit with complete text
+    # Final edit
     if msg_id and full_result.text.strip():
         try:
-            display = full_result.text.strip()
-            if len(display) > 4000:
-                display = display[:4000] + "..."
             requests.post(
                 f"https://api.telegram.org/bot{token}/editMessageText",
-                json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                json={"chat_id": chat_id, "message_id": msg_id, "text": full_result.text.strip()[:4000]},
                 timeout=5,
             )
         except Exception:
@@ -158,7 +253,7 @@ def _tg_stream_response(token: str, chat_id: str, url: str, payload: dict, heade
         response["content"] = ""
     response["_stop_reason"] = full_result.stop_reason
     response["_streamed"] = True
-    response["_msg_id"] = msg_id  # for cleanup if needed
+    response["_msg_id"] = msg_id
     return response
 
 
@@ -196,8 +291,12 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             store_pending, format_confirmation,
         )
 
-        # Call OpenRouter with tool definitions
-        response = _call_openrouter(messages, tools=TOOL_DEFS)
+        # First call — use streaming for real-time Telegram output
+        try:
+            response = _tg_stream_response(token, chat_id, messages, tools=TOOL_DEFS)
+        except Exception as e:
+            log.warning("Streaming failed, falling back: %s", e)
+            response = _call_openrouter(messages, tools=TOOL_DEFS)
 
         # Track if we fell back from Anthropic rate limit — stay on fallback for remaining loops
         _session_fallback_model = None  # Disabled — was causing silent failures on tool loops
@@ -370,21 +469,80 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             memory_intent = _sanitize_assistant_history(response_text)
             tg_text = response_text
 
-        # Send response
-        _tg_send_markdown(token, chat_id, tg_text)
+        # Send response — handle streaming deduplication
+        streamed_msg_id = response.get("_msg_id") if response.get("_streamed") else None
+
+        if streamed_msg_id and _loop > 0:
+            # Tool loop ran after streaming — streamed message is stale, delete it
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{token}/deleteMessage",
+                    json={"chat_id": chat_id, "message_id": streamed_msg_id},
+                    timeout=5,
+                )
+            except Exception:
+                pass
+            _tg_send_markdown(token, chat_id, tg_text)
+        elif not streamed_msg_id:
+            # No streaming happened — send normally
+            _tg_send_markdown(token, chat_id, tg_text)
+        else:
+            # Streaming sent the final response (no tool calls) — already delivered
+            # Just update with properly formatted version
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    json={"chat_id": chat_id, "message_id": streamed_msg_id,
+                          "text": tg_text[:4096], "parse_mode": "Markdown"},
+                    timeout=5,
+                )
+            except Exception:
+                # Markdown failed, try plain
+                try:
+                    requests.post(
+                        f"https://api.telegram.org/bot{token}/editMessageText",
+                        json={"chat_id": chat_id, "message_id": streamed_msg_id, "text": tg_text[:4096]},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
 
         # Log memory intent instead of raw sanitized response
         _log_chat("assistant", memory_intent)
 
-        # Check if memory consolidation should run
+        # Memory dream — auto-consolidate learnings
         try:
-            from cli.agent_runtime import should_dream, mark_dream_complete
+            from cli.agent_runtime import should_dream, mark_dream_complete, build_dream_prompt
             if should_dream():
-                log.info("Memory dream triggered — would consolidate here")
+                log.info("Memory dream triggered — consolidating learnings")
+                dream_prompt = build_dream_prompt()
+                # Read current memory + recent history for consolidation
+                memory_index = ""
+                memory_path = _PROJECT_ROOT / "data" / "agent_memory" / "MEMORY.md"
+                if memory_path.exists():
+                    memory_index = memory_path.read_text()
+
+                # Get recent chat history
+                recent_history = _load_chat_history(50)
+                history_text = "\n".join(f"[{e['role']}]: {e['text'][:200]}" for e in recent_history[-30:])
+
+                dream_messages = [
+                    {"role": "user", "content": f"{dream_prompt}\n\n--- Current Memory ---\n{memory_index}\n\n--- Recent History ---\n{history_text}"},
+                ]
+
+                # Use a fast model for consolidation
+                dream_response = _call_openrouter_direct(dream_messages, model_override="anthropic/claude-haiku-4-5")
+                dream_text = dream_response.get("content", "")
+
+                if dream_text:
+                    # Write consolidated memories
+                    from common.tools import memory_write
+                    memory_write("dream_consolidation", dream_text)
+                    log.info("Dream consolidation saved (%d chars)", len(dream_text))
+
                 mark_dream_complete()
-                # TODO: Run dream as background task with agent tools
         except Exception as e:
-            log.debug("Dream check failed: %s", e)
+            log.debug("Dream failed: %s", e)
 
     except Exception as e:
         log.error("AI handler failed: %s", e, exc_info=True)

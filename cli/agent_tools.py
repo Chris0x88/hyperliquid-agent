@@ -288,6 +288,32 @@ TOOL_DEFS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_errors",
+            "description": "Get recent agent errors from diagnostics. Helps you understand what's failing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max errors to return", "default": 10},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_feedback",
+            "description": "Get recent user feedback submitted via /feedback. Helps you understand what to improve.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max feedback entries to return", "default": 10},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -713,6 +739,33 @@ def _tool_run_bash(args: dict) -> str:
     return "\n".join(parts)
 
 
+def _tool_get_errors(args: dict) -> str:
+    from common.tools import get_errors
+    result = get_errors(args.get("limit", 10))
+    if "error" in result:
+        return result["error"]
+    errors = result.get("errors", [])
+    if not errors:
+        return "No recent errors."
+    lines = []
+    for e in errors:
+        lines.append(f"[{e['time']}] {e['event']}: {e['details']}")
+    return f"{result['count']} recent errors:\n" + "\n".join(lines)
+
+def _tool_get_feedback(args: dict) -> str:
+    from common.tools import get_feedback
+    result = get_feedback(args.get("limit", 10))
+    if "error" in result:
+        return result["error"]
+    feedback = result.get("feedback", [])
+    if not feedback:
+        return "No feedback recorded."
+    lines = []
+    for f in feedback:
+        lines.append(f"[{f['time']}] {f['text']}")
+    return f"{result['count']} feedback entries:\n" + "\n".join(lines)
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -735,6 +788,8 @@ _TOOL_DISPATCH = {
     "memory_write": _tool_memory_write,
     "edit_file": _tool_edit_file,
     "run_bash": _tool_run_bash,
+    "get_errors": _tool_get_errors,
+    "get_feedback": _tool_get_feedback,
 }
 
 
