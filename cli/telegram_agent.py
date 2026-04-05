@@ -37,6 +37,7 @@ _MAX_HISTORY_CHARS = 12000  # Cap total history chars to stay within context win
 _MAX_RESPONSE_TOKENS = 1500
 _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
 _MODEL_CONFIG = _PROJECT_ROOT / "data" / "config" / "model_config.json"
 _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "models.json"
@@ -731,6 +732,110 @@ _OR_MAX_RETRIES = 3
 _OR_BACKOFF_BASE = 2.0
 
 
+def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
+    """Call Anthropic Messages API directly for anthropic/* models.
+
+    Converts OpenAI-style messages to Anthropic format and returns
+    an OpenAI-compatible message dict for downstream compatibility.
+    """
+    api_key = _get_anthropic_key()
+    if not api_key:
+        return {"content": "Error: No Anthropic API key found."}
+
+    model = _get_active_model()
+    # Strip "anthropic/" prefix for the Anthropic API
+    anthropic_model = model.replace("anthropic/", "", 1)
+
+    # Separate system message from conversation messages
+    system_text = ""
+    conv_messages = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_text += msg.get("content", "") + "\n"
+        else:
+            conv_messages.append({"role": msg["role"], "content": msg.get("content", "")})
+
+    payload: dict = {
+        "model": anthropic_model,
+        "max_tokens": _MAX_RESPONSE_TOKENS,
+        "messages": conv_messages,
+    }
+    if system_text.strip():
+        payload["system"] = system_text.strip()
+
+    # Convert OpenAI tool format to Anthropic tool format
+    if tools:
+        anthropic_tools = []
+        for t in tools:
+            func = t.get("function", {})
+            anthropic_tools.append({
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+            })
+        payload["tools"] = anthropic_tools
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+
+    for attempt in range(_OR_MAX_RETRIES):
+        try:
+            resp = requests.post(
+                _ANTHROPIC_URL, json=payload, headers=headers, timeout=60,
+            )
+            if resp.status_code == 429:
+                delay = _OR_BACKOFF_BASE * (2 ** attempt)
+                log.warning("Anthropic 429 (attempt %d/%d), backing off %.1fs",
+                            attempt + 1, _OR_MAX_RETRIES, delay)
+                if attempt < _OR_MAX_RETRIES - 1:
+                    time.sleep(delay)
+                    continue
+                return {"content": "AI rate limited — try again in a minute."}
+
+            if resp.status_code != 200:
+                log.error("Anthropic API error: %s %s", resp.status_code, resp.text[:200])
+                return {"content": f"Anthropic API error ({resp.status_code}). Try /status for live data."}
+
+            data = resp.json()
+
+            # Convert Anthropic response to OpenAI-compatible format
+            content_blocks = data.get("content", [])
+            text_parts = []
+            tool_calls = []
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    text_parts.append(block["text"])
+                elif block.get("type") == "tool_use":
+                    tool_calls.append({
+                        "id": block["id"],
+                        "type": "function",
+                        "function": {
+                            "name": block["name"],
+                            "arguments": json.dumps(block.get("input", {})),
+                        },
+                    })
+
+            result: dict = {"role": "assistant"}
+            if text_parts:
+                result["content"] = "\n".join(text_parts)
+            if tool_calls:
+                result["tool_calls"] = tool_calls
+            if not text_parts and not tool_calls:
+                result["content"] = ""
+            return result
+
+        except requests.Timeout:
+            return {"content": "AI response timed out. Try /status for instant data."}
+        except Exception as e:
+            log.error("Anthropic call failed: %s", e)
+            return {"content": f"AI call failed: {e}"}
+
+    return {"content": "AI unavailable after retries. Try /status for live data."}
+
+
 def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict:
     """Call OpenRouter API with retry/backoff for 429 rate limits.
 
@@ -738,13 +843,18 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
     or content). Free models that don't support tools will ignore the tools
     parameter and return a normal content response.
 
+    For anthropic/* models, routes to Anthropic API directly.
     See docs/wiki/operations/api-reference.md for maintenance notes.
     """
+    # Route anthropic models directly to Anthropic API
+    model = _get_active_model()
+    if _is_anthropic_model(model):
+        return _call_anthropic(messages, tools)
+
     api_key = _get_openrouter_key()
     if not api_key:
         return {"content": "Error: No OpenRouter API key found."}
 
-    model = _get_active_model()
     payload: dict = {
         "model": model,
         "messages": messages,
@@ -807,6 +917,26 @@ def _get_openrouter_key() -> Optional[str]:
     # Fallback: environment variable
     import os
     return os.environ.get("OPENROUTER_API_KEY")
+
+
+def _get_anthropic_key() -> Optional[str]:
+    """Read Anthropic API key/token from auth-profiles.json."""
+    try:
+        if _AUTH_PROFILES.exists():
+            data = json.loads(_AUTH_PROFILES.read_text())
+            profiles = data.get("profiles", {})
+            for name, profile in profiles.items():
+                if profile.get("provider") == "anthropic":
+                    return profile.get("key") or profile.get("token")
+    except Exception:
+        pass
+    import os
+    return os.environ.get("ANTHROPIC_API_KEY")
+
+
+def _is_anthropic_model(model: str) -> bool:
+    """Check if a model ID should route to Anthropic directly."""
+    return model.startswith("anthropic/") and not model.endswith(":free")
 
 
 def _get_active_model() -> str:
