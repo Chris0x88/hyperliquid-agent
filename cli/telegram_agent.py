@@ -314,8 +314,15 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     # Build the request the same way _call_anthropic/_call_openrouter_direct would
     model = _get_active_model()
 
-    if _is_anthropic_model(model):
+    if _is_anthropic_model(model) and "haiku" in model:
+        # Haiku → direct Anthropic (free via session token)
         url, payload, headers = _build_anthropic_request(messages, tools)
+    elif _is_anthropic_model(model):
+        # Sonnet/Opus → OpenRouter (session token gets 429 on direct API)
+        url, payload, headers = _build_openrouter_request(messages, tools)
+        if not url:
+            # No OpenRouter key — try direct as fallback
+            url, payload, headers = _build_anthropic_request(messages, tools)
     else:
         url, payload, headers = _build_openrouter_request(messages, tools)
 
@@ -1282,18 +1289,35 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
 
 
 def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict:
-    """Route to Anthropic API directly. OpenRouter disabled.
+    """Smart routing: Haiku → direct Anthropic (free via session token).
+    Sonnet/Opus → OpenRouter (session token gets 429 on direct API).
 
-    Only Anthropic models are active. Select via /models.
+    This matches how OpenClaw routes: premium models through OpenRouter,
+    Haiku direct for cost savings.
     """
     _call_openrouter._last_fallback = None
 
     model = _get_active_model()
     if _is_anthropic_model(model):
+        # Haiku → direct Anthropic (free, no 429 issues)
+        if "haiku" in model:
+            return _call_anthropic(messages, tools)
+        # Sonnet/Opus → try OpenRouter first (works reliably)
+        or_key = _get_openrouter_key()
+        if or_key:
+            result = _call_openrouter_direct(messages, tools, model_override=model)
+            content = result.get("content", "")
+            if "No OpenRouter API key" not in content and "API error" not in content:
+                return result
+            log.warning("OpenRouter failed for %s, trying direct Anthropic", model)
+        # Fallback to direct Anthropic
         return _call_anthropic(messages, tools)
 
-    # Non-Anthropic model — OpenRouter disabled, prompt to switch
-    return {"content": "Please select an Anthropic model via /models (Opus, Sonnet, or Haiku)."}
+    # Non-Anthropic model via OpenRouter
+    or_key = _get_openrouter_key()
+    if or_key:
+        return _call_openrouter_direct(messages, tools)
+    return {"content": "No API key available. Use /models to select a model."}
 
 
 def _call_openrouter_direct(
