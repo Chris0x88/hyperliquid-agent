@@ -314,15 +314,8 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     # Build the request the same way _call_anthropic/_call_openrouter_direct would
     model = _get_active_model()
 
-    if _is_anthropic_model(model) and "haiku" in model:
-        # Haiku → direct Anthropic (free via session token)
+    if _is_anthropic_model(model):
         url, payload, headers = _build_anthropic_request(messages, tools)
-    elif _is_anthropic_model(model):
-        # Sonnet/Opus → OpenRouter (session token gets 429 on direct API)
-        url, payload, headers = _build_openrouter_request(messages, tools)
-        if not url:
-            # No OpenRouter key — try direct as fallback
-            url, payload, headers = _build_anthropic_request(messages, tools)
     else:
         url, payload, headers = _build_openrouter_request(messages, tools)
 
@@ -1226,60 +1219,175 @@ def _parse_anthropic_response(data: dict) -> dict:
     return result
 
 
-def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_override: Optional[str] = None) -> dict:
-    """Call Anthropic Messages API directly for anthropic/* models.
+def _get_anthropic_client(model: str = ""):
+    """Create an Anthropic SDK client matching Claude Code's client.ts.
 
-    Uses shared helpers for message conversion, payload building, and headers.
-    Handles retries with exponential backoff + Haiku fallback + free model chain.
+    Uses auth_token (not api_key) for session tokens — the SDK handles
+    the correct auth headers (Bearer + empty X-Api-Key).
     """
+    import anthropic
+
     api_key = _get_anthropic_key()
     if not api_key:
-        return {"content": "Error: No Anthropic API key found."}
+        return None
+
+    betas = _get_anthropic_betas(model)
+    is_session = _is_session_token(api_key)
+
+    cc_config_path = Path.home() / ".claude.json"
+    session_id = "telegram-bot"
+    try:
+        if cc_config_path.exists():
+            cc_data = json.loads(cc_config_path.read_text())
+            device_id = cc_data.get("userID", "")
+            account_uuid = cc_data.get("oauthAccount", {}).get("accountUuid", "")
+            session_id = json.dumps({"device_id": device_id, "account_uuid": account_uuid, "session_id": "telegram-bot"})
+    except Exception:
+        pass
+
+    if is_session:
+        return anthropic.Anthropic(
+            auth_token=api_key,
+            max_retries=2,
+            timeout=60.0,
+            default_headers={
+                "anthropic-beta": ",".join(betas),
+                "x-app": "cli",
+                "user-agent": "claude-cli/2.1.87",
+                "X-Claude-Code-Session-Id": "telegram-bot",
+            },
+        ), session_id
+    else:
+        return anthropic.Anthropic(
+            api_key=api_key,
+            max_retries=2,
+            timeout=60.0,
+        ), session_id
+
+
+def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_override: Optional[str] = None) -> dict:
+    """Call Anthropic Messages API via the official SDK.
+
+    Uses the same SDK + auth_token path as Claude Code (client.ts:303).
+    The SDK handles Bearer auth, retry, and header construction.
+    """
+    import anthropic
 
     model = _get_active_model()
     anthropic_model = model_override or model.replace("anthropic/", "", 1)
 
-    # Use shared conversion + payload builder
+    result = _get_anthropic_client(anthropic_model)
+    if not result:
+        return {"content": "Error: No Anthropic API key found."}
+    client, session_id = result
+
+    # Convert messages
     system_text, conv_messages = _convert_messages_to_anthropic(messages)
-    payload = _build_anthropic_payload(anthropic_model, system_text, conv_messages, tools)
-    headers = _build_anthropic_headers(api_key, anthropic_model)
+
+    # Build tool definitions
+    sdk_tools = None
+    if tools:
+        cc = _get_cache_control()
+        sdk_tools = []
+        for t in tools:
+            func = t.get("function", {})
+            tool_def = {
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+            }
+            sdk_tools.append(tool_def)
+        if sdk_tools:
+            sdk_tools[-1]["cache_control"] = cc
+
+    # Build system with caching
+    cc = _get_cache_control()
+    system_blocks = None
+    if system_text.strip():
+        system_blocks = [{"type": "text", "text": system_text.strip(), "cache_control": cc}]
+
+    # Cache breakpoint on last message
+    if conv_messages:
+        last_msg = conv_messages[-1]
+        content = last_msg.get("content", "")
+        if isinstance(content, str) and content:
+            last_msg["content"] = [{"type": "text", "text": content, "cache_control": cc}]
+        elif isinstance(content, list) and content:
+            last_block = content[-1]
+            if isinstance(last_block, dict):
+                last_block["cache_control"] = cc
 
     for attempt in range(_OR_MAX_RETRIES):
         try:
-            resp = requests.post(
-                _ANTHROPIC_URL, json=payload, headers=headers, timeout=60,
-            )
-            if resp.status_code == 429:
-                delay = _OR_BACKOFF_BASE * (2 ** attempt)
-                log.warning("Anthropic 429 (attempt %d/%d), backing off %.1fs",
-                            attempt + 1, _OR_MAX_RETRIES, delay)
-                if attempt < _OR_MAX_RETRIES - 1:
-                    time.sleep(delay)
-                    continue
-                # All retries exhausted — try Haiku as last resort
-                current_model = _get_active_model()
-                if "haiku" not in current_model and "haiku" not in (model_override or ""):
-                    log.info("Rate limited on %s — trying Haiku as fallback", anthropic_model)
-                    payload["model"] = "claude-haiku-4-5"
-                    try:
-                        haiku_resp = requests.post(_ANTHROPIC_URL, json=payload, headers=headers, timeout=60)
-                        if haiku_resp.status_code == 200:
-                            return _parse_anthropic_response(haiku_resp.json())
-                    except Exception as e:
-                        log.warning("Haiku fallback also failed: %s", e)
-                # All Anthropic exhausted — try free fallback chain
-                fallback_result, _ = _try_fallback_chain(messages, tools)
-                if fallback_result:
-                    return fallback_result
-                return {"content": "AI rate limited on all providers — try again in a minute. Use /status for instant data."}
+            kwargs = {
+                "model": anthropic_model,
+                "max_tokens": _MAX_RESPONSE_TOKENS,
+                "messages": conv_messages,
+                "metadata": {"user_id": session_id},
+            }
+            if system_blocks:
+                kwargs["system"] = system_blocks
+            if sdk_tools:
+                kwargs["tools"] = sdk_tools
 
-            if resp.status_code != 200:
-                log.error("Anthropic API error: %s %s", resp.status_code, resp.text[:200])
-                return {"content": f"Anthropic API error ({resp.status_code}). Try /status for live data."}
+            resp = client.messages.create(**kwargs)
 
-            return _parse_anthropic_response(resp.json())
+            # Convert SDK response to OpenAI-compatible format
+            text_parts = []
+            tool_calls = []
+            for block in resp.content:
+                if block.type == "text":
+                    text_parts.append(block.text)
+                elif block.type == "tool_use":
+                    tool_calls.append({
+                        "id": block.id,
+                        "type": "function",
+                        "function": {"name": block.name, "arguments": json.dumps(block.input)},
+                    })
 
-        except requests.Timeout:
+            result_dict: dict = {"role": "assistant"}
+            if text_parts:
+                result_dict["content"] = "\n".join(text_parts)
+            if tool_calls:
+                result_dict["tool_calls"] = tool_calls
+            if not text_parts and not tool_calls:
+                result_dict["content"] = ""
+            return result_dict
+
+        except anthropic.RateLimitError as e:
+            delay = _OR_BACKOFF_BASE * (2 ** attempt)
+            log.warning("Anthropic 429 (attempt %d/%d), backing off %.1fs", attempt + 1, _OR_MAX_RETRIES, delay)
+            if attempt < _OR_MAX_RETRIES - 1:
+                time.sleep(delay)
+                continue
+            # Exhausted — try Haiku fallback
+            if "haiku" not in anthropic_model and "haiku" not in (model_override or ""):
+                log.info("Rate limited on %s — trying Haiku", anthropic_model)
+                try:
+                    kwargs["model"] = "claude-haiku-4-5"
+                    haiku_resp = client.messages.create(**kwargs)
+                    text_parts = [b.text for b in haiku_resp.content if b.type == "text"]
+                    tool_calls = [{"id": b.id, "type": "function", "function": {"name": b.name, "arguments": json.dumps(b.input)}} for b in haiku_resp.content if b.type == "tool_use"]
+                    r: dict = {"role": "assistant"}
+                    if text_parts:
+                        r["content"] = "\n".join(text_parts)
+                    if tool_calls:
+                        r["tool_calls"] = tool_calls
+                    if not text_parts and not tool_calls:
+                        r["content"] = ""
+                    return r
+                except Exception as he:
+                    log.warning("Haiku fallback failed: %s", he)
+            # Free fallback chain
+            fallback_result, _ = _try_fallback_chain(messages, tools)
+            if fallback_result:
+                return fallback_result
+            return {"content": "AI rate limited — try again in a minute. Use /status for instant data."}
+
+        except anthropic.AuthenticationError as e:
+            log.error("Anthropic auth error: %s", e)
+            return {"content": f"Auth error: {e}. Token may need refresh."}
+        except anthropic.APITimeoutError:
             return {"content": "AI response timed out. Try /status for instant data."}
         except Exception as e:
             log.error("Anthropic call failed: %s", e)
@@ -1289,28 +1397,15 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
 
 
 def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict:
-    """Smart routing: Haiku → direct Anthropic (free via session token).
-    Sonnet/Opus → OpenRouter (session token gets 429 on direct API).
+    """Route Anthropic models to direct API. OpenRouter is separate (user-controlled).
 
-    This matches how OpenClaw routes: premium models through OpenRouter,
-    Haiku direct for cost savings.
+    All anthropic/* models go direct via session token — free, no per-token billing.
+    Non-anthropic models go via OpenRouter if a key is configured.
     """
     _call_openrouter._last_fallback = None
 
     model = _get_active_model()
     if _is_anthropic_model(model):
-        # Haiku → direct Anthropic (free, no 429 issues)
-        if "haiku" in model:
-            return _call_anthropic(messages, tools)
-        # Sonnet/Opus → try OpenRouter first (works reliably)
-        or_key = _get_openrouter_key()
-        if or_key:
-            result = _call_openrouter_direct(messages, tools, model_override=model)
-            content = result.get("content", "")
-            if "No OpenRouter API key" not in content and "API error" not in content:
-                return result
-            log.warning("OpenRouter failed for %s, trying direct Anthropic", model)
-        # Fallback to direct Anthropic
         return _call_anthropic(messages, tools)
 
     # Non-Anthropic model via OpenRouter
