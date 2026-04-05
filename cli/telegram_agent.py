@@ -1162,6 +1162,28 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
                 if attempt < _OR_MAX_RETRIES - 1:
                     time.sleep(delay)
                     continue
+                # All retries exhausted — try Haiku as last resort (much higher rate limit)
+                current_model = _get_active_model()
+                if "haiku" not in current_model:
+                    log.info("Rate limited on %s — trying Haiku as fallback", current_model)
+                    payload["model"] = "claude-haiku-4-5"
+                    try:
+                        haiku_resp = requests.post(_ANTHROPIC_URL, json=payload, headers=headers, timeout=60)
+                        if haiku_resp.status_code == 200:
+                            data = haiku_resp.json()
+                            # Parse response same as below
+                            content_blocks = data.get("content", [])
+                            text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
+                            result = {"role": "assistant", "content": "\n".join(text_parts) if text_parts else ""}
+                            tool_calls = []
+                            for b in content_blocks:
+                                if b.get("type") == "tool_use":
+                                    tool_calls.append({"id": b["id"], "type": "function", "function": {"name": b["name"], "arguments": json.dumps(b.get("input", {}))}})
+                            if tool_calls:
+                                result["tool_calls"] = tool_calls
+                            return result
+                    except Exception as e:
+                        log.warning("Haiku fallback also failed: %s", e)
                 return {"content": "AI rate limited — try again in a minute."}
 
             if resp.status_code != 200:
