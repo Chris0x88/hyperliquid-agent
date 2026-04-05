@@ -132,6 +132,9 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Call OpenRouter with tool definitions
         response = _call_openrouter(messages, tools=TOOL_DEFS)
 
+        # Track if we fell back from Anthropic rate limit — stay on fallback for remaining loops
+        _session_fallback_model = getattr(_call_openrouter, "_last_fallback", None)
+
         # Tool-calling loop: handles three modes (tried in order):
         # 1. Native function calling (paid models)
         # 2. Text-based [TOOL: name {args}] (regex, free models)
@@ -246,8 +249,12 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                         log.info("Read tool %s executed", fn_name)
 
             _tg_typing(token, chat_id)
-            # Only pass tools param for native tool calling models
-            response = _call_openrouter(messages, tools=TOOL_DEFS)
+            # If we fell back from Anthropic rate limit, stay on fallback model
+            if _session_fallback_model:
+                response = _call_openrouter_direct(messages, tools=TOOL_DEFS, model_override=_session_fallback_model)
+            else:
+                response = _call_openrouter(messages, tools=TOOL_DEFS)
+                _session_fallback_model = _call_openrouter._last_fallback
 
         # Extract final text response
         response_text = response.get("content") or ""
@@ -745,8 +752,8 @@ _OR_MAX_RETRIES = 3
 _OR_BACKOFF_BASE = 2.0
 
 
-def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None) -> Optional[dict]:
-    """Try each model in the fallback chain. Returns first successful response or None."""
+def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None):
+    """Try each model in the fallback chain. Returns (response, model_name) or (None, None)."""
     for model in _FALLBACK_CHAIN:
         log.info("Trying fallback: %s", model)
         result = _call_openrouter_direct(messages, tools, model_override=model)
@@ -759,8 +766,8 @@ def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None) -> O
         short_name = model.split("/")[-1].split(":")[0]
         if content:
             result["content"] = f"[\u26a1 {short_name}] {content}"
-        return result
-    return None
+        return result, model
+    return None, None
 
 
 def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
@@ -931,15 +938,21 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
 
     For anthropic/* models, routes to Anthropic API directly.
     See docs/wiki/operations/api-reference.md for maintenance notes.
+
+    Sets _call_openrouter._last_fallback to the fallback model name if
+    Anthropic rate-limited, so the tool loop can stay on the fallback.
     """
+    _call_openrouter._last_fallback = None  # reset each call
+
     # Route anthropic models directly to Anthropic API
     model = _get_active_model()
     if _is_anthropic_model(model):
         result = _call_anthropic(messages, tools)
         # If Anthropic is rate limited, fall back to free model
         if result.get("content", "").startswith("AI rate limited"):
-            result = _try_fallback_chain(messages, tools)
+            result, fallback_model = _try_fallback_chain(messages, tools)
             if result:
+                _call_openrouter._last_fallback = fallback_model
                 return result
             return {"content": "All models busy — try again in a minute. Use /status for instant data."}
         return result
