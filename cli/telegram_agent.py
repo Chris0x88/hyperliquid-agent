@@ -428,12 +428,23 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             store_pending, format_confirmation,
         )
 
-        # First call — use streaming for real-time Telegram output
-        try:
-            response = _tg_stream_response(token, chat_id, messages, tools=TOOL_DEFS)
-        except Exception as e:
-            log.warning("Streaming failed, falling back: %s", e)
+        # First call — route based on model.
+        # Sonnet/Opus: use Claude CLI proxy (streaming not supported via CLI,
+        # but the CLI is the only path that reliably works for premium models).
+        # Haiku: use streaming for real-time Telegram output.
+        active_model = _get_active_model()
+        use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model
+                   and _CLAUDE_CLI.exists())
+
+        if use_cli:
+            _tg_typing(token, chat_id)
             response = _call_openrouter(messages, tools=TOOL_DEFS)
+        else:
+            try:
+                response = _tg_stream_response(token, chat_id, messages, tools=TOOL_DEFS)
+            except Exception as e:
+                log.warning("Streaming failed, falling back: %s", e)
+                response = _call_openrouter(messages, tools=TOOL_DEFS)
 
         # Track if we fell back from Anthropic rate limit — stay on fallback for remaining loops
         _session_fallback_model = None  # Disabled — was causing silent failures on tool loops
