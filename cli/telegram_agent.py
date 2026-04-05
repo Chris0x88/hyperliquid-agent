@@ -38,7 +38,7 @@ _MAX_RESPONSE_TOKENS = 4096
 _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-_DEFAULT_MODEL = "anthropic/claude-haiku-4-5"  # Haiku: separate rate limit bucket from Sonnet
+_DEFAULT_MODEL = "anthropic/claude-haiku-4-5"  # Default fallback only — user selects via /models
 # Fallback waterfall: free models only
 _FALLBACK_CHAIN = [
     "google/gemma-3-27b-it:free",

@@ -44,7 +44,7 @@ MCP server (`hl mcp serve`) was the old integration bridge. Removed intentionall
 ## Quick Context (DO NOT DELETE)
 - **Primary Market:** HyperLiquid (`main` account for BRENTOIL/Gold/Silver on xyz clearinghouse, `vault` account for BTC/ETH on native clearinghouse)
 - **Edge:** Fundamentals-driven trades, supply/demand disruptions, macro news, asymmetric risk sizing.
-- **Active AI model in app:** `anthropic/claude-haiku-4-5` (set in `data/config/model_config.json`). Use /models to switch. Do NOT change this to Sonnet — it shares rate limits with the main OpenClaw session and causes 429s.
+- **Active AI model in app:** Set by user via /models. Default fallback is Haiku if config missing. Do NOT auto-reset or change the model — Chris chooses the model.
 
 ## Active Rules & Learnings
 1. **Never buy an un-consolidated dip:** BRENTOIL drops sharply and sometimes legs down twice.
