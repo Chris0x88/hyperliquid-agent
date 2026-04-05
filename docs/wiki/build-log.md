@@ -4,6 +4,37 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-05 -- v4: Embedded Agent Runtime + Wiki System
+
+**Major architecture upgrade.** Two parallel efforts:
+
+### Documentation Wiki
+- Migrated 123 docs across 5 overlapping systems into `docs/wiki/` (27 pages)
+- CLAUDE.md files slimmed to pure routing (434→163 lines)
+- 22 memory files pruned, MAINTAINING.md written
+- Weekly maintenance task scheduled
+- ~15,000 lines of dead code removed (quoting_engine, stale strategies, legacy docs)
+
+### Embedded Agent Runtime (Claude Code port)
+- Created `cli/agent_runtime.py` — core agent architecture ported from Claude Code TypeScript
+- **System prompt:** Claude Code-quality sections (doing tasks, actions, tool usage, tone)
+- **Parallel tools:** READ tools execute concurrently via ThreadPoolExecutor
+- **SSE streaming:** Real-time Telegram output via `editMessageText`
+- **Context compaction:** Auto-summarize when approaching context window limit
+- **Memory dream:** Auto-consolidate learnings after 24h + 3 sessions
+- 8 new general tools: read_file, search_code, list_files, web_search, memory_read/write, edit_file, run_bash
+- Agent memory system in `data/agent_memory/` (MEMORY.md index + topic files)
+- Anthropic direct API with proper OpenAI→Anthropic message format conversion
+- 12-iteration tool loop, 12K char results, approval gates for all writes
+- Agent can read and modify its own codebase (with user approval)
+
+### Fixes
+- Anthropic tool format conversion (role="tool" → tool_result content blocks)
+- Rate-limit fallback removed (Anthropic-only mode after testing)
+- Default model changed to Haiku 4.5
+
+---
+
 ## 2026-04-04 -- v3.2: Interactive UX + Hardening
 
 **Phase 2.5 completed.** Major additions:

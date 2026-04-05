@@ -23,11 +23,20 @@ See `docs/plans/PHASE_3_REFLECT_LOOP.md` for detailed plan.
 - **Phase 4: Self-Improving** — Auto-tuning, catalyst calendar, convergence tracking
 - See `docs/plans/PHASE_4_SELF_IMPROVING.md`
 
+## What Just Shipped (v4 — 2026-04-05)
+
+- **Embedded agent runtime** — `cli/agent_runtime.py` ported from Claude Code (parallel tools, streaming, compaction, dream)
+- **20 tools** — 11 trading + 8 general (codebase, web, memory, shell) + 1 daemon health
+- **Agent memory** — persistent `data/agent_memory/` with auto-loaded MEMORY.md
+- **Self-improvement** — agent can read/edit its own code with user approval
+- **Wiki documentation system** — 27 pages, single source of truth, MAINTAINING.md guide
+
 ## Open Questions / Priorities
 
-- SILVER and GOLD thesis stale (>4 days) — conviction auto-clamped
-- Liquidity regime: dangerous — monitor closely
-- REFLECT wiring: which iterators, what tier, what frequency?
+- SILVER and GOLD thesis stale — conviction auto-clamped
+- Streaming not yet wired to Telegram output (helper exists, needs integration into main flow)
+- Dream consolidation runs but doesn't yet use agent tools (marks complete only)
+- REFLECT wiring (Phase 3): which iterators, what tier, what frequency?
 
 ## Package Map
 

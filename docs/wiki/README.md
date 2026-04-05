@@ -22,6 +22,7 @@ This wiki is maintained by Claude Code. See MAINTAINING.md for the maintenance p
 | [006](decisions/006-protection-chain.md) | Protection Chain | Composable risk protections with worst-gate-wins |
 | [007](decisions/007-renderer-abc.md) | Renderer ABC | UI portability layer for Telegram, web, and tests |
 | [008](decisions/008-triple-mode-tools.md) | Triple-Mode Tools | Native + regex + AST fallback for free model tool calling |
+| [009](decisions/009-embedded-agent-runtime.md) | Embedded Agent Runtime | Claude Code architecture ported to Python — parallel tools, streaming, compaction |
 
 ### Build History
 
