@@ -370,6 +370,165 @@ def update_thesis(market: str, direction: str, conviction: float, summary: str =
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# General Tools — codebase, memory, web, shell
+# ═══════════════════════════════════════════════════════════════════════
+
+_MEMORY_DIR = _PROJECT_ROOT / "data" / "agent_memory"
+_BLOCKED_COMMANDS = {"rm -rf", "rm -r /", "mkfs", "dd if=", "> /dev/", "shutdown", "reboot", "halt"}
+
+
+def read_file(path: str) -> dict:
+    """Read a file from the project. Path relative to project root."""
+    try:
+        target = (_PROJECT_ROOT / path).resolve()
+        if not str(target).startswith(str(_PROJECT_ROOT)):
+            return {"error": f"Path outside project: {path}"}
+        if not target.exists():
+            return {"error": f"File not found: {path}"}
+        if target.stat().st_size > 100_000:
+            content = target.read_text()[:100_000]
+            return {"path": path, "content": content, "truncated": True}
+        return {"path": path, "content": target.read_text()}
+    except Exception as e:
+        return {"error": f"read_file failed: {e}"}
+
+
+def search_code(pattern: str, path: str = ".") -> dict:
+    """Grep the codebase for a pattern. Returns matching lines."""
+    import subprocess
+    try:
+        target = (_PROJECT_ROOT / path).resolve()
+        if not str(target).startswith(str(_PROJECT_ROOT)):
+            return {"error": f"Path outside project: {path}"}
+        result = subprocess.run(
+            ["grep", "-rn", "--include=*.py", "--include=*.md", "--include=*.json",
+             "-I", pattern, str(target)],
+            capture_output=True, text=True, timeout=15,
+        )
+        lines = result.stdout.strip().split("\n")[:50]  # cap at 50 matches
+        # Strip project root prefix for cleaner output
+        root_str = str(_PROJECT_ROOT) + "/"
+        lines = [l.replace(root_str, "") for l in lines if l.strip()]
+        return {"pattern": pattern, "matches": lines, "count": len(lines)}
+    except subprocess.TimeoutExpired:
+        return {"error": "Search timed out (15s limit)"}
+    except Exception as e:
+        return {"error": f"search_code failed: {e}"}
+
+
+def list_files(pattern: str) -> dict:
+    """List files matching a glob pattern relative to project root."""
+    try:
+        matches = sorted(str(p.relative_to(_PROJECT_ROOT)) for p in _PROJECT_ROOT.glob(pattern)
+                        if p.is_file() and ".venv" not in str(p) and "__pycache__" not in str(p))
+        return {"pattern": pattern, "files": matches[:100], "count": len(matches)}
+    except Exception as e:
+        return {"error": f"list_files failed: {e}"}
+
+
+def web_search(query: str, max_results: int = 5) -> dict:
+    """Search the web using DuckDuckGo. No API key needed."""
+    try:
+        import warnings
+        warnings.filterwarnings("ignore", message=".*renamed.*ddgs.*")
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+        return {
+            "query": query,
+            "results": [{"title": r["title"], "url": r["href"], "snippet": r["body"]} for r in results],
+        }
+    except ImportError:
+        return {"error": "duckduckgo_search not installed. Run: pip install duckduckgo-search"}
+    except Exception as e:
+        return {"error": f"web_search failed: {e}"}
+
+
+def memory_read(topic: str = "index") -> dict:
+    """Read agent memory. 'index' returns MEMORY.md, otherwise reads topic file."""
+    try:
+        _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        if topic == "index" or topic == "all":
+            index_path = _MEMORY_DIR / "MEMORY.md"
+            if not index_path.exists():
+                return {"topic": "index", "content": "(empty — no memories yet)"}
+            return {"topic": "index", "content": index_path.read_text()}
+        topic_path = _MEMORY_DIR / f"{topic}.md"
+        if not topic_path.exists():
+            # List available topics
+            available = [f.stem for f in _MEMORY_DIR.glob("*.md") if f.name != "MEMORY.md"]
+            return {"error": f"Topic '{topic}' not found. Available: {', '.join(available) or '(none)'}"}
+        return {"topic": topic, "content": topic_path.read_text()}
+    except Exception as e:
+        return {"error": f"memory_read failed: {e}"}
+
+
+def memory_write(topic: str, content: str) -> dict:
+    """Write to agent memory. Creates/updates a topic file and the index."""
+    try:
+        _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        topic_path = _MEMORY_DIR / f"{topic}.md"
+        topic_path.write_text(content)
+        # Update index
+        index_path = _MEMORY_DIR / "MEMORY.md"
+        topics = sorted(f.stem for f in _MEMORY_DIR.glob("*.md") if f.name != "MEMORY.md")
+        index_lines = ["# Agent Memory\n", "Topic files maintained by the embedded AI agent.\n"]
+        for t in topics:
+            first_line = (_MEMORY_DIR / f"{t}.md").read_text().split("\n")[0].strip("# ").strip()
+            index_lines.append(f"- [{t}.md]({t}.md) — {first_line[:80]}")
+        index_path.write_text("\n".join(index_lines) + "\n")
+        return {"topic": topic, "status": "saved", "index_updated": True}
+    except Exception as e:
+        return {"error": f"memory_write failed: {e}"}
+
+
+def edit_file(path: str, old_str: str, new_str: str) -> dict:
+    """Edit a file by replacing old_str with new_str. Claude Code pattern."""
+    try:
+        target = (_PROJECT_ROOT / path).resolve()
+        if not str(target).startswith(str(_PROJECT_ROOT)):
+            return {"error": f"Path outside project: {path}"}
+        if not target.exists():
+            return {"error": f"File not found: {path}"}
+        content = target.read_text()
+        if old_str not in content:
+            return {"error": f"old_str not found in {path}"}
+        count = content.count(old_str)
+        if count > 1:
+            return {"error": f"old_str matches {count} times in {path} — must be unique"}
+        new_content = content.replace(old_str, new_str, 1)
+        target.write_text(new_content)
+        return {"path": path, "status": "edited", "replacements": 1}
+    except Exception as e:
+        return {"error": f"edit_file failed: {e}"}
+
+
+def run_bash(command: str) -> dict:
+    """Run a shell command in the project directory. 30s timeout."""
+    import subprocess
+    try:
+        for blocked in _BLOCKED_COMMANDS:
+            if blocked in command:
+                return {"error": f"Blocked command pattern: {blocked}"}
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True,
+            timeout=30, cwd=str(_PROJECT_ROOT),
+        )
+        output = result.stdout[-5000:] if len(result.stdout) > 5000 else result.stdout
+        stderr = result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr
+        return {
+            "command": command,
+            "returncode": result.returncode,
+            "stdout": output,
+            "stderr": stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": f"Command timed out (30s): {command}"}
+    except Exception as e:
+        return {"error": f"run_bash failed: {e}"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Registry
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -385,11 +544,19 @@ TOOL_REGISTRY: Dict[str, Any] = {
     "daemon_health": daemon_health,
     "place_trade": place_trade,
     "update_thesis": update_thesis,
+    "read_file": read_file,
+    "search_code": search_code,
+    "list_files": list_files,
+    "web_search": web_search,
+    "memory_read": memory_read,
+    "memory_write": memory_write,
+    "edit_file": edit_file,
+    "run_bash": run_bash,
     # Back-compat aliases
     "account_summary": status,
 }
 
-WRITE_TOOLS = {"place_trade", "update_thesis"}
+WRITE_TOOLS = {"place_trade", "update_thesis", "memory_write", "edit_file", "run_bash"}
 
 # Tool descriptions for system prompt injection
 TOOL_DESCRIPTIONS = {
@@ -404,4 +571,12 @@ TOOL_DESCRIPTIONS = {
     "daemon_health": "Daemon status: tier, tick, strategies",
     "place_trade": "Place a market order (requires approval)",
     "update_thesis": "Update thesis conviction (requires approval)",
+    "read_file": "Read any project file",
+    "search_code": "Grep the codebase for a pattern",
+    "list_files": "List files matching a glob pattern",
+    "web_search": "Search the web (DuckDuckGo)",
+    "memory_read": "Read agent memory files",
+    "memory_write": "Write to agent memory (requires approval)",
+    "edit_file": "Edit a file by string replacement (requires approval)",
+    "run_bash": "Run a shell command (requires approval)",
 }

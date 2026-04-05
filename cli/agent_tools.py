@@ -26,7 +26,7 @@ _HL_API = "https://api.hyperliquid.xyz/info"
 _MAX_RESPONSE_CHARS = 3000
 
 # Write tools that require user approval before execution
-WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp"}
+WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash"}
 
 # In-memory pending actions (action_id -> action dict). TTL 5 min.
 _pending_actions: Dict[str, dict] = {}
@@ -168,6 +168,123 @@ TOOL_DEFS: List[dict] = [
                     "summary": {"type": "string", "description": "Brief thesis summary"},
                 },
                 "required": ["market", "direction", "conviction"],
+            },
+        },
+    },
+    # ── General tools ─────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the project. Path relative to project root.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to project root, e.g. 'cli/telegram_agent.py'"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_code",
+            "description": "Search the codebase for a pattern (grep). Returns matching lines with file:line format.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Search pattern (regex supported)"},
+                    "path": {"type": "string", "description": "Directory to search in, relative to project root", "default": "."},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files matching a glob pattern relative to project root.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Glob pattern, e.g. '**/*.py', 'cli/*.py', 'docs/wiki/*.md'"},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web for current information. Returns titles, URLs, and snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_results": {"type": "integer", "description": "Max results to return", "default": 5},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_read",
+            "description": "Read from agent persistent memory. Use 'index' to see all topics, or specify a topic name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic name or 'index' for the memory index", "default": "index"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_write",
+            "description": "Write to agent persistent memory. Creates or updates a topic file. REQUIRES APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic name (becomes filename, e.g. 'trading_rules')"},
+                    "content": {"type": "string", "description": "Full content to write to the topic file (markdown)"},
+                },
+                "required": ["topic", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Edit a project file by replacing a specific string. Claude Code pattern. REQUIRES APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to project root"},
+                    "old_str": {"type": "string", "description": "Exact string to find and replace (must be unique in file)"},
+                    "new_str": {"type": "string", "description": "Replacement string"},
+                },
+                "required": ["path", "old_str", "new_str"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_bash",
+            "description": "Run a shell command in the project directory. 30s timeout. REQUIRES APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command to run"},
+                },
+                "required": ["command"],
             },
         },
     },
@@ -525,6 +642,77 @@ def _tool_set_tp(args: dict) -> str:
         return f"TP failed: {e}"
 
 
+def _tool_read_file(args: dict) -> str:
+    from common.tools import read_file
+    result = read_file(args.get("path", ""))
+    if "error" in result:
+        return result["error"]
+    content = result.get("content", "")
+    if len(content) > 2500:
+        content = content[:2500] + "\n... (truncated)"
+    return content
+
+def _tool_search_code(args: dict) -> str:
+    from common.tools import search_code
+    result = search_code(args.get("pattern", ""), args.get("path", "."))
+    if "error" in result:
+        return result["error"]
+    matches = result.get("matches", [])
+    return f"{result['count']} matches:\n" + "\n".join(matches)
+
+def _tool_list_files(args: dict) -> str:
+    from common.tools import list_files
+    result = list_files(args.get("pattern", ""))
+    if "error" in result:
+        return result["error"]
+    files = result.get("files", [])
+    return f"{result['count']} files:\n" + "\n".join(files)
+
+def _tool_web_search(args: dict) -> str:
+    from common.tools import web_search
+    result = web_search(args.get("query", ""), args.get("max_results", 5))
+    if "error" in result:
+        return result["error"]
+    lines = []
+    for r in result.get("results", []):
+        lines.append(f"• {r['title']}\n  {r['url']}\n  {r['snippet']}")
+    return "\n\n".join(lines) if lines else "No results found."
+
+def _tool_memory_read(args: dict) -> str:
+    from common.tools import memory_read
+    result = memory_read(args.get("topic", "index"))
+    if "error" in result:
+        return result["error"]
+    return result.get("content", "")
+
+def _tool_memory_write(args: dict) -> str:
+    from common.tools import memory_write
+    result = memory_write(args.get("topic", ""), args.get("content", ""))
+    if "error" in result:
+        return result["error"]
+    return f"Memory saved: {result['topic']}.md (index updated)"
+
+def _tool_edit_file(args: dict) -> str:
+    from common.tools import edit_file
+    result = edit_file(args.get("path", ""), args.get("old_str", ""), args.get("new_str", ""))
+    if "error" in result:
+        return result["error"]
+    return f"Edited {result['path']} ({result['replacements']} replacement)"
+
+def _tool_run_bash(args: dict) -> str:
+    from common.tools import run_bash
+    result = run_bash(args.get("command", ""))
+    if "error" in result:
+        return result["error"]
+    parts = []
+    if result.get("stdout"):
+        parts.append(result["stdout"])
+    if result.get("stderr"):
+        parts.append(f"STDERR: {result['stderr']}")
+    parts.append(f"(exit {result['returncode']})")
+    return "\n".join(parts)
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -539,6 +727,14 @@ _TOOL_DISPATCH = {
     "close_position": _tool_close_position,
     "set_sl": _tool_set_sl,
     "set_tp": _tool_set_tp,
+    "read_file": _tool_read_file,
+    "search_code": _tool_search_code,
+    "list_files": _tool_list_files,
+    "web_search": _tool_web_search,
+    "memory_read": _tool_memory_read,
+    "memory_write": _tool_memory_write,
+    "edit_file": _tool_edit_file,
+    "run_bash": _tool_run_bash,
 }
 
 

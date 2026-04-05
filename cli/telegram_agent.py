@@ -34,7 +34,7 @@ _AUTH_PROFILES = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "a
 # Limits
 _MAX_HISTORY = 20
 _MAX_HISTORY_CHARS = 12000  # Cap total history chars to stay within context window
-_MAX_RESPONSE_TOKENS = 1500
+_MAX_RESPONSE_TOKENS = 4096
 _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -51,7 +51,7 @@ _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "mod
 
 _CACHE: Dict[str, dict] = {}
 
-_MAX_TOOL_LOOPS = 3
+_MAX_TOOL_LOOPS = 8
 
 # Regex for text-based tool calls: [TOOL: name {"arg": "val"}]
 import re
@@ -285,11 +285,17 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
 
 def _build_system_prompt() -> str:
-    """Load AGENT.md + SOUL.md as the system prompt."""
+    """Load AGENT.md + SOUL.md + agent memory as the system prompt."""
     parts = []
     for path in (_AGENT_MD, _SOUL_MD):
         if path.exists():
             parts.append(path.read_text().strip())
+    # Load agent memory index if it exists
+    memory_path = _PROJECT_ROOT / "data" / "agent_memory" / "MEMORY.md"
+    if memory_path.exists():
+        memory_content = memory_path.read_text().strip()
+        if memory_content:
+            parts.append(f"--- AGENT MEMORY ---\n\n{memory_content}")
     return "\n\n---\n\n".join(parts) if parts else "You are a HyperLiquid trading assistant."
 
 

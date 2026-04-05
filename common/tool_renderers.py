@@ -120,6 +120,53 @@ def _render_generic_ai(data: dict) -> str:
     return json.dumps(data, default=str, separators=(",", ":"))
 
 
+def _render_read_file_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    trunc = " (truncated)" if data.get("truncated") else ""
+    return f"=== {data['path']}{trunc} ===\n{data['content']}"
+
+
+def _render_search_code_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    matches = data.get("matches", [])
+    return f"{data['count']} matches for '{data['pattern']}':\n" + "\n".join(matches)
+
+
+def _render_list_files_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    return f"{data['count']} files matching '{data['pattern']}':\n" + "\n".join(data.get("files", []))
+
+
+def _render_web_search_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    lines = []
+    for r in data.get("results", []):
+        lines.append(f"• {r['title']} — {r['url']}\n  {r['snippet']}")
+    return f"Web results for '{data['query']}':\n" + "\n\n".join(lines) if lines else "No results."
+
+
+def _render_memory_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    return data.get("content", data.get("status", "ok"))
+
+
+def _render_bash_ai(data: dict) -> str:
+    if "error" in data:
+        return f"ERROR: {data['error']}"
+    parts = []
+    if data.get("stdout"):
+        parts.append(data["stdout"])
+    if data.get("stderr"):
+        parts.append(f"STDERR: {data['stderr']}")
+    parts.append(f"(exit {data['returncode']})")
+    return "\n".join(parts)
+
+
 _AI_RENDERERS: Dict[str, Any] = {
     "status": _render_status_ai,
     "account_summary": _render_status_ai,
@@ -131,4 +178,12 @@ _AI_RENDERERS: Dict[str, Any] = {
     "trade_journal": _render_journal_ai,
     "thesis_state": _render_thesis_ai,
     "daemon_health": _render_daemon_ai,
+    "read_file": _render_read_file_ai,
+    "search_code": _render_search_code_ai,
+    "list_files": _render_list_files_ai,
+    "web_search": _render_web_search_ai,
+    "memory_read": _render_memory_ai,
+    "memory_write": _render_memory_ai,
+    "edit_file": _render_generic_ai,
+    "run_bash": _render_bash_ai,
 }
