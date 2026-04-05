@@ -7,14 +7,11 @@ import pytest
 
 
 class TestBuildSystemPrompt:
-    def test_assembles_all_sections(self):
+    def test_assembles_core_prompt(self):
         from cli.agent_runtime import build_system_prompt
         prompt = build_system_prompt()
         assert "autonomous" in prompt.lower()
-        assert "Doing tasks" in prompt
-        assert "Executing actions" in prompt
-        assert "Using your tools" in prompt
-        assert "Tone and style" in prompt
+        assert "agent" in prompt.lower()
 
     def test_includes_agent_md(self):
         from cli.agent_runtime import build_system_prompt

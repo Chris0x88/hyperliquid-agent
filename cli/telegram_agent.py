@@ -444,9 +444,14 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     ]
                     log.info("Context compacted to %d messages", len(messages))
 
-            # Always use the main routing (Anthropic direct or OpenRouter)
-            # _session_fallback_model is no longer used — removed to prevent silent failures
-            response = _call_openrouter(messages, tools=TOOL_DEFS)
+            # Token optimisation: use Haiku for tool iterations (cheaper, higher rate limits).
+            # Only the FINAL response needs Sonnet/Opus.
+            # Haiku handles tool dispatch (read_file, search_code etc) just fine.
+            model = _get_active_model()
+            if _is_anthropic_model(model) and "haiku" not in model:
+                response = _call_anthropic(messages, tools=TOOL_DEFS, model_override="claude-haiku-4-5")
+            else:
+                response = _call_openrouter(messages, tools=TOOL_DEFS)
 
         # Extract final text response
         response_text = response.get("content") or ""
@@ -1046,7 +1051,7 @@ def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None):
     return None, None
 
 
-def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
+def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_override: Optional[str] = None) -> dict:
     """Call Anthropic Messages API directly for anthropic/* models.
 
     Converts OpenAI-style messages to Anthropic format and returns
@@ -1058,7 +1063,7 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
 
     model = _get_active_model()
     # Strip "anthropic/" prefix for the Anthropic API
-    anthropic_model = model.replace("anthropic/", "", 1)
+    anthropic_model = model_override or model.replace("anthropic/", "", 1)
 
     # Convert OpenAI-format messages to Anthropic format.
     # Key differences:
@@ -1118,7 +1123,12 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
         "messages": conv_messages,
     }
     if system_text.strip():
-        payload["system"] = system_text.strip()
+        # Prompt caching: mark system prompt as cacheable.
+        # Cached tokens don't count against ITPM rate limits — this is
+        # the single biggest optimisation for session token usage.
+        payload["system"] = [
+            {"type": "text", "text": system_text.strip(), "cache_control": {"type": "ephemeral"}},
+        ]
 
     # Convert OpenAI tool format to Anthropic tool format
     if tools:
@@ -1130,15 +1140,18 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
                 "description": func.get("description", ""),
                 "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
             })
+        # Cache tool definitions too — they're ~1500 tokens and identical every call
+        if anthropic_tools:
+            anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
         payload["tools"] = anthropic_tools
 
-    # Session tokens (sk-ant-oat01-...) require OAuth headers — same as claude-cli.
-    # Console API keys (sk-ant-api03-...) use x-api-key.
-    if api_key.startswith("sk-ant-oat"):
+    # Session tokens require OAuth headers — same as claude-cli.
+    is_session = _is_session_token(api_key)
+    if is_session:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "anthropic-version": "2023-06-01",
-            "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+            "anthropic-beta": "prompt-caching-2024-07-31,claude-code-20250219,oauth-2025-04-20",
             "x-app": "cli",
             "user-agent": "claude-cli/2.1.75",
             "Content-Type": "application/json",
