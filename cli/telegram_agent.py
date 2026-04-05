@@ -1332,16 +1332,32 @@ def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] 
     if system_text.strip():
         full_prompt += f"{system_text.strip()[:3000]}\n\n"
 
-    # Inject tool definitions so the model can invoke them via text
+    # Inject tool definitions so the model can invoke them via text.
+    # Use [TOOL: name {"arg": "val"}] syntax — our triple-mode parser picks these up.
     if tools:
-        tool_lines = ["[Available tools — invoke with [TOOL: name {\"arg\": \"val\"}] syntax]:"]
+        tool_lines = [
+            "## YOUR TOOLS",
+            "You MUST use tools to answer questions about positions, prices, markets, etc.",
+            "To invoke a tool, output EXACTLY: [TOOL: name {\"arg\": \"val\"}]",
+            "Examples:",
+            '  [TOOL: account_summary]',
+            '  [TOOL: live_price {"market": "BRENTOIL"}]',
+            '  [TOOL: web_search {"query": "crude oil price forecast"}]',
+            '  [TOOL: read_file {"path": "docs/plans/MASTER_PLAN.md"}]',
+            '  [TOOL: list_files {"pattern": "**/*.py"}]',
+            "",
+            "Available tools:",
+        ]
         for t in tools:
             func = t.get("function", {})
             name = func.get("name", "")
-            desc = func.get("description", "")[:100]
+            desc = func.get("description", "")[:150]
             params = func.get("parameters", {}).get("properties", {})
-            param_names = ", ".join(params.keys()) if params else "none"
-            tool_lines.append(f"  - {name}({param_names}): {desc}")
+            if params:
+                param_str = ", ".join(f'"{k}": {v.get("type", "string")}' for k, v in params.items())
+                tool_lines.append(f"  - [TOOL: {name} {{{param_str}}}] — {desc}")
+            else:
+                tool_lines.append(f"  - [TOOL: {name}] — {desc}")
         full_prompt += "\n".join(tool_lines) + "\n\n"
 
     if history_parts:
