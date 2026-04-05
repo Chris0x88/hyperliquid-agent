@@ -800,11 +800,23 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
             })
         payload["tools"] = anthropic_tools
 
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
+    # Session tokens (sk-ant-oat01-...) require OAuth headers — same as claude-cli.
+    # Console API keys (sk-ant-api03-...) use x-api-key.
+    if api_key.startswith("sk-ant-oat"):
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+            "x-app": "cli",
+            "user-agent": "claude-cli/2.1.75",
+            "Content-Type": "application/json",
+        }
+    else:
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
 
     for attempt in range(_OR_MAX_RETRIES):
         try:
@@ -970,14 +982,20 @@ def _get_openrouter_key() -> Optional[str]:
 
 
 def _get_anthropic_key() -> Optional[str]:
-    """Read Anthropic API key/token from auth-profiles.json."""
+    """Read Anthropic session token or API key from auth-profiles.json.
+
+    Session tokens (sk-ant-oat01-...) are the preferred credential —
+    they are tied to your Anthropic subscription (no per-token billing).
+    Console API keys (sk-ant-api03-...) are expensive and not preferred.
+    """
     try:
         if _AUTH_PROFILES.exists():
             data = json.loads(_AUTH_PROFILES.read_text())
             profiles = data.get("profiles", {})
             for name, profile in profiles.items():
                 if profile.get("provider") == "anthropic":
-                    return profile.get("key") or profile.get("token")
+                    # Prefer token (session) over key (console API)
+                    return profile.get("token") or profile.get("key")
     except Exception:
         pass
     import os
