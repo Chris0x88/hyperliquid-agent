@@ -64,7 +64,7 @@ HyperLiquid API wallets (agent wallets) can trade but **cannot withdraw funds**.
 hl keys import --backend ows
 ```
 
-For a deeper explanation of API wallet security, see [docs/SECURITY.md](docs/SECURITY.md).
+For a deeper explanation of API wallet security, see [docs/wiki/operations/security.md](docs/wiki/operations/security.md).
 
 ### Step 3: Start the Daemon
 

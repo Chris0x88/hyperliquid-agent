@@ -738,7 +738,7 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
     or content). Free models that don't support tools will ignore the tools
     parameter and return a normal content response.
 
-    See docs/openrouter_setup.md for maintenance notes.
+    See docs/wiki/operations/api-reference.md for maintenance notes.
     """
     api_key = _get_openrouter_key()
     if not api_key:
@@ -830,7 +830,7 @@ def set_active_model(model_id: str) -> None:
 
 # Curated model list — free models at top, paid below.
 # Free: 20 RPM / ~200 req/day limits. Paid: require OR credit balance.
-# To update: see docs/openrouter_setup.md
+# To update: see docs/wiki/operations/api-reference.md
 _CURATED_MODELS = [
     # ── Free ──
     {"id": "qwen/qwen3.6-plus-preview:free", "name": "Qwen 3.6+", "tier": "free"},
@@ -859,7 +859,7 @@ def get_available_models() -> list:
     """Return curated model list for the /models selector.
 
     Merges the built-in curated list with any extra models from the
-    OpenClaw models.json. See docs/openrouter_setup.md for maintenance.
+    OpenClaw models.json. See docs/wiki/operations/api-reference.md for maintenance.
     """
     models = list(_CURATED_MODELS)
     seen_ids = {m["id"] for m in models}
