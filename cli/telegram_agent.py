@@ -777,14 +777,57 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
     # Strip "anthropic/" prefix for the Anthropic API
     anthropic_model = model.replace("anthropic/", "", 1)
 
-    # Separate system message from conversation messages
+    # Convert OpenAI-format messages to Anthropic format.
+    # Key differences:
+    #   OpenAI: role="tool" with tool_call_id + content string
+    #   Anthropic: role="user" with [{"type":"tool_result","tool_use_id":...,"content":...}]
+    #   OpenAI assistant: tool_calls=[{id, function:{name,arguments}}]
+    #   Anthropic assistant: content=[{"type":"tool_use","id":...,"name":...,"input":...}]
     system_text = ""
     conv_messages = []
+    pending_tool_results = []  # collect tool results to batch into one user message
     for msg in messages:
         if msg.get("role") == "system":
             system_text += msg.get("content", "") + "\n"
-        else:
-            conv_messages.append({"role": msg["role"], "content": msg.get("content", "")})
+        elif msg.get("role") == "assistant":
+            # Flush any pending tool results first
+            if pending_tool_results:
+                conv_messages.append({"role": "user", "content": pending_tool_results})
+                pending_tool_results = []
+            # Convert assistant message: may have tool_calls (OpenAI) → tool_use (Anthropic)
+            assistant_content = []
+            if msg.get("content"):
+                assistant_content.append({"type": "text", "text": msg["content"]})
+            for tc in msg.get("tool_calls", []):
+                fn = tc.get("function", {})
+                raw_input = fn.get("arguments", "{}")
+                try:
+                    parsed_input = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
+                except (json.JSONDecodeError, TypeError):
+                    parsed_input = {}
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": fn.get("name", ""),
+                    "input": parsed_input,
+                })
+            conv_messages.append({"role": "assistant", "content": assistant_content or msg.get("content", "")})
+        elif msg.get("role") == "tool":
+            # Collect tool results — they must be batched into a single user message
+            pending_tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": msg.get("content", ""),
+            })
+        elif msg.get("role") == "user":
+            # Flush any pending tool results first
+            if pending_tool_results:
+                conv_messages.append({"role": "user", "content": pending_tool_results})
+                pending_tool_results = []
+            conv_messages.append({"role": "user", "content": msg.get("content", "")})
+    # Flush remaining tool results
+    if pending_tool_results:
+        conv_messages.append({"role": "user", "content": pending_tool_results})
 
     payload: dict = {
         "model": anthropic_model,
