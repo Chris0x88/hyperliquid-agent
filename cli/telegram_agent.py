@@ -39,6 +39,12 @@ _MAX_TG_MESSAGE = 4096
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
+# Fallback waterfall: try free first, then cheap paid as last resort
+_FALLBACK_CHAIN = [
+    "google/gemma-3-27b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.5-flash",  # cheap paid — always available
+]
 _MODEL_CONFIG = _PROJECT_ROOT / "data" / "config" / "model_config.json"
 _MODELS_JSON = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "models.json"
 
@@ -732,6 +738,24 @@ _OR_MAX_RETRIES = 3
 _OR_BACKOFF_BASE = 2.0
 
 
+def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None) -> Optional[dict]:
+    """Try each model in the fallback chain. Returns first successful response or None."""
+    for model in _FALLBACK_CHAIN:
+        log.info("Trying fallback: %s", model)
+        result = _call_openrouter_direct(messages, tools, model_override=model)
+        content = result.get("content") or ""
+        # Skip if rate limited or error
+        if "rate limited" in content.lower() or "API error" in content:
+            log.warning("Fallback %s failed: %s", model, content[:80])
+            continue
+        # Got a real response
+        short_name = model.split("/")[-1].split(":")[0]
+        if content:
+            result["content"] = f"[\u26a1 {short_name}] {content}"
+        return result
+    return None
+
+
 def _call_anthropic(messages: List[Dict], tools: Optional[list] = None) -> dict:
     """Call Anthropic Messages API directly for anthropic/* models.
 
@@ -852,10 +876,10 @@ def _call_openrouter(messages: List[Dict], tools: Optional[list] = None) -> dict
         result = _call_anthropic(messages, tools)
         # If Anthropic is rate limited, fall back to free model
         if result.get("content", "").startswith("AI rate limited"):
-            log.info("Anthropic rate limited — falling back to %s", _DEFAULT_MODEL)
-            result = _call_openrouter_direct(messages, tools, model_override=_DEFAULT_MODEL)
-            if result.get("content"):
-                result["content"] = f"[⚡ {_DEFAULT_MODEL.split('/')[-1].split(':')[0]}] " + result["content"]
+            result = _try_fallback_chain(messages, tools)
+            if result:
+                return result
+            return {"content": "All models busy — try again in a minute. Use /status for instant data."}
         return result
 
     return _call_openrouter_direct(messages, tools, model_override=model)
@@ -890,7 +914,7 @@ def _call_openrouter_direct(
     for attempt in range(_OR_MAX_RETRIES):
         try:
             resp = requests.post(
-                _OPENROUTER_URL, json=payload, headers=headers, timeout=30,
+                _OPENROUTER_URL, json=payload, headers=headers, timeout=60,
             )
             if resp.status_code == 429:
                 delay = _OR_BACKOFF_BASE * (2 ** attempt)
@@ -908,7 +932,15 @@ def _call_openrouter_direct(
             data = resp.json()
             choices = data.get("choices", [])
             if choices:
-                return choices[0].get("message", {"content": ""})
+                msg = choices[0].get("message", {})
+                # Reasoning models may return content=null with reasoning in a separate field
+                if not msg.get("content") and not msg.get("tool_calls"):
+                    reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    if reasoning:
+                        msg["content"] = reasoning[:_MAX_RESPONSE_TOKENS * 2]  # use reasoning as content
+                    else:
+                        msg["content"] = "(Model returned empty response. Try again or switch models.)"
+                return msg
             return {"content": "No response from model."}
         except requests.Timeout:
             return {"content": "AI response timed out. Try /status for instant data."}
