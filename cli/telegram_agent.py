@@ -27,8 +27,8 @@ log = logging.getLogger("telegram_agent")
 # Paths
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HISTORY_FILE = _PROJECT_ROOT / "data" / "daemon" / "chat_history.jsonl"
-_AGENT_MD = _PROJECT_ROOT / "openclaw" / "AGENT.md"
-_SOUL_MD = _PROJECT_ROOT / "openclaw" / "SOUL.md"
+_AGENT_MD = _PROJECT_ROOT / "agent" / "AGENT.md"
+_SOUL_MD = _PROJECT_ROOT / "agent" / "SOUL.md"
 _AUTH_PROFILES = Path.home() / ".openclaw" / "agents" / "default" / "agent" / "auth-profiles.json"
 
 # Limits
