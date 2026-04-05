@@ -95,6 +95,73 @@ def _strip_tool_calls(content: str) -> str:
     return _TOOL_CALL_RE.sub("", content)
 
 
+def _tg_stream_response(token: str, chat_id: str, url: str, payload: dict, headers: dict) -> dict:
+    """Stream an API response to Telegram, editing the message as tokens arrive.
+
+    Returns an OpenAI-compatible response dict for downstream compatibility.
+    """
+    from cli.agent_runtime import stream_and_accumulate, StreamResult
+
+    # Send initial "thinking..." message that we'll edit
+    try:
+        init_resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": "🤔 ...", "parse_mode": "Markdown"},
+        )
+        msg_id = init_resp.json().get("result", {}).get("message_id")
+    except Exception:
+        msg_id = None
+
+    last_edit = 0
+    edit_interval = 1.5  # seconds between Telegram edits
+    full_result = StreamResult()
+
+    for delta_text, result in stream_and_accumulate(url, payload, headers):
+        full_result = result
+        now = time.time()
+        # Update Telegram message periodically
+        if msg_id and delta_text and (now - last_edit) >= edit_interval and result.text.strip():
+            try:
+                display = result.text.strip()
+                if len(display) > 4000:
+                    display = display[:4000] + "..."
+                requests.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                    timeout=5,
+                )
+                last_edit = now
+            except Exception:
+                pass
+
+    # Final edit with complete text
+    if msg_id and full_result.text.strip():
+        try:
+            display = full_result.text.strip()
+            if len(display) > 4000:
+                display = display[:4000] + "..."
+            requests.post(
+                f"https://api.telegram.org/bot{token}/editMessageText",
+                json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+    # Build OpenAI-compatible response
+    response = {"role": "assistant"}
+    if full_result.text:
+        response["content"] = full_result.text
+    if full_result.tool_calls:
+        response["tool_calls"] = full_result.tool_calls
+    if not full_result.text and not full_result.tool_calls:
+        response["content"] = ""
+    response["_stop_reason"] = full_result.stop_reason
+    response["_streamed"] = True
+    response["_msg_id"] = msg_id  # for cleanup if needed
+    return response
+
+
 def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") -> None:
     """Handle a free-text Telegram message with an AI response.
 
@@ -210,45 +277,74 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     "content": "[Tool results]:\n" + "\n".join(result_parts) + "\n\nRespond to the user using this data. Do NOT call the tools again.",
                 })
             else:
-                # Handle native/text-parsed tool calls (existing path)
+                # Handle native/text-parsed tool calls
                 messages.append(response)
+
+                # Parallel execution for concurrent-safe tools
+                from cli.agent_runtime import execute_tools_parallel
+
+                # Separate WRITE tools (need approval) from READ tools (auto-execute)
+                write_calls = []
+                read_calls = []
                 for tc in tool_calls:
-                    fn_name = tc["function"]["name"]
-                    raw_args = tc["function"]["arguments"]
+                    fn_name = tc.get("function", {}).get("name", "")
+                    if is_write_tool(fn_name):
+                        write_calls.append(tc)
+                    else:
+                        read_calls.append(tc)
+
+                # Execute READ tools in parallel
+                if read_calls:
+                    parallel_results = execute_tools_parallel(read_calls, execute_tool)
+                    for tool_id, tool_name, result in parallel_results:
+                        if response.get("tool_calls"):
+                            messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
+                        else:
+                            messages.append({
+                                "role": "user",
+                                "content": f"[Tool result for {tool_name}]:\n{result}\n\nNow respond using this data. Do NOT call the tool again.",
+                            })
+                        log.info("Read tool %s executed (parallel)", tool_name)
+
+                # Handle WRITE tools (sequential, with approval)
+                for tc in write_calls:
+                    fn_name = tc.get("function", {}).get("name", "")
+                    raw_args = tc.get("function", {}).get("arguments", "{}")
                     fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     call_id = tc.get("id", f"text_{_loop}_{fn_name}")
 
-                    if is_write_tool(fn_name):
-                        # Store pending, send confirmation buttons
-                        action_id = store_pending(fn_name, fn_args, chat_id)
-                        conf_text, buttons = format_confirmation(fn_name, fn_args, action_id)
-                        from cli.telegram_bot import tg_send_buttons
-                        tg_send_buttons(token, chat_id, conf_text, buttons)
-                        messages.append({
-                            "role": "tool" if response.get("tool_calls") else "user",
-                            "tool_call_id": call_id,
-                            "content": "Action requires user approval. Confirmation sent to Telegram.",
-                        })
-                        log.info("Write tool %s pending approval: %s", fn_name, action_id)
-                    else:
-                        # READ tool — execute immediately
-                        result = execute_tool(fn_name, fn_args)
-                        if response.get("tool_calls"):
-                            # Native tool calling — use proper tool message
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": call_id,
-                                "content": result,
-                            })
-                        else:
-                            # Text-parsed — inject result as system message
-                            messages.append({
-                                "role": "user",
-                                "content": f"[Tool result for {fn_name}]:\n{result}\n\nNow respond to the user using this data. Do NOT call the tool again.",
-                            })
-                        log.info("Read tool %s executed", fn_name)
+                    action_id = store_pending(fn_name, fn_args, chat_id)
+                    conf_text, buttons = format_confirmation(fn_name, fn_args, action_id)
+                    from cli.telegram_bot import tg_send_buttons
+                    tg_send_buttons(token, chat_id, conf_text, buttons)
+                    messages.append({
+                        "role": "tool" if response.get("tool_calls") else "user",
+                        "tool_call_id": call_id,
+                        "content": "Action requires user approval. Confirmation sent to Telegram.",
+                    })
+                    log.info("Write tool %s pending approval: %s", fn_name, action_id)
 
             _tg_typing(token, chat_id)
+
+            # Check if context needs compaction
+            from cli.agent_runtime import should_compact, build_compact_messages
+            model = _get_active_model()
+            if should_compact(messages, model):
+                log.info("Context compaction triggered at %d messages", len(messages))
+                compact_msgs = build_compact_messages(messages)
+                # Use a fast model for summarization
+                summary_response = _call_openrouter_direct(compact_msgs, model_override="anthropic/claude-haiku-4-5")
+                summary = summary_response.get("content", "")
+                if summary:
+                    # Replace messages with summary + current user message
+                    system_msg = messages[0]  # preserve system prompt
+                    messages = [
+                        system_msg,
+                        {"role": "user", "content": f"[Previous conversation summary]:\n{summary}"},
+                        {"role": "assistant", "content": "Understood. I have the conversation context. Continuing."},
+                    ]
+                    log.info("Context compacted to %d messages", len(messages))
+
             # Always use the main routing (Anthropic direct or OpenRouter)
             # _session_fallback_model is no longer used — removed to prevent silent failures
             response = _call_openrouter(messages, tools=TOOL_DEFS)
@@ -280,6 +376,16 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Log memory intent instead of raw sanitized response
         _log_chat("assistant", memory_intent)
 
+        # Check if memory consolidation should run
+        try:
+            from cli.agent_runtime import should_dream, mark_dream_complete
+            if should_dream():
+                log.info("Memory dream triggered — would consolidate here")
+                mark_dream_complete()
+                # TODO: Run dream as background task with agent tools
+        except Exception as e:
+            log.debug("Dream check failed: %s", e)
+
     except Exception as e:
         log.error("AI handler failed: %s", e, exc_info=True)
         try:
@@ -289,18 +395,28 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
 
 def _build_system_prompt() -> str:
-    """Load AGENT.md + SOUL.md + agent memory as the system prompt."""
-    parts = []
-    for path in (_AGENT_MD, _SOUL_MD):
-        if path.exists():
-            parts.append(path.read_text().strip())
-    # Load agent memory index if it exists
+    """Load system prompt using agent runtime + domain-specific instructions."""
+    from cli.agent_runtime import build_system_prompt
+
+    # Load domain-specific files
+    agent_md = ""
+    soul_md = ""
+    if _AGENT_MD.exists():
+        agent_md = _AGENT_MD.read_text().strip()
+    if _SOUL_MD.exists():
+        soul_md = _SOUL_MD.read_text().strip()
+
+    # Load agent memory
+    memory_content = ""
     memory_path = _PROJECT_ROOT / "data" / "agent_memory" / "MEMORY.md"
     if memory_path.exists():
         memory_content = memory_path.read_text().strip()
-        if memory_content:
-            parts.append(f"--- AGENT MEMORY ---\n\n{memory_content}")
-    return "\n\n---\n\n".join(parts) if parts else "You are a HyperLiquid trading assistant."
+
+    return build_system_prompt(
+        agent_md=agent_md,
+        soul_md=soul_md,
+        memory_content=memory_content,
+    )
 
 
 def _build_live_context() -> str:
