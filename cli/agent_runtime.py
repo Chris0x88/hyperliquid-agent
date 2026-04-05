@@ -224,6 +224,9 @@ def stream_and_accumulate(
                 error_text += chunk.decode("utf-8", errors="replace")
                 if len(error_text) > 500:
                     break
+            # Raise on rate limits so caller can retry/fallback
+            if resp.status_code == 429:
+                raise RuntimeError(f"Rate limited (429): {error_text[:200]}")
             result.text = f"API error ({resp.status_code}): {error_text[:300]}"
             yield ("", result)
             return

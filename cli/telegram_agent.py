@@ -58,6 +58,36 @@ _MAX_TOOL_LOOPS = 12  # Safety cap — model drives iteration via tool calls
 # Console keys use x-api-key header; session tokens use Bearer auth.
 _SESSION_PREFIX = "sk-" + "ant-" + "oat"  # noqa: split avoids secret scanner
 
+# ── Anthropic beta headers — must match Claude Code's betas.ts exactly ──
+# These are the headers that tell the API what features we support.
+# Missing or wrong headers cause 400 errors or missing functionality.
+_BETA_OAUTH = "oauth-2025-04-20"
+_BETA_CLAUDE_CODE = "claude-code-20250219"
+_BETA_THINKING = "interleaved-thinking-2025-05-14"
+_BETA_CACHE_SCOPE = "prompt-caching-scope-2026-01-05"
+_BETA_TOKEN_EFFICIENT_TOOLS = "token-efficient-tools-2026-03-28"
+
+
+def _get_anthropic_betas(model: str) -> list[str]:
+    """Build beta headers list matching Claude Code's getMergedBetas()."""
+    betas = [
+        _BETA_OAUTH,         # Required for session token auth
+        _BETA_CLAUDE_CODE,   # Required for claude-code features
+        _BETA_THINKING,      # Interleaved thinking (Sonnet/Opus)
+        _BETA_CACHE_SCOPE,   # Prompt caching scope control
+        _BETA_TOKEN_EFFICIENT_TOOLS,  # ~4.5% output token reduction
+    ]
+    return betas
+
+
+def _get_cache_control() -> dict:
+    """Cache control matching Claude Code's getCacheControl().
+
+    Subscribers get 1h TTL (vs default 5min). Cached tokens don't count
+    against ITPM rate limits — this is the single biggest optimisation.
+    """
+    return {"type": "ephemeral", "ttl": "1h"}
+
 
 def _is_session_token(key: str) -> bool:
     """Check if an Anthropic key is a session token (OAuth) vs console API key."""
@@ -105,18 +135,41 @@ def _strip_tool_calls(content: str) -> str:
     return _TOOL_CALL_RE.sub("", content)
 
 
-def _build_anthropic_request(messages: List[Dict], tools=None):
-    """Build Anthropic API request params without sending. Returns (url, payload, headers) or (None, None, None)."""
-    api_key = _get_anthropic_key()
-    if not api_key:
-        return None, None, None
+def _build_anthropic_headers(api_key: str, model: str) -> dict:
+    """Build Anthropic API headers matching Claude Code's client.ts + betas.ts.
 
-    model = _get_active_model().replace("anthropic/", "", 1)
+    Session tokens (OAuth) require specific beta headers and Bearer auth.
+    Console API keys use x-api-key header with minimal betas.
+    """
+    if _is_session_token(api_key):
+        betas = _get_anthropic_betas(model)
+        return {
+            "Authorization": f"Bearer {api_key}",
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": ",".join(betas),
+            "x-app": "cli",
+            "user-agent": "claude-cli/2.1.87",
+            "Content-Type": "application/json",
+        }
+    else:
+        return {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
 
-    # Reuse the message conversion from _call_anthropic
+
+def _convert_messages_to_anthropic(messages: List[Dict]) -> tuple:
+    """Convert OpenAI-format messages to Anthropic format.
+
+    Returns (system_text, conv_messages).
+    Shared by both streaming and non-streaming paths — one conversion,
+    one set of bugs to fix.
+    """
     system_text = ""
     conv_messages = []
     pending_tool_results = []
+
     for msg in messages:
         if msg.get("role") == "system":
             system_text += msg.get("content", "") + "\n"
@@ -134,34 +187,101 @@ def _build_anthropic_request(messages: List[Dict], tools=None):
                     parsed_input = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
                 except (json.JSONDecodeError, TypeError):
                     parsed_input = {}
-                assistant_content.append({"type": "tool_use", "id": tc.get("id", ""), "name": fn.get("name", ""), "input": parsed_input})
+                assistant_content.append({
+                    "type": "tool_use", "id": tc.get("id", ""),
+                    "name": fn.get("name", ""), "input": parsed_input,
+                })
             conv_messages.append({"role": "assistant", "content": assistant_content or msg.get("content", "")})
         elif msg.get("role") == "tool":
-            pending_tool_results.append({"type": "tool_result", "tool_use_id": msg.get("tool_call_id", ""), "content": msg.get("content", "")})
+            pending_tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": msg.get("content", ""),
+            })
         elif msg.get("role") == "user":
             if pending_tool_results:
                 conv_messages.append({"role": "user", "content": pending_tool_results})
                 pending_tool_results = []
             conv_messages.append({"role": "user", "content": msg.get("content", "")})
+
     if pending_tool_results:
         conv_messages.append({"role": "user", "content": pending_tool_results})
 
-    payload = {"model": model, "max_tokens": _MAX_RESPONSE_TOKENS, "messages": conv_messages}
+    return system_text, conv_messages
+
+
+def _build_anthropic_payload(model: str, system_text: str, conv_messages: list, tools=None) -> dict:
+    """Build Anthropic API payload with prompt caching.
+
+    Matches Claude Code's caching strategy:
+    - System prompt: array of content blocks with cache_control
+    - Tools: last tool gets cache_control
+    - Last message: gets cache_control (addCacheBreakpoints pattern)
+    """
+    cc = _get_cache_control()
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": _MAX_RESPONSE_TOKENS,
+        "messages": conv_messages,
+    }
+
+    # System prompt as cached content block array (NOT a plain string).
+    # Claude Code: splitSysPromptPrefix() + cache_control on each block.
     if system_text.strip():
-        payload["system"] = system_text.strip()
+        payload["system"] = [
+            {"type": "text", "text": system_text.strip(), "cache_control": cc},
+        ]
+
+    # Tool definitions with cache_control on last tool.
+    # Claude Code: toolToAPISchema() + cache_control on last entry.
     if tools:
         anthropic_tools = []
         for t in tools:
             func = t.get("function", {})
-            anthropic_tools.append({"name": func.get("name", ""), "description": func.get("description", ""), "input_schema": func.get("parameters", {"type": "object", "properties": {}})})
+            anthropic_tools.append({
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+            })
+        if anthropic_tools:
+            anthropic_tools[-1]["cache_control"] = cc
         payload["tools"] = anthropic_tools
 
-    # Session tokens use OAuth Bearer auth; console keys use x-api-key
-    is_session_token = _is_session_token(api_key)
-    if is_session_token:
-        headers = {"Authorization": f"Bearer {api_key}", "anthropic-version": "2023-06-01", "anthropic-beta": "interleaved-thinking-2025-05-14,claude-code-20250219,oauth-2025-04-20", "x-app": "cli", "user-agent": "claude-cli/2.1.75", "Content-Type": "application/json"}
-    else:
-        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+    # Cache breakpoint on last message (addCacheBreakpoints pattern).
+    # This tells the API where to cache up to — everything before this
+    # point can be served from cache on the next call.
+    if conv_messages:
+        last_msg = conv_messages[-1]
+        content = last_msg.get("content", "")
+        if isinstance(content, str) and content:
+            last_msg["content"] = [
+                {"type": "text", "text": content, "cache_control": cc},
+            ]
+        elif isinstance(content, list) and content:
+            # Add cache_control to the last content block
+            last_block = content[-1]
+            if isinstance(last_block, dict):
+                last_block["cache_control"] = cc
+
+    return payload
+
+
+def _build_anthropic_request(messages: List[Dict], tools=None):
+    """Build Anthropic API request params without sending.
+
+    Returns (url, payload, headers) or (None, None, None).
+    Used by the streaming path. Shares all conversion/caching logic
+    with _call_anthropic via the helper functions above.
+    """
+    api_key = _get_anthropic_key()
+    if not api_key:
+        return None, None, None
+
+    model = _get_active_model().replace("anthropic/", "", 1)
+    system_text, conv_messages = _convert_messages_to_anthropic(messages)
+    payload = _build_anthropic_payload(model, system_text, conv_messages, tools)
+    headers = _build_anthropic_headers(api_key, model)
 
     return _ANTHROPIC_URL, payload, headers
 
@@ -217,20 +337,33 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     edit_interval = 1.5
     full_result = StreamResult()
 
-    for delta_text, result in stream_and_accumulate(url, payload, headers):
-        full_result = result
-        now = time.time()
-        if msg_id and delta_text and (now - last_edit) >= edit_interval and result.text.strip():
+    try:
+        for delta_text, result in stream_and_accumulate(url, payload, headers):
+            full_result = result
+            now = time.time()
+            if msg_id and delta_text and (now - last_edit) >= edit_interval and result.text.strip():
+                try:
+                    display = result.text.strip()[:4000]
+                    requests.post(
+                        f"https://api.telegram.org/bot{token}/editMessageText",
+                        json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                        timeout=5,
+                    )
+                    last_edit = now
+                except Exception:
+                    pass
+    except RuntimeError:
+        # Rate limited — delete placeholder and re-raise for fallback
+        if msg_id:
             try:
-                display = result.text.strip()[:4000]
                 requests.post(
-                    f"https://api.telegram.org/bot{token}/editMessageText",
-                    json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                    f"https://api.telegram.org/bot{token}/deleteMessage",
+                    json={"chat_id": chat_id, "message_id": msg_id},
                     timeout=5,
                 )
-                last_edit = now
             except Exception:
                 pass
+        raise
 
     # Final edit
     if msg_id and full_result.text.strip():
@@ -277,8 +410,12 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         history = _load_chat_history(_MAX_HISTORY)
 
         messages = [
-            {"role": "system", "content": system_prompt + "\n\n" + live_context},
+            {"role": "system", "content": system_prompt},
         ]
+        # Live context as first user message — changes every call, so keeping it
+        # OUT of the system prompt lets the static system prompt + tools stay cached.
+        messages.append({"role": "user", "content": f"[LIVE CONTEXT — auto-injected, not from user]\n{live_context}"})
+        messages.append({"role": "assistant", "content": "Understood. I have the latest market data."})
         # Add chat history as conversation turns
         for entry in history[:-1]:  # exclude the message we just logged
             messages.append({"role": entry["role"], "content": entry["text"]})
@@ -1051,117 +1188,54 @@ def _try_fallback_chain(messages: List[Dict], tools: Optional[list] = None):
     return None, None
 
 
+def _parse_anthropic_response(data: dict) -> dict:
+    """Parse Anthropic API response into OpenAI-compatible format.
+
+    Shared by all code paths that receive an Anthropic response.
+    """
+    content_blocks = data.get("content", [])
+    text_parts = []
+    tool_calls = []
+    for block in content_blocks:
+        if block.get("type") == "text":
+            text_parts.append(block["text"])
+        elif block.get("type") == "tool_use":
+            tool_calls.append({
+                "id": block["id"],
+                "type": "function",
+                "function": {
+                    "name": block["name"],
+                    "arguments": json.dumps(block.get("input", {})),
+                },
+            })
+
+    result: dict = {"role": "assistant"}
+    if text_parts:
+        result["content"] = "\n".join(text_parts)
+    if tool_calls:
+        result["tool_calls"] = tool_calls
+    if not text_parts and not tool_calls:
+        result["content"] = ""
+    return result
+
+
 def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_override: Optional[str] = None) -> dict:
     """Call Anthropic Messages API directly for anthropic/* models.
 
-    Converts OpenAI-style messages to Anthropic format and returns
-    an OpenAI-compatible message dict for downstream compatibility.
+    Uses shared helpers for message conversion, payload building, and headers.
+    Handles retries with exponential backoff + Haiku fallback + free model chain.
     """
     api_key = _get_anthropic_key()
     if not api_key:
         return {"content": "Error: No Anthropic API key found."}
 
     model = _get_active_model()
-    # Strip "anthropic/" prefix for the Anthropic API
     anthropic_model = model_override or model.replace("anthropic/", "", 1)
 
-    # Convert OpenAI-format messages to Anthropic format.
-    # Key differences:
-    #   OpenAI: role="tool" with tool_call_id + content string
-    #   Anthropic: role="user" with [{"type":"tool_result","tool_use_id":...,"content":...}]
-    #   OpenAI assistant: tool_calls=[{id, function:{name,arguments}}]
-    #   Anthropic assistant: content=[{"type":"tool_use","id":...,"name":...,"input":...}]
-    system_text = ""
-    conv_messages = []
-    pending_tool_results = []  # collect tool results to batch into one user message
-    for msg in messages:
-        if msg.get("role") == "system":
-            system_text += msg.get("content", "") + "\n"
-        elif msg.get("role") == "assistant":
-            # Flush any pending tool results first
-            if pending_tool_results:
-                conv_messages.append({"role": "user", "content": pending_tool_results})
-                pending_tool_results = []
-            # Convert assistant message: may have tool_calls (OpenAI) → tool_use (Anthropic)
-            assistant_content = []
-            if msg.get("content"):
-                assistant_content.append({"type": "text", "text": msg["content"]})
-            for tc in msg.get("tool_calls", []):
-                fn = tc.get("function", {})
-                raw_input = fn.get("arguments", "{}")
-                try:
-                    parsed_input = json.loads(raw_input) if isinstance(raw_input, str) else raw_input
-                except (json.JSONDecodeError, TypeError):
-                    parsed_input = {}
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": tc.get("id", ""),
-                    "name": fn.get("name", ""),
-                    "input": parsed_input,
-                })
-            conv_messages.append({"role": "assistant", "content": assistant_content or msg.get("content", "")})
-        elif msg.get("role") == "tool":
-            # Collect tool results — they must be batched into a single user message
-            pending_tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": msg.get("tool_call_id", ""),
-                "content": msg.get("content", ""),
-            })
-        elif msg.get("role") == "user":
-            # Flush any pending tool results first
-            if pending_tool_results:
-                conv_messages.append({"role": "user", "content": pending_tool_results})
-                pending_tool_results = []
-            conv_messages.append({"role": "user", "content": msg.get("content", "")})
-    # Flush remaining tool results
-    if pending_tool_results:
-        conv_messages.append({"role": "user", "content": pending_tool_results})
-
-    payload: dict = {
-        "model": anthropic_model,
-        "max_tokens": _MAX_RESPONSE_TOKENS,
-        "messages": conv_messages,
-    }
-    if system_text.strip():
-        # Prompt caching: mark system prompt as cacheable.
-        # Cached tokens don't count against ITPM rate limits — this is
-        # the single biggest optimisation for session token usage.
-        payload["system"] = [
-            {"type": "text", "text": system_text.strip(), "cache_control": {"type": "ephemeral"}},
-        ]
-
-    # Convert OpenAI tool format to Anthropic tool format
-    if tools:
-        anthropic_tools = []
-        for t in tools:
-            func = t.get("function", {})
-            anthropic_tools.append({
-                "name": func.get("name", ""),
-                "description": func.get("description", ""),
-                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-            })
-        # Cache tool definitions too — they're ~1500 tokens and identical every call
-        if anthropic_tools:
-            anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
-        payload["tools"] = anthropic_tools
-
-    # Session tokens require OAuth headers — same as claude-cli.
-    is_session = _is_session_token(api_key)
-    if is_session:
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": "prompt-caching-2024-07-31,claude-code-20250219,oauth-2025-04-20",
-            "x-app": "cli",
-            "user-agent": "claude-cli/2.1.75",
-            "Content-Type": "application/json",
-        }
-    else:
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
+    # Use shared conversion + payload builder
+    system_text, conv_messages = _convert_messages_to_anthropic(messages)
+    payload = _build_anthropic_payload(anthropic_model, system_text, conv_messages, tools)
+    headers = _build_anthropic_headers(api_key, anthropic_model)
 
     for attempt in range(_OR_MAX_RETRIES):
         try:
@@ -1175,61 +1249,28 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
                 if attempt < _OR_MAX_RETRIES - 1:
                     time.sleep(delay)
                     continue
-                # All retries exhausted — try Haiku as last resort (much higher rate limit)
+                # All retries exhausted — try Haiku as last resort
                 current_model = _get_active_model()
-                if "haiku" not in current_model:
-                    log.info("Rate limited on %s — trying Haiku as fallback", current_model)
+                if "haiku" not in current_model and "haiku" not in (model_override or ""):
+                    log.info("Rate limited on %s — trying Haiku as fallback", anthropic_model)
                     payload["model"] = "claude-haiku-4-5"
                     try:
                         haiku_resp = requests.post(_ANTHROPIC_URL, json=payload, headers=headers, timeout=60)
                         if haiku_resp.status_code == 200:
-                            data = haiku_resp.json()
-                            # Parse response same as below
-                            content_blocks = data.get("content", [])
-                            text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
-                            result = {"role": "assistant", "content": "\n".join(text_parts) if text_parts else ""}
-                            tool_calls = []
-                            for b in content_blocks:
-                                if b.get("type") == "tool_use":
-                                    tool_calls.append({"id": b["id"], "type": "function", "function": {"name": b["name"], "arguments": json.dumps(b.get("input", {}))}})
-                            if tool_calls:
-                                result["tool_calls"] = tool_calls
-                            return result
+                            return _parse_anthropic_response(haiku_resp.json())
                     except Exception as e:
                         log.warning("Haiku fallback also failed: %s", e)
-                return {"content": "AI rate limited — try again in a minute."}
+                # All Anthropic exhausted — try free fallback chain
+                fallback_result, _ = _try_fallback_chain(messages, tools)
+                if fallback_result:
+                    return fallback_result
+                return {"content": "AI rate limited on all providers — try again in a minute. Use /status for instant data."}
 
             if resp.status_code != 200:
                 log.error("Anthropic API error: %s %s", resp.status_code, resp.text[:200])
                 return {"content": f"Anthropic API error ({resp.status_code}). Try /status for live data."}
 
-            data = resp.json()
-
-            # Convert Anthropic response to OpenAI-compatible format
-            content_blocks = data.get("content", [])
-            text_parts = []
-            tool_calls = []
-            for block in content_blocks:
-                if block.get("type") == "text":
-                    text_parts.append(block["text"])
-                elif block.get("type") == "tool_use":
-                    tool_calls.append({
-                        "id": block["id"],
-                        "type": "function",
-                        "function": {
-                            "name": block["name"],
-                            "arguments": json.dumps(block.get("input", {})),
-                        },
-                    })
-
-            result: dict = {"role": "assistant"}
-            if text_parts:
-                result["content"] = "\n".join(text_parts)
-            if tool_calls:
-                result["tool_calls"] = tool_calls
-            if not text_parts and not tool_calls:
-                result["content"] = ""
-            return result
+            return _parse_anthropic_response(resp.json())
 
         except requests.Timeout:
             return {"content": "AI response timed out. Try /status for instant data."}
