@@ -1279,12 +1279,17 @@ def _get_anthropic_client(model: str = ""):
 _CLAUDE_CLI = Path.home() / "Library" / "Application Support" / "Claude" / "claude-code" / "2.1.87" / "claude.app" / "Contents" / "MacOS" / "claude"
 
 
-def _call_via_claude_cli(messages: List[Dict], model: str) -> Optional[dict]:
+def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list] = None) -> Optional[dict]:
     """Call Anthropic via the Claude Code CLI binary.
 
     This uses the EXACT same auth + SDK path as OpenClaw/Claude Code desktop.
     The CLI binary handles OAuth token refresh, correct headers, connection
     pooling, and all the server-side session magic that makes Sonnet/Opus work.
+
+    Tool support: the CLI doesn't support native function calling, so tool
+    definitions are injected into the prompt as text. The model outputs tool
+    calls in [TOOL: name {"arg": "val"}] format which the existing triple-mode
+    parser in handle_ai_message picks up.
 
     Returns OpenAI-compatible response dict, or None on failure.
     """
@@ -1299,7 +1304,6 @@ def _call_via_claude_cli(messages: List[Dict], model: str) -> Optional[dict]:
         if msg.get("role") == "user":
             content = msg.get("content", "")
             if isinstance(content, list):
-                # Handle content blocks
                 prompt = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
             else:
                 prompt = content
@@ -1308,13 +1312,12 @@ def _call_via_claude_cli(messages: List[Dict], model: str) -> Optional[dict]:
     if not prompt:
         return None
 
-    # Build a richer prompt that includes system context
+    # Build full prompt with system context + conversation history
     system_text = ""
     for msg in messages:
         if msg.get("role") == "system":
             system_text += msg.get("content", "") + "\n"
 
-    # Include recent conversation context
     history_parts = []
     for msg in messages:
         if msg.get("role") in ("user", "assistant") and msg.get("content"):
@@ -1322,18 +1325,32 @@ def _call_via_claude_cli(messages: List[Dict], model: str) -> Optional[dict]:
             if isinstance(content, str) and len(content) < 500:
                 history_parts.append(f"[{msg['role']}]: {content}")
 
-    full_prompt = prompt
+    full_prompt = ""
     if system_text.strip():
-        full_prompt = f"[System context]: {system_text.strip()[:2000]}\n\n"
-        if history_parts:
-            full_prompt += "\n".join(history_parts[-6:]) + "\n\n"
-        full_prompt += prompt
+        full_prompt += f"[System context]: {system_text.strip()[:2000]}\n\n"
+
+    # Inject tool definitions so the model can invoke them via text
+    if tools:
+        tool_lines = ["[Available tools — invoke with [TOOL: name {\"arg\": \"val\"}] syntax]:"]
+        for t in tools:
+            func = t.get("function", {})
+            name = func.get("name", "")
+            desc = func.get("description", "")[:100]
+            params = func.get("parameters", {}).get("properties", {})
+            param_names = ", ".join(params.keys()) if params else "none"
+            tool_lines.append(f"  - {name}({param_names}): {desc}")
+        full_prompt += "\n".join(tool_lines) + "\n\n"
+
+    if history_parts:
+        full_prompt += "\n".join(history_parts[-6:]) + "\n\n"
+
+    full_prompt += prompt
 
     try:
         result = sp.run(
             [str(_CLAUDE_CLI), "--model", model, "--output-format", "json",
              "-p", full_prompt],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=90,
         )
         if result.returncode != 0:
             log.warning("Claude CLI failed (rc=%d): %s", result.returncode, result.stderr[:200])
@@ -1371,10 +1388,12 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
 
     # Sonnet/Opus: try Claude CLI first (uses same auth path as OpenClaw).
     # The CLI binary handles OAuth, headers, and connection management that
-    # makes premium models work. Tool calls not supported via CLI — those
-    # fall through to the SDK path below.
-    if "haiku" not in anthropic_model and not tools and _CLAUDE_CLI.exists():
-        cli_result = _call_via_claude_cli(messages, anthropic_model)
+    # makes premium models work.
+    # Tool calls: CLI doesn't support native function calling, but we inject
+    # tool descriptions into the prompt and parse text-based [TOOL: name {args}]
+    # invocations from the response (the existing triple-mode parser handles this).
+    if "haiku" not in anthropic_model and _CLAUDE_CLI.exists():
+        cli_result = _call_via_claude_cli(messages, anthropic_model, tools=tools)
         if cli_result:
             return cli_result
         log.warning("Claude CLI failed for %s, falling back to SDK", anthropic_model)
