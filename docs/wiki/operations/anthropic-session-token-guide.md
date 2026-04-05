@@ -2,9 +2,40 @@
 
 > **DO NOT DELETE THIS FILE.** It documents hard-won knowledge about how session tokens work with the Anthropic API. This took extensive debugging to figure out.
 
-## The Problem
+## THE SOLUTION: Claude Agent SDK
 
-Session tokens (OAuth, `session token prefix`) from Claude.ai subscriptions (Pro/Max) allow free API calls — no per-token billing. But calling the Anthropic Messages API directly with these tokens from Python (via `requests`, `httpx`, or even the official `anthropic` Python SDK) results in **429 errors for Sonnet and Opus models**. Haiku works fine.
+**`pip install claude-agent-sdk`** — This is the official Python SDK that gives you the same agent loop, tools, and auth that powers Claude Code. It handles OAuth tokens natively.
+
+```python
+import os
+os.environ['CLAUDE_CODE_OAUTH_TOKEN'] = token_from_keychain
+
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+async for message in query(
+    prompt="Your prompt here",
+    options=ClaudeAgentOptions(model='claude-sonnet-4-6'),
+):
+    if hasattr(message, 'result'):
+        print(message.result)
+```
+
+**This works for Sonnet and Opus.** Tested and confirmed. The Agent SDK handles all the auth, retry, and session management that the basic `anthropic` Python SDK cannot.
+
+Docs: https://platform.claude.com/docs/en/agent-sdk/overview
+GitHub: https://github.com/anthropics/claude-agent-sdk-python
+
+### Current Implementation Status
+
+The bot currently uses the **Claude CLI binary** as a proxy for Sonnet/Opus calls. This works but has limitations (no streaming, process spawn overhead). The proper fix is to migrate to the Agent SDK, which provides native tool support, streaming, and sessions.
+
+**TODO: Migrate `_call_anthropic()` in `cli/telegram_agent.py` to use `claude-agent-sdk` instead of the CLI proxy.**
+
+---
+
+## The Problem (Historical)
+
+Session tokens (OAuth) from Claude.ai subscriptions (Pro/Max) allow free API calls — no per-token billing. But calling the Anthropic Messages API directly with these tokens from Python (via `requests`, `httpx`, or even the official `anthropic` Python SDK) results in **429 errors for Sonnet and Opus models**. Haiku works fine.
 
 The exact same token works perfectly when used through Claude Code / OpenClaw (the desktop app).
 
