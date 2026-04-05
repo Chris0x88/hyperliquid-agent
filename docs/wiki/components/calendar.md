@@ -43,5 +43,4 @@ The calendar recognizes that "people aren't stupid, they look 6-12 months ahead.
 
 ## Data Files
 
-- Private event data lives in `data/calendar/*.json` (not pushed to GitHub)
-- Public templates in `templates/calendar/` (anonymized for open source)
+- Event data lives in `data/calendar/*.json`

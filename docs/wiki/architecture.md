@@ -601,7 +601,7 @@ graph LR
 | `parent/` | hl_proxy, risk_manager | ✅ All connected |
 | `execution/` | order_types | ✅ Connected |
 | `strategies/` | via sdk.base | ✅ Connected |
-| `openclaw/` | AGENT.md, SOUL.md, agent workspace | ✅ Active (direct mode) |
+| `agent/` | AGENT.md, SOUL.md — agent system prompt | ✅ Active |
 | `skills/` | apex, guard, onboard, pulse, radar, reflect | ✅ Available |
 
 ---

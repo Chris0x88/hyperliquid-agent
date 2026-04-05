@@ -6,7 +6,7 @@ The AI agent handles free-text Telegram messages via OpenRouter or Anthropic dir
 
 When a Telegram message does not match any slash command, `handle_ai_message()` is called:
 
-1. Build system prompt from `openclaw/AGENT.md` + `openclaw/SOUL.md` + agent memory (`data/agent_memory/MEMORY.md`)
+1. Build system prompt from `agent/AGENT.md` + `agent/SOUL.md` + agent memory (`data/agent_memory/MEMORY.md`)
 2. Assemble live context: account state, market snapshots (1h/4h/1d candles), thesis data
 3. Load chat history (last 20 messages, capped at 12000 chars)
 4. Send to model (Anthropic direct or OpenRouter) with tool definitions
@@ -68,5 +68,5 @@ Model configured via `/models` command, stored in `data/config/model_config.json
 - `common/tools.py` — unified tool functions (return dicts)
 - `common/tool_renderers.py` — compact AI output formatting
 - `common/code_tool_parser.py` — AST-based code block parser
-- `openclaw/AGENT.md` — system prompt instructions
-- `openclaw/SOUL.md` — response protocol
+- `agent/AGENT.md` — system prompt instructions
+- `agent/SOUL.md` — response protocol

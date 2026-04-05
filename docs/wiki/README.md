@@ -40,4 +40,4 @@ This wiki is maintained by Claude Code. See MAINTAINING.md for the maintenance p
 | parent/ | `parent/CLAUDE.md` | Exchange proxy, risk manager, protection chain |
 | daemon/ | `cli/daemon/CLAUDE.md` | Clock, iterators, tiers, daemon lifecycle |
 | modules/ | `modules/CLAUDE.md` | REFLECT, GUARD, RADAR, PULSE, JOURNAL, MEMORY, APEX |
-| openclaw/ | `openclaw/CLAUDE.md` | Agent workspace, SOUL.md, TOOLS.md |
+| agent/ | `agent/AGENT.md` + `SOUL.md` | Agent system prompt, trading rules, response protocol |

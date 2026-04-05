@@ -4,7 +4,7 @@ Called from telegram_bot.py when a message doesn't match any slash command.
 Slash commands are handled separately and never touch this module.
 
 Design:
-- System prompt from openclaw/AGENT.md + SOUL.md
+- System prompt from agent/AGENT.md + SOUL.md
 - Live context injected every message (prices, account, thesis)
 - Chat history (last 20 messages) for continuity
 - OpenRouter API via requests (no SDK)

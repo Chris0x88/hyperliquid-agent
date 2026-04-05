@@ -147,4 +147,4 @@ If it reports drift, update the relevant wiki page — not the CLAUDE.md, not th
 4. **Editing ADRs.** Write a new one instead.
 5. **Putting narrative in CLAUDE.md.** That's what the wiki is for.
 6. **Skipping the build log.** Major changes need a record. Git log exists but is noisy.
-7. **Archiving when you should delete.** Old wiki pages get replaced, not archived. Only historical docs (old arch versions, completed plans) go to `docs/archive/`.
+7. **Archiving when you should delete.** Old wiki pages get replaced, not archived. Old docs are deleted (preserved in git history).

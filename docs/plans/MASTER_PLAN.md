@@ -47,7 +47,7 @@ See `docs/plans/PHASE_3_REFLECT_LOOP.md` for detailed plan.
 | `cli/daemon/` | `cli/daemon/CLAUDE.md` | [wiki/components/daemon.md](../wiki/components/daemon.md) |
 | `modules/` | `modules/CLAUDE.md` | [wiki/components/conviction-engine.md](../wiki/components/conviction-engine.md) |
 | `parent/` | `parent/CLAUDE.md` | [wiki/components/risk-manager.md](../wiki/components/risk-manager.md) |
-| `openclaw/` | `openclaw/CLAUDE.md` | [wiki/decisions/003-openclaw-bypass.md](../wiki/decisions/003-openclaw-bypass.md) |
+| `agent/` | `agent/AGENT.md` + `SOUL.md` | [wiki/components/ai-agent.md](../wiki/components/ai-agent.md) |
 
 ## Session Workflow
 
