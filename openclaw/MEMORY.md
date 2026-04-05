@@ -8,7 +8,7 @@ This file holds essential background, active rules, and learned lessons to ensur
 The `agent-cli` repo has been **fully rebuilt**. It is a standalone Python trading system. Key components:
 
 - `cli/telegram_bot.py` — Real-time Telegram bot (pure Python, no AI credits). Handles slash commands (/status, /price, /orders etc.) directly against the HyperLiquid API.
-- `cli/telegram_agent.py` — AI layer **embedded inside the Telegram bot**. When free-text messages arrive, routes them to OpenRouter/Anthropic API, injects live context via `context_harness`, supports native tool calling (market_brief, live_price, account_summary, place_trade etc.). Active model: `anthropic/claude-sonnet-4-6`.
+- `cli/telegram_agent.py` — AI layer **embedded inside the Telegram bot**. When free-text messages arrive, routes to Anthropic API directly, injects live context via `context_harness`, supports native tool calling (market_brief, live_price, account_summary, place_trade etc.). Active model: `anthropic/claude-haiku-4-5` (default — separate rate limit from Sonnet used in OpenClaw).
 - `cli/agent_tools.py` — Tool definitions for telegram_agent. READ tools auto-execute. WRITE tools (trade, set_sl etc.) require user approval via inline keyboard.
 - `common/context_harness.py` — Relevance-scored, token-budgeted live context assembler. Fetches live HL API state every message. Injects thesis + positions + alerts into AI prompt.
 - `cli/mcp_server.py` — Old MCP server. **Intentionally removed from OpenClaw integration.** Still exists in code but not used.
@@ -44,7 +44,7 @@ MCP server (`hl mcp serve`) was the old integration bridge. Removed intentionall
 ## Quick Context (DO NOT DELETE)
 - **Primary Market:** HyperLiquid (`main` account for BRENTOIL/Gold/Silver on xyz clearinghouse, `vault` account for BTC/ETH on native clearinghouse)
 - **Edge:** Fundamentals-driven trades, supply/demand disruptions, macro news, asymmetric risk sizing.
-- **Active AI model in app:** `anthropic/claude-sonnet-4-6` (set in `data/config/model_config.json`)
+- **Active AI model in app:** `anthropic/claude-haiku-4-5` (set in `data/config/model_config.json`). Use /models to switch. Do NOT change this to Sonnet — it shares rate limits with the main OpenClaw session and causes 429s.
 
 ## Active Rules & Learnings
 1. **Never buy an un-consolidated dip:** BRENTOIL drops sharply and sometimes legs down twice.
