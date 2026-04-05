@@ -1379,23 +1379,121 @@ def _get_openrouter_key() -> Optional[str]:
     return os.environ.get("OPENROUTER_API_KEY")
 
 
-def _get_anthropic_key() -> Optional[str]:
-    """Read Anthropic session token or API key from auth-profiles.json.
+def _refresh_oauth_token(refresh_token: str) -> Optional[str]:
+    """Refresh an expired OAuth token using the refresh_token grant.
 
-    Session tokens (sk-ant-oat01-...) are the preferred credential —
-    they are tied to your Anthropic subscription (no per-token billing).
-    Console API keys (sk-ant-api03-...) are expensive and not preferred.
+    Matches Claude Code's refreshOAuthToken() in services/oauth/client.ts.
+    Returns new access token or None on failure.
     """
+    import subprocess as sp
+    try:
+        resp = requests.post("https://platform.claude.com/v1/oauth/token", json={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+            "scope": "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+        }, headers={"Content-Type": "application/json"}, timeout=15)
+
+        if resp.status_code != 200:
+            log.warning("Token refresh failed: %s", resp.text[:200])
+            return None
+
+        data = resp.json()
+        new_token = data["access_token"]
+        new_refresh = data.get("refresh_token", refresh_token)
+        expires_in = data.get("expires_in", 0)
+
+        # Update keychain
+        try:
+            raw = sp.run(
+                ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                capture_output=True, text=True,
+            ).stdout.strip()
+            if raw:
+                kc_data = json.loads(raw)
+                kc_data["claudeAiOauth"]["accessToken"] = new_token
+                kc_data["claudeAiOauth"]["refreshToken"] = new_refresh
+                kc_data["claudeAiOauth"]["expiresAt"] = int(time.time() * 1000) + expires_in * 1000
+                sp.run(["security", "delete-generic-password", "-s", "Claude Code-credentials"], capture_output=True)
+                sp.run(["security", "add-generic-password", "-s", "Claude Code-credentials",
+                        "-a", "default", "-w", json.dumps(kc_data), "-U"], capture_output=True)
+        except Exception as e:
+            log.debug("Keychain update failed: %s", e)
+
+        # Update auth-profiles.json
+        try:
+            if _AUTH_PROFILES.exists():
+                auth_data = json.loads(_AUTH_PROFILES.read_text())
+                for name, profile in auth_data.get("profiles", {}).items():
+                    if profile.get("provider") == "anthropic":
+                        profile["token"] = new_token
+                        break
+                _AUTH_PROFILES.write_text(json.dumps(auth_data, indent=2) + "\n")
+        except Exception as e:
+            log.debug("auth-profiles update failed: %s", e)
+
+        log.info("OAuth token refreshed (expires in %ds)", expires_in)
+        return new_token
+    except Exception as e:
+        log.warning("Token refresh error: %s", e)
+        return None
+
+
+def _get_anthropic_key() -> Optional[str]:
+    """Read Anthropic session token, auto-refreshing if expired.
+
+    Token sources (in priority order):
+    1. macOS Keychain (shared with Claude Code, auto-refreshed)
+    2. auth-profiles.json (may be stale)
+    3. ANTHROPIC_API_KEY env var
+
+    If the token is expired and a refresh token is available, refreshes
+    automatically — matching Claude Code's auth.ts behavior.
+    """
+    import subprocess as sp
+
+    # 1. Try keychain first (Claude Code keeps this current)
+    try:
+        raw = sp.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if raw:
+            kc_data = json.loads(raw)
+            oauth = kc_data.get("claudeAiOauth", {})
+            token = oauth.get("accessToken", "")
+            expires_at = oauth.get("expiresAt", 0)
+
+            # Check if expired
+            now_ms = int(time.time() * 1000)
+            if token and now_ms < expires_at:
+                return token
+
+            # Expired — try to refresh
+            refresh_token = oauth.get("refreshToken", "")
+            if refresh_token:
+                new_token = _refresh_oauth_token(refresh_token)
+                if new_token:
+                    return new_token
+
+            # Return expired token anyway — API will 401 and we'll handle it
+            if token:
+                return token
+    except Exception:
+        pass
+
+    # 2. Fall back to auth-profiles.json
     try:
         if _AUTH_PROFILES.exists():
             data = json.loads(_AUTH_PROFILES.read_text())
             profiles = data.get("profiles", {})
             for name, profile in profiles.items():
                 if profile.get("provider") == "anthropic":
-                    # Prefer token (session) over key (console API)
                     return profile.get("token") or profile.get("key")
     except Exception:
         pass
+
+    # 3. Environment variable
     import os
     return os.environ.get("ANTHROPIC_API_KEY")
 
