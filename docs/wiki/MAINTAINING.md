@@ -2,11 +2,12 @@
 
 This is the single most important document for keeping docs honest. Read this before updating anything.
 
-## The Four Doc Types
+## The Five Doc Types
 
 | Type | Location | Purpose | Update trigger | Who updates |
 |------|----------|---------|---------------|-------------|
 | **Wiki** | `docs/wiki/` | System knowledge, how things work | When architecture changes | Claude Code |
+| **Architecture** | `docs/wiki/architecture/` | Versioned architecture specs + diagrams | When a major version ships | Claude Code |
 | **CLAUDE.md** | Per-package | Routing — point to the right files | When files are added/removed/renamed | Claude Code |
 | **Memory** | `~/.claude/.../memory/` | User preferences, feedback, working style | When Chris gives new guidance | Claude Code |
 | **ADRs** | `docs/wiki/decisions/` | Why decisions were made | When a significant decision is made | Claude Code |
@@ -14,10 +15,11 @@ This is the single most important document for keeping docs honest. Read this be
 ### Rules
 
 1. **Wiki pages describe HOW things work.** They contain narrative, diagrams, and explanations.
-2. **CLAUDE.md files are routing only.** File tables + wiki links + gotchas. No narrative, no architecture.
-3. **Memory files are preferences only.** User feedback, trading rules, AI behavior guidance. No system state.
-4. **ADRs are append-only.** Never edit an existing ADR. Write a new one if the decision changes.
-5. **Build log is append-only.** Add new entries at the top. Never rewrite history.
+2. **Architecture versions are historical records.** `current.md` is the live system. `vN-*.md` files are snapshots — never edit old versions, create a new one.
+3. **CLAUDE.md files are routing only.** File tables + wiki links + gotchas. No narrative, no architecture.
+4. **Memory files are preferences only.** User feedback, trading rules, AI behavior guidance. No system state.
+5. **ADRs are append-only.** Never edit an existing ADR. Write a new one if the decision changes.
+6. **Build log is append-only.** Add new entries at the top. Never rewrite history.
 
 ## The Golden Rule: No Hard-Coded Counts
 
@@ -36,6 +38,28 @@ This is the single most important document for keeping docs honest. Read this be
 Counts are the #1 cause of doc rot. If someone needs a count, they can grep for it.
 
 ## When to Update Each Type
+
+### Architecture Versions (`docs/wiki/architecture/`)
+
+The architecture folder tracks the system's evolution over time:
+
+```
+docs/wiki/architecture/
+├── current.md              ← ALWAYS the live system (update this)
+├── current.html            ← Rendered mermaid diagrams (open in browser)
+├── v1-daemon-simplification.md   ← Historical: v1 daemon design
+├── v2-memory-system.md           ← Historical: v2 memory design
+├── v3-unified-tools.md           ← Historical: v3 tool system
+└── v4-embedded-agent-runtime.md  ← Historical: v4 agent runtime
+```
+
+**When a major version ships:**
+1. Snapshot `current.md` as `vN-descriptive-name.md` (never edit after)
+2. Update `current.md` to reflect the new architecture
+3. Update `current.html` if mermaid diagrams changed
+4. Add a build-log entry
+
+**Never edit old versions.** They're historical records. If something was wrong in v3, that's what v3 actually was. The fix goes in `current.md`.
 
 ### Wiki Pages (`docs/wiki/`)
 
