@@ -55,13 +55,31 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "visibility": "standard",
         "params": {"size": 1.0},
     },
+    "funding_arb": {
+        "path": "strategies.funding_arb:FundingArbStrategy",
+        "description": "Cross-venue funding rate arbitrage",
+        "visibility": "standard",
+        "params": {"divergence_threshold_bps": 2.0, "max_bias_bps": 5.0},
+    },
 
     # ── Advanced ──────────────────────────────────────────────
+    "engine_mm": {
+        "path": "strategies.engine_mm:EngineMMStrategy",
+        "description": "Production quoting engine MM — composite FV, dynamic spreads, multi-level ladder",
+        "visibility": "advanced",
+        "params": {"base_size": 1.0, "num_levels": 3},
+    },
     "avellaneda_mm": {
         "path": "strategies.avellaneda_mm:AvellanedaStoikovMM",
         "description": "Inventory-aware market maker (Avellaneda-Stoikov model)",
         "visibility": "advanced",
         "params": {"gamma": 0.1, "k": 1.5, "base_size": 1.0},
+    },
+    "regime_mm": {
+        "path": "strategies.regime_mm:RegimeMMStrategy",
+        "description": "Vol-regime adaptive MM — switches behavior by volatility regime",
+        "visibility": "advanced",
+        "params": {"base_size": 1.0},
     },
     "simple_mm": {
         "path": "strategies.simple_mm:SimpleMMStrategy",
@@ -74,6 +92,12 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Grid market maker — fixed-interval levels above and below mid",
         "visibility": "advanced",
         "params": {"grid_spacing_bps": 10.0, "num_levels": 5, "size_per_level": 0.5},
+    },
+    "liquidation_mm": {
+        "path": "strategies.liquidation_mm:LiquidationMMStrategy",
+        "description": "Liquidation flow MM — provides liquidity during cascade events",
+        "visibility": "advanced",
+        "params": {"oi_drop_threshold_pct": 5.0, "cascade_spread_mult": 2.5},
     },
     "momentum_breakout": {
         "path": "strategies.momentum_breakout:MomentumBreakoutStrategy",
