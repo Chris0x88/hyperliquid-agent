@@ -41,6 +41,19 @@ JOURNAL_FILE = "data/daemon/journal.jsonl"     # daemon journal for trade histor
 FUNDING_FILE = "data/daemon/funding_tracker.jsonl"
 
 
+def _parse_ts(ts_str: str) -> int:
+    """Parse ISO timestamp string to epoch milliseconds."""
+    if not ts_str:
+        return 0
+    try:
+        from datetime import datetime, timezone
+        # Handle "2026-04-06T12:00:00Z" format
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return 0
+
+
 @dataclass
 class EvaluationResult:
     """Structured result of one autoresearch cycle."""
@@ -166,6 +179,9 @@ class AutoresearchIterator:
 
         # --- Append to learnings.md ---
         self._append_learning(result, ctx)
+
+        # --- REFLECT: analyze closed trades for performance metrics ---
+        self._run_reflect(result, ctx)
 
         log.info("Autoresearch: overall_score=%.2f  recs=%d",
                  result.overall_score, len(result.recommendations))
@@ -450,6 +466,112 @@ class AutoresearchIterator:
         except Exception as e:
             log.debug("Journal read error: %s", e)
         return entries
+
+    def _run_reflect(self, result: EvaluationResult, ctx: TickContext) -> None:
+        """Run REFLECT engine on recent closed trades from journal JSONL."""
+        journal_jsonl = "data/research/journal.jsonl"
+        if not os.path.exists(journal_jsonl):
+            return
+
+        try:
+            from modules.reflect_engine import ReflectEngine, TradeRecord
+
+            # Load journal entries from the last 7 days
+            cutoff_ms = (time.time() - 7 * 86400) * 1000
+            trades = []
+            with open(journal_jsonl) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        # Convert journal format to TradeRecord format
+                        # Journal has: entry_price, exit_price, direction, size, instrument, pnl
+                        # TradeRecord needs: side, price, quantity pairs for FIFO matching
+                        # Create synthetic entry + exit trade records
+                        entry_price = float(entry.get("entry_price", 0))
+                        exit_price = float(entry.get("exit_price", 0))
+                        size = float(entry.get("size", 0))
+                        direction = entry.get("direction", "LONG").lower()
+
+                        if entry_price <= 0 or exit_price <= 0 or size <= 0:
+                            continue
+
+                        # Parse timestamps
+                        ts_open = entry.get("timestamp_open", "")
+                        ts_close = entry.get("timestamp_close", "")
+                        open_ms = _parse_ts(ts_open)
+                        close_ms = _parse_ts(ts_close)
+
+                        if close_ms < cutoff_ms:
+                            continue
+
+                        entry_side = "buy" if direction == "long" else "sell"
+                        exit_side = "sell" if direction == "long" else "buy"
+
+                        trades.append(TradeRecord(
+                            instrument=entry.get("instrument", ""),
+                            side=entry_side,
+                            price=entry_price,
+                            quantity=size,
+                            timestamp_ms=open_ms,
+                        ))
+                        trades.append(TradeRecord(
+                            instrument=entry.get("instrument", ""),
+                            side=exit_side,
+                            price=exit_price,
+                            quantity=size,
+                            timestamp_ms=close_ms,
+                            meta=entry.get("close_reason", ""),
+                        ))
+                    except Exception:
+                        continue
+
+            if len(trades) < 2:
+                return
+
+            engine = ReflectEngine()
+            metrics = engine.compute(trades)
+
+            # Append REFLECT summary to learnings
+            reflect_lines = [
+                f"\n### REFLECT (7d rolling)\n",
+                f"Round trips: {metrics.total_round_trips}  "
+                f"Win rate: {metrics.win_rate:.0f}%  "
+                f"Net PnL: ${metrics.net_pnl:+.2f}\n",
+            ]
+            if metrics.total_round_trips > 0:
+                reflect_lines.append(
+                    f"Gross PnL: ${metrics.gross_pnl:+.2f}  "
+                    f"Fees: ${metrics.total_fees:.2f}  "
+                    f"FDR: {metrics.fdr:.0f}%\n"
+                )
+                reflect_lines.append(
+                    f"Longs: {metrics.long_count} ({metrics.long_wins}W)  "
+                    f"Shorts: {metrics.short_count} ({metrics.short_wins}W)\n"
+                )
+                if metrics.max_consecutive_losses > 2:
+                    reflect_lines.append(
+                        f"WARNING: {metrics.max_consecutive_losses} consecutive losses\n"
+                    )
+                if metrics.recommendations:
+                    for rec in metrics.recommendations[:3]:
+                        reflect_lines.append(f"- {rec}\n")
+                        result.recommendations.append(f"REFLECT: {rec}")
+
+            try:
+                with open(LEARNINGS_FILE, "a") as f:
+                    f.writelines(reflect_lines)
+            except Exception:
+                pass
+
+            log.info("REFLECT: %d round trips, %.0f%% WR, $%+.2f net",
+                     metrics.total_round_trips, metrics.win_rate, metrics.net_pnl)
+
+        except ImportError:
+            log.debug("reflect_engine not available — skipping REFLECT")
+        except Exception as e:
+            log.warning("REFLECT failed: %s", e)
 
     def _load_funding_summary(self) -> Dict:
         """Load funding tracker summary."""

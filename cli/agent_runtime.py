@@ -75,7 +75,7 @@ def build_system_prompt(
 CONCURRENT_SAFE_TOOLS = {
     "market_brief", "account_summary", "status", "live_price",
     "analyze_market", "check_funding", "get_orders", "trade_journal",
-    "thesis_state", "daemon_health",
+    "get_signals", "thesis_state", "daemon_health",
     "read_file", "search_code", "list_files", "web_search", "memory_read",
 }
 

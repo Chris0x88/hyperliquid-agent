@@ -7,6 +7,8 @@ TIER_ITERATORS = {
         "connector",
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
+        "radar",               # opportunity scanner (read-only intelligence)
+        "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
         "autoresearch",        # learning loop

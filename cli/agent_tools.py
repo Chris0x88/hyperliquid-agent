@@ -124,6 +124,29 @@ TOOL_DEFS: List[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_signals",
+            "description": "Get recent Pulse (capital inflow) and Radar (opportunity scanner) trade signals.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max signals to return",
+                        "default": 20,
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["all", "pulse", "radar"],
+                        "description": "Filter by signal source",
+                        "default": "all",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_funding",
             "description": "Get funding rate, premium, and open interest for a market.",
             "parameters": {
@@ -506,28 +529,114 @@ def _tool_get_orders(args: dict) -> str:
 
 
 def _tool_trade_journal(args: dict) -> str:
-    """Recent trade journal entries."""
+    """Recent trade journal entries from both trade files and journal JSONL."""
     limit = args.get("limit", 10)
+    trades = []
+
+    # Source 1: Individual trade JSON files
     trades_path = _PROJECT_ROOT / "data" / "research" / "trades"
-    if not trades_path.exists():
-        return "No trade journal entries."
+    if trades_path.exists():
+        for f in sorted(trades_path.glob("*.json"), reverse=True)[:limit]:
+            try:
+                trades.append(json.loads(f.read_text()))
+            except Exception:
+                pass
 
-    files = sorted(trades_path.glob("*.json"), reverse=True)[:limit]
-    if not files:
-        return "No trade journal entries."
-
-    lines = [f"Last {len(files)} trades:"]
-    for f in files:
+    # Source 2: Journal JSONL (auto-logged by daemon on position close)
+    journal_path = _PROJECT_ROOT / "data" / "research" / "journal.jsonl"
+    if journal_path.exists():
         try:
-            t = json.loads(f.read_text())
-            lines.append(
-                f"  {t.get('timestamp', f.stem)[:10]} {t.get('coin','?')} "
-                f"{t.get('side','?')} {t.get('size','?')} @ ${t.get('price','?')} "
-                f"PnL: {t.get('pnl', '?')}"
-            )
+            for line in journal_path.read_text().strip().split("\n"):
+                if line.strip():
+                    trades.append(json.loads(line))
         except Exception:
             pass
-    return "\n".join(lines) if len(lines) > 1 else "No readable trade entries."
+
+    if not trades:
+        return "No trade journal entries."
+
+    # Deduplicate by trade_id, sort by close timestamp descending
+    seen = set()
+    unique = []
+    for t in trades:
+        tid = t.get("trade_id", id(t))
+        if tid not in seen:
+            seen.add(tid)
+            unique.append(t)
+    unique.sort(key=lambda t: t.get("timestamp_close", t.get("timestamp", "")), reverse=True)
+    unique = unique[:limit]
+
+    lines = [f"Last {len(unique)} trades:"]
+    for t in unique:
+        # Support both old format (coin/side/price) and new format (instrument/direction/entry_price/exit_price)
+        coin = t.get("instrument", t.get("coin", "?")).replace("xyz:", "")
+        direction = t.get("direction", t.get("side", "?"))
+        entry = t.get("entry_price", t.get("price", "?"))
+        exit_p = t.get("exit_price", "?")
+        pnl = t.get("pnl", "?")
+        roe = t.get("roe_pct", "")
+        sl = t.get("stop_loss") or t.get("stop", "")
+        tp = t.get("take_profit") or ""
+        ts = t.get("timestamp_close", t.get("timestamp", "?"))[:10] if isinstance(t.get("timestamp_close", t.get("timestamp")), str) else "?"
+
+        line = f"  {ts} {coin} {direction} size={t.get('size','?')} entry=${entry} exit=${exit_p} PnL=${pnl}"
+        if roe:
+            line += f" ({roe:+.1f}%)" if isinstance(roe, (int, float)) else f" ({roe}%)"
+        if sl:
+            line += f" SL=${sl}"
+        if tp:
+            line += f" TP=${tp}"
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _tool_get_signals(args: dict) -> str:
+    """Recent Pulse and Radar trade signals."""
+    limit = args.get("limit", 20)
+    source_filter = args.get("source", "all")
+    signals_path = _PROJECT_ROOT / "data" / "research" / "signals.jsonl"
+
+    if not signals_path.exists():
+        return "No signals yet. Pulse and Radar scanners persist signals to data/research/signals.jsonl."
+
+    signals = []
+    for line in signals_path.read_text().strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            s = json.loads(line)
+            if source_filter != "all" and s.get("source") != source_filter:
+                continue
+            signals.append(s)
+        except Exception:
+            pass
+
+    if not signals:
+        return f"No {source_filter} signals found."
+
+    signals = signals[-limit:]
+    signals.reverse()
+
+    lines = [f"Last {len(signals)} signals:"]
+    for s in signals:
+        src = s.get("source", "?").upper()
+        asset = s.get("asset", "?")
+        direction = s.get("direction", "?")
+        ts = s.get("timestamp_human", "?")
+
+        if src == "PULSE":
+            tier = s.get("tier", "?")
+            conf = s.get("confidence", 0)
+            sig_type = s.get("signal_type", "")
+            lines.append(f"  [{ts}] PULSE {asset} {direction} tier={tier} conf={conf:.0f}% ({sig_type})")
+        elif src == "RADAR":
+            score = s.get("score", 0)
+            lines.append(f"  [{ts}] RADAR {asset} {direction} score={score:.0f}")
+        else:
+            lines.append(f"  [{ts}] {src} {asset} {direction}")
+
+    return "\n".join(lines)
 
 
 def _tool_check_funding(args: dict) -> str:
@@ -774,6 +883,7 @@ _TOOL_DISPATCH = {
     "analyze_market": _tool_analyze_market,
     "get_orders": _tool_get_orders,
     "trade_journal": _tool_trade_journal,
+    "get_signals": _tool_get_signals,
     "check_funding": _tool_check_funding,
     "place_trade": _tool_place_trade,
     "update_thesis": _tool_update_thesis,

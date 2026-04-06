@@ -200,13 +200,28 @@ class AccountCollectorIterator:
         # Use total_equity for HWM/drawdown (not just perps)
         snapshot["account_value"] = total_equity
 
-        # Add drawdown info
+        # Add drawdown info — use self._high_water_mark which may have been
+        # reset to current equity when flat (no positions). This prevents
+        # phantom 100% drawdown in snapshot files after closing all positions.
         hwm = self._high_water_mark
         equity = total_equity
         if equity > hwm:
             hwm = equity
         snapshot["high_water_mark"] = hwm
-        snapshot["drawdown_pct"] = (hwm - equity) / hwm * 100 if hwm > 0 else 0.0
+        # When flat (no positions), drawdown is always 0 regardless of HWM
+        has_pos = bool(snapshot.get("positions_native")) or bool(snapshot.get("positions_xyz"))
+        if has_pos:
+            # Filter to non-zero positions
+            all_p = list(snapshot.get("positions_native", []))
+            all_p.extend(
+                p.get("position", p) if isinstance(p, dict) and "position" in p else p
+                for p in snapshot.get("positions_xyz", [])
+            )
+            has_pos = any(float(p.get("szi", 0)) != 0 for p in all_p if isinstance(p, dict))
+        if not has_pos:
+            snapshot["drawdown_pct"] = 0.0
+        else:
+            snapshot["drawdown_pct"] = (hwm - equity) / hwm * 100 if hwm > 0 else 0.0
 
         return snapshot
 

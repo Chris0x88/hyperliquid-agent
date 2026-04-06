@@ -842,6 +842,110 @@ def cmd_powerlaw(token: str, chat_id: str, _args: str) -> None:
         tg_send(token, chat_id, f"Power Law error: {e}")
 
 
+def cmd_restart(token: str, chat_id: str, _args: str) -> None:
+    """Restart all daemons (daemon + telegram + heartbeat) via launchd."""
+    import subprocess
+    import os
+    import signal
+
+    uid = os.getuid()
+    services = [
+        "com.hyperliquid.daemon",
+        "com.hyperliquid.heartbeat",
+        "com.hyperliquid.telegram",
+    ]
+
+    results = []
+    for svc in services:
+        # Stop the service (launchd KeepAlive will restart it)
+        try:
+            subprocess.run(
+                ["launchctl", "kickstart", "-k", f"gui/{uid}/{svc}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            results.append(f"  {svc}: restarted")
+        except Exception as e:
+            results.append(f"  {svc}: error ({e})")
+
+    msg = "🔄 *Restarting all services*\n\n" + "\n".join(results)
+    msg += "\n\n_Telegram bot will reconnect in a few seconds._"
+    tg_send(token, chat_id, msg)
+
+    # Give Telegram time to deliver the message, then exit.
+    # launchd KeepAlive will restart us.
+    import threading
+    def _delayed_exit():
+        import time as _t
+        _t.sleep(2)
+        os._exit(0)
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+
+
+def cmd_signals(token: str, chat_id: str, args: str) -> None:
+    """Show recent Pulse and Radar signals. Usage: /signals [limit]"""
+    import json as _json
+    from pathlib import Path as _Path
+    signals_path = _Path("data/research/signals.jsonl")
+    if not signals_path.exists():
+        tg_send(token, chat_id,
+                "📡 *No signals yet*\n\n"
+                "Pulse (capital inflow) and Radar (opportunity scanner) "
+                "signals will appear here once the daemon generates them.\n\n"
+                "Pulse scans every 2 min for OI/volume/funding anomalies.\n"
+                "Radar scans every 5 min for multi-timeframe setups.")
+        return
+
+    limit = 15
+    if args.strip().isdigit():
+        limit = min(int(args.strip()), 30)
+
+    lines_raw = signals_path.read_text().strip().split("\n")
+    signals = []
+    for line in lines_raw[-limit:]:
+        try:
+            signals.append(_json.loads(line))
+        except Exception:
+            pass
+
+    if not signals:
+        tg_send(token, chat_id, "📡 No recent signals.")
+        return
+
+    signals.reverse()  # newest first
+    parts = [f"📡 *Last {len(signals)} Signals*\n"]
+
+    for s in signals:
+        source = s.get("source", "?").upper()
+        asset = s.get("asset", "?")
+        direction = s.get("direction", "?")
+        ts = s.get("timestamp_human", "?")
+
+        if source == "PULSE":
+            tier = s.get("tier", "?")
+            conf = s.get("confidence", 0)
+            sig_type = s.get("signal_type", "")
+            oi = s.get("oi_delta_pct", 0)
+            vol = s.get("volume_surge_ratio", 0)
+            parts.append(
+                f"⚡ `{ts}`\n"
+                f"  *PULSE* {asset} {direction} tier={tier} conf={conf:.0f}%\n"
+                f"  {sig_type} OI={oi:+.1f}% vol={vol:.1f}x"
+            )
+        elif source == "RADAR":
+            score = s.get("score", 0)
+            parts.append(
+                f"🎯 `{ts}`\n"
+                f"  *RADAR* {asset} {direction} score={score:.0f}/400"
+            )
+        else:
+            parts.append(f"📊 `{ts}` {source} {asset} {direction}")
+
+    msg = "\n\n".join(parts)
+    if len(msg) > 4000:
+        msg = msg[:4000] + "\n\n_(truncated)_"
+    tg_send(token, chat_id, msg)
+
+
 def cmd_delegate(token: str, chat_id: str, args: str) -> None:
     """Delegate an asset to the agent. Usage: /delegate BRENTOIL"""
     from common.authority import delegate, format_authority_status
@@ -2729,6 +2833,9 @@ HANDLERS = {
     "/powerlaw": cmd_powerlaw,
     "/rebalancer": cmd_rebalancer,
     "/rebalance": cmd_rebalance,
+    "/restart": cmd_restart,
+    "/signals": cmd_signals,
+    "/sig": cmd_signals,
     "/delegate": cmd_delegate,
     "/reclaim": cmd_reclaim,
     "/authority": cmd_authority,
@@ -2766,6 +2873,9 @@ HANDLERS = {
     "powerlaw": cmd_powerlaw,
     "rebalancer": cmd_rebalancer,
     "rebalance": cmd_rebalance,
+    "restart": cmd_restart,
+    "signals": cmd_signals,
+    "sig": cmd_signals,
     "delegate": cmd_delegate,
     "reclaim": cmd_reclaim,
     "authority": cmd_authority,
