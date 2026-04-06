@@ -7,312 +7,266 @@
 <h3 align="center">Your AI trading co-pilot for Hyperliquid</h3>
 
 <p align="center">
+  <strong>An AI that defends your account while you sleep.</strong><br/>
   Open source. No fees. No telemetry. Your keys, your rules.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/Claude_Code-compatible-ff6b35" alt="Claude Code" />
+  <img src="https://img.shields.io/badge/AI-Claude_Opus_4.6-ff6b35" alt="Claude" />
   <img src="https://img.shields.io/badge/Telegram-bot-26A5E4?logo=telegram&logoColor=white" alt="Telegram" />
-  <img src="https://img.shields.io/badge/OpenClaw-compatible-FF4500" alt="OpenClaw" />
-  <img src="https://img.shields.io/badge/HyperLiquid-trade.xyz-00D4AA" alt="HyperLiquid" />
+  <img src="https://img.shields.io/badge/HyperLiquid-perps_+_xyz-00D4AA" alt="HyperLiquid" />
 </p>
 
 ---
 
-## What Is This?
+## Why This Exists
 
-An open-source toolkit that lets you run an **AI trading agent** on [Hyperliquid](https://hyperliquid.xyz) — the onchain perpetual futures exchange. It combines a tick-based trading daemon with Claude Code integration, so your AI agent can monitor positions, execute trades, and improve its own codebase over time.
+Most trading bots are dumb scripts that blow up your account on the first weekend stop hunt.
 
-**What makes it different:** This isn't a black-box bot you deploy and pray. It's designed to work *with* you. You bring the thesis and market knowledge. The agent brings discipline, execution speed, and 24/7 monitoring. Three interfaces, each doing what it's best at:
+This is something different: **a 24/7 AI risk manager that actually thinks**. You bring the thesis. It brings the discipline — automatic stops, leverage management, profit locking, and an embedded Claude agent that can analyze markets, execute trades, and improve its own code over time.
 
-- **Claude Code** (phone or desktop) — your AI trading brain. Deep analysis, code improvement, trade execution, strategy discussions
-- **Telegram bot** — instant dashboard. Portfolio, charts, prices, orders. Fixed Python code, zero AI credits
-- **OpenClaw** (optional) — AI conversation via Telegram DM for quick questions and market chat
+It's the bot you'd build for yourself if you had infinite weekends. Now you don't have to.
 
-The agent trades autonomously within the boundaries you set, and gets smarter through a recursive research loop.
+---
 
-**Currently trading:** Bitcoin Power Law rebalancing (vault), Brent Oil directional (main account). The system supports any Hyperliquid market including trade.xyz perps (oil, gold, equities, etc.).
+## What You Get
+
+🧠 **Embedded AI Agent** — Claude Opus/Sonnet/Haiku running inside the bot. Reads your codebase, executes tools, manages positions, learns from each trade. Not an API-glued chatbot — a real agent runtime ported from Claude Code with parallel tool calls, streaming, context compaction, and persistent memory.
+
+📱 **Telegram Dashboard** — Instant portfolio, charts, prices, orders, P&L, conviction state, funding rates. Fixed Python commands hit the HyperLiquid API directly. Zero AI credits per command. Free-text messages route to the AI agent.
+
+⚡ **Tick-Based Daemon** — Iterators run on a clock: account state, risk gates, exchange protection (mandatory SL/TP), guard trailing stops, conviction-driven sizing, auto-research, profit lock, journal, REFLECT loop.
+
+🛡️ **Mandatory Stop & Take-Profit** — Every position MUST have both SL and TP on the exchange itself. No exceptions. No "I'll add it later." The daemon enforces this every tick.
+
+📊 **Conviction Engine** — Position sizing scales with thesis strength. Stale thesis files auto-clamp leverage. Kill switch built in.
+
+🔬 **Research Loop** — Trade journal, REFLECT meta-evaluation, dream consolidation, strategy version history. The agent reviews its own trades and proposes improvements.
+
+🔐 **Hardened Key Management** — Open Wallet Standard vault (AES-256-GCM) + macOS Keychain dual-write. API wallets only — the bot literally cannot withdraw your funds.
 
 ---
 
 ## 5-Minute Setup
 
-You need: Python 3.10+, a HyperLiquid account, and [Claude Code](https://claude.ai/code).
+You need: Python 3.13, a HyperLiquid account, and a Telegram bot token.
 
-### Step 1: Clone and Install
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/Chris0x88/hyperliquid-agent.git
-cd hyperliquid-agent && pip install -e .
+cd hyperliquid-agent/agent-cli
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
 
-### Step 2: Create an API Wallet (Critical)
+### 2. Create an API Wallet (Critical)
 
-> **Never give this tool your main private key.** Use an API wallet instead.
+> **Never give this tool your main private key.** Use an API wallet.
 
-HyperLiquid API wallets (agent wallets) can trade but **cannot withdraw funds**. If your key leaks, attackers can't steal your money — they can only make trades, and you can revoke the key instantly.
+HyperLiquid API wallets can trade but **cannot withdraw funds**. If your key leaks, attackers can't steal your money — they can only place trades, and you can revoke the key instantly.
 
 1. Log in at [app.hyperliquid.xyz](https://app.hyperliquid.xyz/)
-2. Go to **Portfolio > API Wallets > Generate**
-3. Name it (e.g., "agent-bot")
-4. Copy the private key — you only see it once
+2. **Portfolio → API Wallets → Generate**
+3. Name it (e.g., `agent-bot`) and copy the private key
+4. Import into the encrypted keystore:
 
 ```bash
-# Import your API wallet key (encrypted storage)
-hl keys import --backend ows
+python -m cli.main keys import
 ```
 
-For a deeper explanation of API wallet security, see [docs/wiki/operations/security.md](docs/wiki/operations/security.md).
-
-### Step 3: Start the Daemon
+### 3. Configure Environment
 
 ```bash
-# Watch mode — monitors only, no trading (start here)
-hl daemon start --tier watch
-
-# When ready for real trading:
-hl daemon start --tier rebalance --mainnet
+cp .env.example .env
+# Edit .env — add your Telegram bot token, chat ID, and (optional) OpenRouter key
 ```
 
-### Step 4: Connect Telegram (Recommended)
+Get a Telegram bot from [@BotFather](https://t.me/BotFather). Get your chat ID by messaging [@userinfobot](https://t.me/userinfobot).
 
-Get instant trade alerts and send commands from your phone.
-
-1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
-2. Store the token securely (macOS):
-   ```bash
-   security add-generic-password -s hl-agent-telegram -a bot_token -w "YOUR_TOKEN" -U
-   ```
-3. Message your bot, then run:
-   ```bash
-   python3 -c "
-   import requests
-   token = 'YOUR_TOKEN'
-   r = requests.get(f'https://api.telegram.org/bot{token}/getUpdates')
-   chat_id = r.json()['result'][0]['message']['chat']['id']
-   print(f'Chat ID: {chat_id}')
-   "
-   ```
-4. Store the chat ID:
-   ```bash
-   security add-generic-password -s hl-agent-telegram -a chat_id -w "YOUR_CHAT_ID" -U
-   ```
-
-Now start the Telegram bot:
+### 4. Start in Watch Mode
 
 ```bash
-hl telegram start
+# Monitors only — no trading. Always start here.
+python -m cli.main daemon start --tier watch
 ```
 
-Your bot responds to `/status`, `/chart oil 72`, `/watchlist`, `/price`, `/pnl`, `/orders`, `/powerlaw`. All instant, all free — fixed Python code hitting the HyperLiquid API directly. Zero AI credits.
+### 5. Launch the Telegram Bot
 
-### Step 5: Set Up Claude Code as Your AI Trader
+```bash
+python -m cli.telegram_bot
+```
 
-This is the real power. Open [Claude Code](https://claude.ai/code) (phone, desktop, or web) and point it at this repo. Claude can:
-- Make autonomous trading decisions
-- Run on a schedule (hourly check-ins via scheduled tasks)
-- Execute trades, manage positions, adjust leverage
-- Improve the codebase as it learns from each trade
-- Send you alerts via Telegram when something happens
+Send `/menu` to your bot. You're live.
 
-Claude Code is the brain. Telegram is the dashboard. They're separate interfaces — Claude Code doesn't run through Telegram.
+### 6. Optional: Persistent Daemons (macOS)
 
-### Step 6: Add OpenClaw (Optional — AI Chat via Telegram)
+```bash
+cp plists/com.hyperliquid.telegram.plist.example ~/Library/LaunchAgents/com.hyperliquid.telegram.plist
+# Edit the plist — replace $AGENT_DIR with your actual path
+launchctl load ~/Library/LaunchAgents/com.hyperliquid.telegram.plist
+```
 
-If you want AI conversation in Telegram (not just fixed commands), set up [OpenClaw](https://github.com/openclaw/openclaw) with a separate bot. This gives you a Telegram DM where you can ask questions like "what's the oil thesis?" and get AI responses.
-
-See [docs/openclaw-setup/](docs/openclaw-setup/) for the agent prompt and configuration.
-
-**Note:** OpenClaw and the commands bot run as separate Telegram DMs, not in a group. Multi-bot groups don't work cleanly with Telegram's current architecture (see [docs/TELEGRAM_GROUP_SETUP.md](docs/TELEGRAM_GROUP_SETUP.md) for why).
+Same pattern for the daemon and heartbeat plists.
 
 ---
 
 ## How It Works
 
-### The Daemon
+### The Three Layers
 
-A tick-based loop (inspired by [Hummingbot's](https://hummingbot.org/) clock architecture) that runs registered iterators in dependency order:
+| Layer | What It Does | Where |
+|-------|-------------|-------|
+| **Daemon** | Tick-based loop. Iterators run in dependency order. Enforces SL/TP, manages risk, executes strategies. | `cli/daemon/iterators/` |
+| **Telegram Bot** | Command interface + AI agent host. Routes free text to the embedded agent. | `cli/telegram_bot.py` |
+| **AI Agent** | Embedded Claude runtime with parallel tools, streaming, memory, codebase access, self-improvement. | `cli/agent_runtime.py` |
+
+### Daemon Tick Pipeline
 
 ```
 Every tick (default 60s):
-  Connector  → fetch prices, positions, balances
-  Liquidity  → detect time-of-day regime (weekend/after-hours = danger)
-  Risk       → check drawdown, circuit breakers, gate state
-  Guard      → trailing stops, two-phase profit protection
-  Rebalancer → run strategies, convert decisions to orders
-  Profit Lock → sweep 25% of realized profits (capital protection)
-  Journal    → log tick snapshot for analysis
-  Telegram   → send alerts for trades, gate changes, P&L
+  account_collector  → fetch balance, positions, equity
+  exchange_protection → ensure every position has SL+TP on exchange
+  guard               → trailing stops, two-phase profit protection
+  risk                → drawdown gates, circuit breakers
+  conviction          → thesis-driven leverage decisions
+  rebalancer          → run strategies, place orders
+  profit_lock         → sweep 25% of realized profits
+  autoresearch        → scan for opportunities
+  journal             → log tick snapshot
+  telegram            → push alerts
 ```
+
+See `cli/daemon/iterators/` for all iterators. The full list lives in code, not in this README.
 
 ### Three Tiers
 
-| Tier | What It Does | Start Here? |
-|------|-------------|-------------|
-| **`watch`** | Monitors only. No trading. Sends alerts. | Yes |
+| Tier | Behavior | Start Here? |
+|------|----------|-------------|
+| **`watch`** | Monitor only. No trading. Sends alerts. | ✅ Yes |
 | **`rebalance`** | Auto-rebalances + guards positions with trailing stops. | When you trust it |
-| **`opportunistic`** | All above + scans for opportunities via Radar/Pulse. | Advanced |
+| **`opportunistic`** | All above + scans for opportunities via autoresearch. | Advanced |
 
 ### Liquidity-Aware Risk
 
-The daemon knows when markets are thin and adjusts automatically:
+The daemon detects time-of-day regime and adjusts automatically:
 
 | Regime | When | Size Multiplier | Stop Width |
 |--------|------|----------------|------------|
 | Normal | Weekday, US/EU hours | 1.0x | 1.0x |
 | Low | After-hours (22:00-06:00 UTC) | 0.6x | 1.3x |
-| Weekend | Saturday/Sunday | 0.4x | 1.5x |
+| Weekend | Sat/Sun | 0.4x | 1.5x |
 | Dangerous | Weekend + after-hours | 0.25x | 2.0x |
 
-This matters. Low-liquidity stop hunts are how retail traders get wiped. The daemon reduces exposure automatically.
+Low-liquidity stop hunts wipe retail. The daemon refuses to play.
 
-### Profit Locking
+### Conviction Engine
 
-The `ProfitLockIterator` sweeps 25% of realized profits by partially closing profitable positions. This protects your capital base — profits are "locked" even if the trade reverses.
+Position size = base × conviction multiplier. Thesis files in `data/thesis/` define current conviction per market. Stale thesis → auto-clamp leverage. Kill switch in `data/config/` disables the whole system.
+
+The AI agent updates thesis files based on research and market events. Humans approve. Daemon executes.
 
 ---
 
 ## Supported Markets
 
-The agent trades on both native Hyperliquid perps and **trade.xyz builder-deployed perps**:
+The agent trades native Hyperliquid perps **and** trade.xyz builder-deployed perps:
 
 | Market Type | Examples | Coin Format |
 |-------------|----------|-------------|
-| Native perps | BTC, ETH, SOL, etc. | `BTC`, `ETH` |
-| trade.xyz perps | BRENTOIL, GOLD, NATGAS, SP500, NVDA, etc. | `xyz:BRENTOIL`, `xyz:GOLD` |
+| Native perps | BTC, ETH, SOL | `BTC`, `ETH` |
+| trade.xyz perps | BRENTOIL, GOLD, SILVER, NATGAS, SP500, NVDA | `xyz:BRENTOIL`, `xyz:GOLD` |
 
-The SDK is configured to load all trade.xyz markets automatically. You can trade oil, gold, equities, and commodities alongside crypto.
+**Approved tokens (default config):** BTC, BRENTOIL, GOLD, SILVER. No memecoins, no junk. Edit `data/config/market_config.json` and `watchlist.json` to add more.
+
+---
+
+## The AI Agent
+
+Free-text messages to your Telegram bot route to an embedded Claude agent with:
+
+- **20+ tools** — account state, market analysis, prices, funding, orders, thesis, daemon health, codebase read/search/edit, web search, memory read/write, run bash
+- **Approval flow** — READ tools auto-execute, WRITE tools (trades, edits, bash) require Telegram inline-button approval
+- **Persistent memory** — `data/agent_memory/MEMORY.md` survives across sessions
+- **Codebase access** — agent can read, search, and (with approval) edit its own source code
+- **Triple-mode tool parsing** — native `tool_calls` (Anthropic), regex `[TOOL: ...]`, and AST-parsed Python blocks (for free models)
+- **Context compaction** — long conversations auto-compact like Claude Code
+- **Dream consolidation** — periodic memory consolidation between sessions
+
+Configure model via `/models` in Telegram. Defaults to Anthropic direct (session token from your Claude subscription) with OpenRouter fallback.
 
 ---
 
 ## Featured Strategy: Bitcoin Power Law
 
-The flagship strategy. Based on the Bitcoin Power Law model — BTC price follows a power-law corridor over long timeframes.
+The flagship hands-off strategy. BTC follows a power-law corridor over long timeframes:
 
-- Calculates "floor" and "ceiling" from the model
-- Near the floor: increase leverage (accumulate)
-- Near the ceiling: decrease leverage (take profit)
-- Rebalances hourly by default
+- Calculate floor and ceiling from the model
+- Near floor → increase allocation (accumulate)
+- Near ceiling → decrease allocation (take profit)
+- Rebalances on threshold deviation
+
+**Live vault (you can follow it):** [HWM Opportunistic MOE on Hyperliquid](https://app.hyperliquid.xyz/vaults/0x9da9a9aef5a968277b5ea66c6a0df7add49d98da)
 
 ```bash
-hl daemon add power_law_btc -i BTC-PERP -t 3600
-hl daemon start --tier rebalance
+python scripts/run_vault_rebalancer.py
 ```
-
-**Follow via vault:** [HWM Opportunistic MOE on Hyperliquid](https://app.hyperliquid.xyz/vaults/0x9da9a9aef5a968277b5ea66c6a0df7add49d98da)
 
 ---
 
-## The Research Loop (How the Agent Improves)
-
-This is not a static bot. The agent learns from every trade:
-
-```
-data/research/
-  trades/         # Every trade with thesis, outcome, lesson learned
-  market_notes/   # Market analysis snapshots
-  signals/        # Signal log for future backtesting
-  learnings.md    # What worked, what didn't — updated after each trade
-```
-
-After each trade closes, the agent reviews: Was the thesis right? Was the entry timing good? Did position sizing protect us? The lesson feeds back into how it analyzes the next trade. Over time, the codebase evolves — the agent proposes improvements, you approve, and we push to GitHub.
-
----
-
-## How It's Built (Honestly)
-
-We frankensteined this together. Here's what came from where:
-
-| Component | Origin | What We Did |
-|-----------|--------|-------------|
-| **Strategy engine + CLI** | Forked from [Nunchi's agent-cli](https://github.com/Nunchi-trade/agent-cli) | Stripped all fees, telemetry, external dependencies. Kept the strategy framework. |
-| **Bitcoin Power Law** | Built from scratch | Index-fund-style BTC rebalancer. The one strategy we trust to run fully automated. |
-| **Daemon layer** | Inspired by [Hummingbot](https://hummingbot.org/) | Tick-based iterator loop. 10 iterators. Simpler than Hummingbot — no Cython, no event bus. |
-| **Key management** | [Open Wallet Standard](https://github.com/nicholasgasior/ows) + macOS Keychain | AES-256-GCM encrypted vault + Keychain dual-write. |
-| **Telegram** | Built from scratch | Two-way: alerts out, commands in. Secrets in Keychain, not config files. |
-| **Profit lock** | Built from scratch | Auto-sweeps 25% of profits. Capital protection on autopilot. |
-| **Liquidity guard** | Built from scratch | Time-of-day regime detection. Reduces size on weekends/after-hours. |
-| **Historical data** | Built from scratch | SQLite candle cache, HL API fetcher, backtest engine. |
-| **MCP tools** | [Model Context Protocol](https://modelcontextprotocol.io) | 16+ tools for AI agent integration. |
-
----
-
-## What You Should Know (Transparency)
+## What You Should Know
 
 ### This is experimental software
 
-We're trading real money with it. But it's new, the codebase is evolving, and we're learning as we go. Use it at your own risk. Start on testnet. Start with `--tier watch`. Graduate slowly.
+We're trading real money with it. The codebase evolves weekly. Use at your own risk. **Always start on `--tier watch`. Graduate slowly.**
 
-### Security is a real concern
+### Security
 
-- **API wallets protect you** — the bot can never withdraw your funds
-- **Keys are encrypted** — OWS vault (AES-256-GCM) + macOS Keychain
-- **Telegram tokens are in Keychain** — not plaintext config files
-- **But:** if someone gets root on your machine, they can access your Keychain. If you're running on a server, consider hardware security modules
-- **We never commit secrets** — `data/` is gitignored, pre-commit hooks scan for key patterns
+- ✅ API wallets only — bot cannot withdraw
+- ✅ Keys encrypted (OWS AES-256-GCM + macOS Keychain dual-write)
+- ✅ Telegram tokens in env vars or Keychain, never config files
+- ✅ Pre-commit hooks scan for secrets
+- ⚠️ If someone gets root on your machine, they can reach your Keychain. Server deployments should consider HSMs.
 
-### The AI agent is powerful but imperfect
+### The AI agent makes mistakes
 
-- Claude Code makes autonomous trading decisions. It can and will make mistakes
-- Data manipulation is real in wartime markets — the agent can be fooled by spoofed data
-- The agent improves over time but isn't infallible
-- Always keep a mental stop on your total account exposure
-- The profit lock mechanism is your safety net — it forces partial profit-taking automatically
+- It can be fooled by spoofed market data (especially in wartime)
+- It can over-commit to a thesis
+- The mandatory SL/TP and profit lock are your safety nets — they enforce discipline the agent (and you) can't always maintain
+- Always keep a mental cap on total account exposure
 
 ### trade.xyz markets are different
 
-- BRENTOIL, GOLD, etc. are **builder-deployed perps** — they require isolated margin (no cross)
-- They're not in the native Hyperliquid universe — the SDK needs `perp_dexs=["", "xyz"]` to see them
-- Liquidity is lower than native perps — spreads are wider, stop hunts are more common
-- The contract specs (max leverage, tick size) may differ from what you expect
+- BRENTOIL, GOLD, etc. are **builder-deployed perps** — isolated margin only (no cross)
+- The SDK loads them via `dex='xyz'` — coin names come back prefixed (`xyz:BRENTOIL`)
+- Liquidity is thinner than native perps. Spreads wider. Stop hunts more common.
+- Contract specs (max leverage, tick size) differ from what you'd expect
 
 ---
 
-## Commands Reference
+## Telegram Commands
 
-```bash
-# Daemon
-hl daemon start [--tier watch|rebalance|opportunistic] [--tick 60] [--mock] [--mainnet]
-hl daemon stop | status | once
-hl daemon tier [watch|rebalance|opportunistic]
-hl daemon strategies | add | remove | pause | resume
-
-# Direct strategy execution
-hl run <strategy> -i <instrument> [--tick N] [--mock] [--mainnet]
-
-# Monitoring
-hl status [--watch]
-hl account
-
-# Data & Backtesting
-hl data fetch | stats | export
-hl backtest run -s <strategy> -c <coin> -d <days>
-
-# Key management
-hl keys import | list | migrate
-
-# Scanning
-hl radar once | run
-hl pulse once | run
-
-# Infrastructure
-hl setup check
-hl mcp serve
-hl strategies [--all] [--advanced]
-```
-
-### Telegram Commands
-
-Send these to your bot from your phone:
+Quick reference — full list via `/commands` or `/help`:
 
 | Command | What It Does |
 |---------|-------------|
-| `/status` | Portfolio snapshot — positions, P&L, equity |
-| `/price` | Current prices for watched instruments |
-| `/help` | List available commands |
-| *(free text)* | Forwarded to Claude for analysis/execution |
+| `/menu` | Interactive button menu |
+| `/status` | Portfolio snapshot — equity, positions, P&L |
+| `/position` | Detailed risk per position |
+| `/price <coin>` | Current price |
+| `/chart <coin> <hours>` | PNG chart |
+| `/orders` | Open orders |
+| `/pnl` | P&L summary |
+| `/watchlist` | Tracked markets |
+| `/signals` | Current trade signals |
+| `/health` | App health check |
+| `/diag` | Error diagnostics |
+| `/feedback <text>` | Submit feedback |
+| `/bug <text>` | Report a bug |
+| `/restart` | Restart daemon |
+| *(free text)* | Routed to AI agent |
 
 ---
 
@@ -320,30 +274,32 @@ Send these to your bot from your phone:
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v
+python -m pytest tests/ -x -q
 ```
 
-### What We're Working On
+1734+ tests. Run before any commit.
 
-- Custom index vaults (self-rebalancing baskets — replacing index funds)
-- Deeper Hummingbot integration (their connectors are battle-tested)
-- More sophisticated entry timing using order flow analysis
-- Better backtesting with trade.xyz historical data
-- Multi-account orchestration (vault + main + sub-accounts)
-- Mobile-first experience via Telegram + Claude Code
+### Architecture Docs
+
+- `docs/wiki/architecture/current.md` — live system architecture
+- `docs/wiki/components/` — per-component deep dives (daemon, telegram-bot, ai-agent, conviction-engine, risk-manager, vault-rebalancer)
+- `docs/wiki/decisions/` — ADRs (architectural decision records)
+- `docs/wiki/MAINTAINING.md` — how the doc system stays honest
 
 ### Contributing
 
-This is an independent project. PRs welcome. If you build something interesting, open an issue and let's talk.
+PRs welcome. If you build something interesting, open an issue first so we can talk.
 
 ---
 
 ## Heritage
 
-Forked from [Nunchi's agent-cli](https://github.com/Nunchi-trade/agent-cli). Credit to their team for the strategy engine and CLI framework. We stripped fees and telemetry, then built on top: the daemon, Bitcoin Power Law, key management, trade.xyz support, Telegram integration, profit locking, liquidity-aware risk, and AI agent tooling.
+The strategy engine framework was originally forked from a third party (see [ATTRIBUTION.md](ATTRIBUTION.md)). Everything since — daemon, conviction engine, embedded AI agent runtime, Bitcoin Power Law, Telegram bot, mandatory SL/TP enforcement, profit locking, liquidity-aware risk, trade.xyz support, research loop, dream consolidation — was built independently.
+
+No builder fees. No telemetry. No external party calls except market data (Hyperliquid, Binance, CoinGecko).
 
 ---
 
 <p align="center">
-  <sub>MIT License &bull; Built by humans and Claude &bull; Not financial advice</sub>
+  <sub>MIT License · Built by humans and Claude · Not financial advice</sub>
 </p>
