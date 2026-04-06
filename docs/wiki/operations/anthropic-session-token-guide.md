@@ -2,34 +2,30 @@
 
 > **DO NOT DELETE THIS FILE.** It documents hard-won knowledge about how session tokens work with the Anthropic API. This took extensive debugging to figure out.
 
-## THE SOLUTION: Claude Agent SDK
+## THE SOLUTION: Claude CLI Binary Proxy
 
-**`pip install claude-agent-sdk`** — This is the official Python SDK that gives you the same agent loop, tools, and auth that powers Claude Code. It handles OAuth tokens natively.
+The Claude Code CLI binary at `~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS/claude` uses the exact same auth stack as Claude Code desktop. It handles OAuth tokens natively.
 
 ```python
-import os
-os.environ['CLAUDE_CODE_OAUTH_TOKEN'] = token_from_keychain
-
-from claude_agent_sdk import query, ClaudeAgentOptions
-
-async for message in query(
-    prompt="Your prompt here",
-    options=ClaudeAgentOptions(model='claude-sonnet-4-6'),
-):
-    if hasattr(message, 'result'):
-        print(message.result)
+import subprocess as sp
+result = sp.run(
+    [str(cli_path), "--model", "claude-sonnet-4-6",
+     "--output-format", "json", "-p", prompt],
+    capture_output=True, text=True, timeout=90,
+)
+data = json.loads(result.stdout)
+response_text = data["result"]
 ```
 
-**This works for Sonnet and Opus.** Tested and confirmed. The Agent SDK handles all the auth, retry, and session management that the basic `anthropic` Python SDK cannot.
+### Why NOT the Agent SDK
 
-Docs: https://platform.claude.com/docs/en/agent-sdk/overview
-GitHub: https://github.com/anthropics/claude-agent-sdk-python
+**The Agent SDK does NOT support OAuth tokens.** As of April 2026, Anthropic restricts OAuth session tokens to Claude Code and Claude.ai only. The Agent SDK requires console API keys (`ANTHROPIC_API_KEY`) with pay-per-use billing. We tested this — it returns 401.
+
+See: https://github.com/anthropics/claude-code/issues/6536
 
 ### Current Implementation Status
 
-The bot currently uses the **Claude CLI binary** as a proxy for Sonnet/Opus calls. This works but has limitations (no streaming, process spawn overhead). The proper fix is to migrate to the Agent SDK, which provides native tool support, streaming, and sessions.
-
-**TODO: Migrate `_call_anthropic()` in `cli/telegram_agent.py` to use `claude-agent-sdk` instead of the CLI proxy.**
+The bot uses the **Claude CLI binary** as a proxy for Sonnet/Opus calls. `_call_via_claude_cli()` in `cli/telegram_agent.py` handles tool injection, conversation history, and response parsing. `_find_claude_cli()` dynamically locates the binary across Claude Code version upgrades.
 
 ---
 

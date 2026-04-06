@@ -352,8 +352,51 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
                     last_edit = now
                 except Exception:
                     pass
-    except RuntimeError:
-        # Rate limited — delete placeholder and re-raise for fallback
+    except RuntimeError as e:
+        # Auth failed (401) — try force-refresh and retry once before giving up
+        if "401" in str(e):
+            refreshed = _force_token_refresh()
+            if refreshed:
+                log.info("Retrying stream after token refresh")
+                url2, payload2, headers2 = _build_anthropic_request(messages, tools)
+                if url2:
+                    try:
+                        for delta_text, result in stream_and_accumulate(url2, payload2, headers2):
+                            full_result = result
+                            now = time.time()
+                            if msg_id and delta_text and (now - last_edit) >= edit_interval and result.text.strip():
+                                try:
+                                    display = result.text.strip()[:4000]
+                                    requests.post(
+                                        f"https://api.telegram.org/bot{token}/editMessageText",
+                                        json={"chat_id": chat_id, "message_id": msg_id, "text": display},
+                                        timeout=5,
+                                    )
+                                    last_edit = now
+                                except Exception:
+                                    pass
+                        # Retry succeeded — skip to final edit below
+                    except RuntimeError:
+                        pass  # Retry also failed — fall through to delete + re-raise
+                    else:
+                        # Successful retry — jump to final edit
+                        if msg_id and full_result.text.strip():
+                            try:
+                                requests.post(
+                                    f"https://api.telegram.org/bot{token}/editMessageText",
+                                    json={"chat_id": chat_id, "message_id": msg_id, "text": full_result.text.strip()[:4000]},
+                                    timeout=5,
+                                )
+                            except Exception:
+                                pass
+                        response = {"role": "assistant"}
+                        if full_result.text:
+                            response["content"] = full_result.text
+                        if full_result.tool_calls:
+                            response["tool_calls"] = full_result.tool_calls
+                        return response
+
+        # Rate limited or auth still failing — delete placeholder and re-raise for fallback
         if msg_id:
             try:
                 requests.post(
@@ -1275,32 +1318,55 @@ def _get_anthropic_client(model: str = ""):
         ), session_id
 
 
-def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] = None) -> Optional[dict]:
-    """Call Anthropic via the Claude Agent SDK — same auth path as OpenClaw.
+def _find_claude_cli() -> Optional[Path]:
+    """Find the Claude Code CLI binary, handling version changes.
 
-    The Agent SDK (claude-agent-sdk) handles OAuth session tokens natively.
-    This is the official way to use subscription tokens for Sonnet/Opus.
+    Searches ~/Library/Application Support/Claude/claude-code/*/claude.app/...
+    Returns the newest version found, or None.
+    """
+    base = Path.home() / "Library" / "Application Support" / "Claude" / "claude-code"
+    if not base.exists():
+        return None
+    # Find all version directories and pick the newest
+    candidates = []
+    for version_dir in base.iterdir():
+        if not version_dir.is_dir() or version_dir.name.startswith("."):
+            continue
+        cli = version_dir / "claude.app" / "Contents" / "MacOS" / "claude"
+        if cli.exists():
+            candidates.append(cli)
+    if not candidates:
+        return None
+    # Sort by version directory name (newest last)
+    candidates.sort(key=lambda p: p.parent.parent.parent.name)
+    return candidates[-1]
 
-    Uses max_turns=1 so the SDK returns after one model response without
-    running its own tool loop (we handle tools ourselves).
+
+def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list] = None) -> Optional[dict]:
+    """Call Anthropic via the Claude Code CLI binary.
+
+    This uses the EXACT same auth + SDK path as Claude Code desktop.
+    The CLI binary handles OAuth token refresh, correct headers, connection
+    pooling, and all the server-side session magic that makes Sonnet/Opus work.
+
+    The Agent SDK does NOT support OAuth tokens (401). The CLI binary is the
+    only path that reliably works for premium models with subscription tokens.
+    See docs/wiki/operations/anthropic-session-token-guide.md for full details.
+
+    Tool support: tool definitions are injected into the prompt as text.
+    The model outputs tool calls in [TOOL: name {"arg": "val"}] format
+    which the existing triple-mode parser in handle_ai_message picks up.
 
     Returns OpenAI-compatible response dict, or None on failure.
     """
-    import asyncio
-    import os
+    import subprocess as sp
 
-    try:
-        from claude_agent_sdk import query, ClaudeAgentOptions
-    except ImportError:
-        log.warning("claude-agent-sdk not installed — pip install claude-agent-sdk")
+    cli_path = _find_claude_cli()
+    if not cli_path:
+        log.warning("Claude CLI binary not found — is Claude Code installed?")
         return None
 
-    # Set OAuth token from keychain so the SDK can authenticate
-    token = _get_anthropic_key()
-    if token and _is_session_token(token):
-        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token
-
-    # Extract user message and system prompt
+    # Extract user message (last user message)
     prompt = ""
     for msg in reversed(messages):
         if msg.get("role") == "user":
@@ -1314,12 +1380,12 @@ def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] 
     if not prompt:
         return None
 
+    # Build full prompt with system context + conversation history
     system_text = ""
     for msg in messages:
         if msg.get("role") == "system":
             system_text += msg.get("content", "") + "\n"
 
-    # Include conversation history
     history_parts = []
     for msg in messages:
         if msg.get("role") in ("user", "assistant") and msg.get("content"):
@@ -1327,7 +1393,6 @@ def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] 
             if isinstance(content, str) and len(content) < 500:
                 history_parts.append(f"[{msg['role']}]: {content}")
 
-    # Build full prompt with context
     full_prompt = ""
     if system_text.strip():
         full_prompt += f"{system_text.strip()[:3000]}\n\n"
@@ -1338,9 +1403,9 @@ def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] 
         tool_lines = [
             "## YOUR TOOLS",
             "You MUST use tools to answer questions about positions, prices, markets, etc.",
-            "To invoke a tool, output EXACTLY: [TOOL: name {\"arg\": \"val\"}]",
+            'To invoke a tool, output EXACTLY: [TOOL: name {"arg": "val"}]',
             "Examples:",
-            '  [TOOL: account_summary]',
+            "  [TOOL: account_summary]",
             '  [TOOL: live_price {"market": "BRENTOIL"}]',
             '  [TOOL: web_search {"query": "crude oil price forecast"}]',
             '  [TOOL: read_file {"path": "docs/plans/MASTER_PLAN.md"}]',
@@ -1365,33 +1430,31 @@ def _call_via_agent_sdk(messages: List[Dict], model: str, tools: Optional[list] 
 
     full_prompt += prompt
 
-    async def _run():
-        text = ""
-        async for message in query(
-            prompt=full_prompt,
-            options=ClaudeAgentOptions(
-                model=model,
-                max_turns=1,
-            ),
-        ):
-            if hasattr(message, "result") and message.result:
-                text = message.result
-        return text
-
     try:
-        # Run async in sync context (Telegram bot is synchronous)
-        loop = asyncio.new_event_loop()
-        try:
-            text = loop.run_until_complete(_run())
-        finally:
-            loop.close()
+        result = sp.run(
+            [str(cli_path), "--model", model, "--output-format", "json",
+             "-p", full_prompt],
+            capture_output=True, text=True, timeout=90,
+        )
+        if result.returncode != 0:
+            log.warning("Claude CLI failed (rc=%d): %s", result.returncode, result.stderr[:200])
+            return None
 
+        data = json.loads(result.stdout)
+        if data.get("is_error"):
+            log.warning("Claude CLI error: %s", data.get("result", "")[:200])
+            return None
+
+        text = data.get("result", "")
         if text:
             return {"role": "assistant", "content": text}
         return None
 
+    except sp.TimeoutExpired:
+        log.warning("Claude CLI timed out (90s)")
+        return None
     except Exception as e:
-        log.warning("Agent SDK call failed: %s", e)
+        log.warning("Claude CLI call failed: %s", e)
         return None
 
 
@@ -1407,15 +1470,15 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
     model = _get_active_model()
     anthropic_model = model_override or model.replace("anthropic/", "", 1)
 
-    # Sonnet/Opus: use Claude Agent SDK (same auth path as OpenClaw/Claude Code).
-    # The Agent SDK handles OAuth session tokens natively — the Python anthropic
-    # SDK gets 429 on premium models but the Agent SDK works.
+    # Sonnet/Opus: use Claude CLI binary (same auth as Claude Code desktop).
+    # The Agent SDK does NOT support OAuth tokens (401). The Python anthropic
+    # SDK gets 429 on premium models. Only the CLI binary works reliably.
     # See docs/wiki/operations/anthropic-session-token-guide.md for full details.
     if "haiku" not in anthropic_model:
-        sdk_result = _call_via_agent_sdk(messages, anthropic_model, tools=tools)
-        if sdk_result:
-            return sdk_result
-        log.warning("Agent SDK failed for %s, falling back to Python SDK", anthropic_model)
+        cli_result = _call_via_claude_cli(messages, anthropic_model, tools=tools)
+        if cli_result:
+            return cli_result
+        log.warning("CLI proxy failed for %s, falling back to Python SDK", anthropic_model)
 
     result = _get_anthropic_client(anthropic_model)
     if not result:
@@ -1526,8 +1589,17 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
             return {"content": "AI rate limited — try again in a minute. Use /status for instant data."}
 
         except anthropic.AuthenticationError as e:
-            log.error("Anthropic auth error: %s", e)
-            return {"content": f"Auth error: {e}. Token may need refresh."}
+            log.warning("Anthropic auth error (attempt %d): %s", attempt + 1, e)
+            # Force token refresh and retry once
+            if attempt == 0:
+                log.info("Forcing token refresh after 401...")
+                refreshed = _force_token_refresh()
+                if refreshed:
+                    result = _get_anthropic_client(anthropic_model)
+                    if result:
+                        client, session_id = result
+                        continue
+            return {"content": "Auth expired — open Claude Code to refresh your session, then try again."}
         except anthropic.APITimeoutError:
             return {"content": "AI response timed out. Try /status for instant data."}
         except Exception as e:
@@ -1699,6 +1771,34 @@ def _refresh_oauth_token(refresh_token: str) -> Optional[str]:
         return None
 
 
+def _force_token_refresh() -> Optional[str]:
+    """Force-refresh the OAuth token from keychain, ignoring expiry check.
+
+    Called after a 401 — the token looked valid but the API rejected it.
+    Returns new token or None.
+    """
+    import subprocess as sp
+    try:
+        raw = sp.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if not raw:
+            return None
+        kc_data = json.loads(raw)
+        refresh_token = kc_data.get("claudeAiOauth", {}).get("refreshToken", "")
+        if refresh_token:
+            new_token = _refresh_oauth_token(refresh_token)
+            if new_token:
+                log.info("Force-refresh succeeded")
+                return new_token
+        log.warning("Force-refresh failed — no refresh token in keychain")
+        return None
+    except Exception as e:
+        log.warning("Force-refresh error: %s", e)
+        return None
+
+
 def _get_anthropic_key() -> Optional[str]:
     """Read Anthropic session token, auto-refreshing if expired.
 
@@ -1735,10 +1835,9 @@ def _get_anthropic_key() -> Optional[str]:
                 new_token = _refresh_oauth_token(refresh_token)
                 if new_token:
                     return new_token
+                log.warning("Token refresh failed — expired token will not be sent")
 
-            # Return expired token anyway — API will 401 and we'll handle it
-            if token:
-                return token
+            # Don't return expired tokens — they just cause 401s
     except Exception:
         pass
 
