@@ -1,0 +1,49 @@
+{
+  "cycle": "US 4-year political cycle",
+  "current_phase": "year2_policy_implementation",
+  "phase_pct": 0.35,
+
+  "description": "Trump 2nd term began Jan 2025. Year 2 is aggressive policy implementation: Bessent at Treasury, Lutnick at Commerce. Explicitly pursuing debt monetization through controlled crises (Iran conflict → defense spending → deficit → Fed forced to accommodate). This is the most interventionist economic team since Nixon.",
+
+  "implication": "Year 2 typically: aggressive policy changes, market volatility from uncertainty, but government backstop for markets (can't let markets crash during implementation). Pro-business but inflationary. Tax cuts + spending = deficit. Dollar weakening is POLICY, not accident.",
+
+  "phases": [
+    {
+      "name": "year1_honeymoon",
+      "duration": "Jan-Dec of inauguration year",
+      "description": "New administration agenda-setting. Executive orders. Market optimism on deregulation.",
+      "market_tendency": "Bullish equities, cautious bonds. Policy uncertainty creates vol."
+    },
+    {
+      "name": "year2_policy_implementation",
+      "duration": "Jan-Dec of second year (WE ARE HERE - March 2026)",
+      "description": "Major policy execution. Midterm positioning. Often the most controversial period. Markets digest real policy impact vs promises.",
+      "market_tendency": "Higher volatility. Sector rotation. Policy beneficiaries outperform (energy, defense in current regime)."
+    },
+    {
+      "name": "year3_pre_election_pump",
+      "duration": "Jan-Dec of third year",
+      "description": "Historically the strongest market year. Administration pumps economy for re-election. Fiscal stimulus. Easy money rhetoric.",
+      "market_tendency": "Strongly bullish. S&P avg +16% in year 3. The government WANTS markets higher."
+    },
+    {
+      "name": "year4_election_year",
+      "duration": "Jan-Nov of election year",
+      "description": "Uncertainty until election. Policy volatility. Risk premiums rise into election.",
+      "market_tendency": "Volatile but ultimately positive. Resolution rally post-election regardless of winner."
+    }
+  ],
+
+  "trump2_specifics": {
+    "bessent_doctrine": "Treasury Secretary Bessent's explicit goal: use geopolitical crisis to justify deficit spending → monetize debt through inflation → reduce real debt burden. Iran is the vehicle.",
+    "lutnick_commerce": "Commerce Secretary Lutnick: tariffs + trade war = negotiating leverage. But also inflationary.",
+    "fed_constraint": "Powell's Fed is trapped. Can't raise rates (would blow up $35T+ debt service). Can't cut (inflation still above target). Fiscal policy dominates monetary policy = fiscal dominance.",
+    "druckenmiller_connection": "Druckenmiller's network IS this power structure. His framework: ride the tiger of fiscal dominance, don't fight the government. Size up when government policy is your tailwind."
+  },
+
+  "key_dates_2026": [
+    {"date": "2026-04-06", "event": "Trump Iran deadline", "impact": "Defines next phase of oil thesis"},
+    {"date": "2026-06-01", "event": "Approximate midterm campaign start", "impact": "Policy rhetoric shifts to voter-friendly"},
+    {"date": "2026-11-03", "event": "US Midterm elections", "impact": "If Dems win House, policy gridlock = less fiscal expansion. If GOP holds, fiscal dominance continues."}
+  ]
+}

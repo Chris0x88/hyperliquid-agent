@@ -11,7 +11,7 @@ Claude Code (which powers OpenClaw) successfully calls Sonnet/Opus/Haiku using t
 
 ## Research: How Claude Code Authenticates
 
-Source: `/Users/cdi/Developer/claude-code/` (v2.1.87)
+Source: Claude Code source (v2.1.87)
 
 ### Token Lifecycle
 

@@ -1,0 +1,66 @@
+{
+  "monday": {
+    "volume_norm": "building",
+    "notes": "Asia opens first (user's morning). US Monday opens late user evening. Typically range-setting day after weekend gap. Watch for weekend gap fills in first 2-3 hours.",
+    "user_schedule": "Active morning AEST. US open ~11:30PM AEST. Usually awake for US open.",
+    "key_times_et": {
+      "asia_open": "18:00 (Sun)",
+      "eu_open": "03:00",
+      "us_pre": "08:00",
+      "us_open": "09:30",
+      "us_close": "16:00"
+    }
+  },
+  "tuesday": {
+    "volume_norm": "normal_to_heavy",
+    "notes": "Typically heaviest volume day of the week. API/EIA inventory data days (alternating). Good day for position building — liquidity supports larger size.",
+    "user_schedule": "Active morning AEST. US session runs into user's late evening/early morning.",
+    "key_times_et": {
+      "api_inventory": "16:30 (Tues, if scheduled)",
+      "us_open": "09:30"
+    }
+  },
+  "wednesday": {
+    "volume_norm": "heavy",
+    "notes": "EIA inventory report day (10:30 ET). FOMC announcements (when scheduled) at 14:00 ET. Mid-week — institutional rebalancing. Often highest volatility day for oil.",
+    "user_schedule": "EIA at 10:30 ET = ~12:30AM AEST Thu — user likely sleeping or catching late.",
+    "key_times_et": {
+      "eia_inventory": "10:30",
+      "fomc_decision": "14:00 (when scheduled)",
+      "fomc_minutes": "14:00 (3 weeks after decision)"
+    }
+  },
+  "thursday": {
+    "volume_norm": "normal",
+    "notes": "Post-EIA positioning. ECB decisions (when scheduled). Weekly jobless claims 08:30 ET. Options expiry activity if monthly.",
+    "user_schedule": "Normal AEST day. US session is user's late evening.",
+    "key_times_et": {
+      "jobless_claims": "08:30",
+      "ecb_decision": "07:45 (when scheduled)"
+    }
+  },
+  "friday": {
+    "volume_norm": "declining",
+    "notes": "Position squaring before weekend. Volume drops after 14:00 ET. NFP first Friday of month at 08:30 ET. REDUCE LEVERAGE by 4PM ET — weekend liquidity thin, stop hunts common.",
+    "user_schedule": "User's Friday evening — may want to wind down. CRITICAL: reduce weekend exposure before 4PM ET.",
+    "key_times_et": {
+      "nfp": "08:30 (first Friday)",
+      "baker_hughes_rig": "13:00",
+      "market_close": "17:00 (perps continue but thin)"
+    }
+  },
+  "saturday": {
+    "volume_norm": "very_thin",
+    "notes": "Market technically open but extremely thin. Stop hunts, wicks, manipulated moves. DO NOT add positions. Monitor only. Reduce leverage if haven't already.",
+    "user_schedule": "User's weekend. Likely active morning AEST but should not be trading."
+  },
+  "sunday": {
+    "volume_norm": "thin_to_building",
+    "notes": "Market reopens 6PM ET = Monday 8AM AEST. Asia session starts building. Watch for gap opens driven by weekend news. Good time for user to review week ahead and set thesis.",
+    "user_schedule": "User's Monday morning AEST. Fresh start. Good time for weekly review.",
+    "key_times_et": {
+      "market_open": "18:00",
+      "asia_builds": "20:00-02:00"
+    }
+  }
+}

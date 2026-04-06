@@ -1,0 +1,56 @@
+{
+  "cycle": "BTC 4-year halving cycle",
+  "last_halving": "2024-04-20",
+  "next_halving": "2028-04-20",
+
+  "description": "BTC halving cuts block reward 50% every ~210,000 blocks (~4 years). Historically creates supply shock → price appreciation 12-18 months post-halving. The halving IS the clock of the crypto cycle. Everything else (altseason, retail FOMO, blow-off top) derives from this.",
+
+  "phases": [
+    {
+      "name": "accumulation",
+      "start": "2022-11-01",
+      "end": "2024-04-20",
+      "description": "Post-FTX bottom through halving. Smart money accumulates. Boring, range-bound.",
+      "implication": "DCA steadily. Build position. No leverage."
+    },
+    {
+      "name": "early_bull",
+      "start": "2024-04-20",
+      "end": "2025-03-01",
+      "description": "Post-halving supply shock building. Institutions enter. Spot ETF flows. Price discovers new range.",
+      "implication": "Hold and add dips. Leverage 1-2x only. Don't sell."
+    },
+    {
+      "name": "mid_bull",
+      "start": "2025-03-01",
+      "end": "2025-12-01",
+      "description": "Bull market acceleration. Retail entering. Altcoins start to move. Narrative shifts to mainstream.",
+      "implication": "Full position. Ride the trend. Begin watching for euphoria signals. Take some oil profits into BTC if thesis allows."
+    },
+    {
+      "name": "late_bull_euphoria",
+      "start": "2025-12-01",
+      "end": "2026-06-30",
+      "description": "WE ARE APPROXIMATELY HERE. Peak euphoria zone historically. Blow-off top risk. Altcoin mania. Everyone is a genius. BUT this cycle may extend due to debt monetization thesis (Bessent/Lutnick). If fiscal dominance continues (war spending, deficit expansion), BTC may not top here — it becomes a monetary hedge not a speculation.",
+      "implication": "CRITICAL PHASE. Traditional cycle says prepare for top. BUT macro thesis says this time might extend. Watch for: declining new addresses, funding rate >0.1%/8h sustained, retail leverage >50% of OI. Power law model gives fair value — trade deviations from it. DON'T sell the whole position — keep 50% minimum through potential extension."
+    },
+    {
+      "name": "distribution",
+      "start": "2026-07-01",
+      "end": "2027-06-01",
+      "description": "If cycle is normal: distribution phase. Smart money selling to retail. Lower highs begin. If debt monetization extends cycle: this phase may be delayed 6-12 months.",
+      "implication": "Reduce leverage to 1x max. Tighten stops. Take profits on bounces. Watch for failed new highs."
+    },
+    {
+      "name": "bear_market",
+      "start": "2027-06-01",
+      "end": "2028-11-01",
+      "description": "If cycle follows historical pattern. 70-80% drawdown from top typical. Long, painful, boring.",
+      "implication": "DCA back in near bottom. No leverage. Accumulate for next cycle."
+    }
+  ],
+
+  "key_insight": "The BTC cycle IS a derivative of the global credit cycle. Halving tightens supply on a schedule. But demand is driven by global liquidity. When central banks are expanding balance sheets (2020-2021, potentially 2025-2026 via war spending/deficit), the demand side amplifies the supply shock. When central banks are tightening (2022-2023), the supply shock doesn't matter — demand collapse overwhelms it. Understanding WHERE in the credit cycle we are is as important as WHERE in the halving cycle.",
+
+  "current_note": "March 2026: late_bull_euphoria phase by historical analog. BUT the Bessent/Lutnick debt monetization thesis + Iran war spending may EXTEND this phase. The 1970s analog suggests commodity/hard asset bull runs can last 5-7 years when governments are actively debasing currency through war spending. This is NOT the normal crypto cycle — the macro overlay may dominate the halving signal."
+}

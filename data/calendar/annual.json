@@ -1,0 +1,74 @@
+{
+  "current_seasonal_note": "Q2 2026: Oil seasonally strong (driving season demand builds May-Sep). BTC halving cycle 12-18mo post-halving historically bullish (May 2024 halving → peak window Q4 2025-Q2 2026). Tax season April = selling pressure then done.",
+
+  "events": [
+    {
+      "name": "Good Friday",
+      "date": "2026-04-03",
+      "time": "00:00",
+      "impact": "low",
+      "market": "macro",
+      "notes": "Traditional markets closed. Crypto trades normally but thin. European holiday."
+    },
+    {
+      "name": "Easter Monday",
+      "date": "2026-04-06",
+      "time": "00:00",
+      "impact": "low",
+      "market": "macro",
+      "notes": "European + Australian markets closed. Crypto thin. Coincides with Trump deadline."
+    },
+    {
+      "name": "US Tax deadline",
+      "date": "2026-04-15",
+      "time": "00:00",
+      "impact": "medium",
+      "market": "btc",
+      "notes": "Tax-related selling typically peaks 1-2 weeks before. BTC often bottoms around tax day."
+    },
+    {
+      "name": "US Memorial Day",
+      "date": "2026-05-25",
+      "time": "00:00",
+      "impact": "medium",
+      "market": "oil",
+      "notes": "Unofficial start of driving season. Oil demand picks up. Long weekend = thin crypto."
+    },
+    {
+      "name": "OPEC+ mid-year review",
+      "date": "2026-06-04",
+      "time": "00:00",
+      "impact": "high",
+      "market": "oil",
+      "notes": "Mid-year production quota review. Any signal of output increase is bearish."
+    },
+    {
+      "name": "US Independence Day",
+      "date": "2026-07-04",
+      "time": "00:00",
+      "impact": "low",
+      "market": "macro",
+      "notes": "US markets closed. Thin trading all week around it."
+    }
+  ],
+
+  "seasonal_patterns": {
+    "oil": {
+      "jan_feb": "Refinery maintenance season, lower demand. Contango can build.",
+      "mar_may": "Refinery restarts, gasoline blend switch. Demand building to summer.",
+      "jun_aug": "Peak driving season demand. Hurricane season Gulf of Mexico risk.",
+      "sep_nov": "Driving season ends. Refinery maintenance 2. Often weakest period.",
+      "dec": "Year-end positioning. Tax-loss selling. Typically thin."
+    },
+    "btc": {
+      "jan": "New year inflows. Often strong start.",
+      "feb_mar": "Tax-loss selling. Often correction.",
+      "apr": "Post-tax recovery. Historically strong.",
+      "may_jun": "Sell in May? Not in halving year cycles. Often continues.",
+      "jul_aug": "Summer doldrums. Low vol, range-bound.",
+      "sep": "Historically worst month for BTC.",
+      "oct_nov": "Historically strongest months. Q4 rally setup.",
+      "dec": "Year-end positioning. Can be strong or profit-taking."
+    }
+  }
+}

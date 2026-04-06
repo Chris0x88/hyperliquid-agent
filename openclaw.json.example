@@ -1,16 +1,16 @@
 {
   "name": "hyperliquid-agent",
   "version": "1.0.0",
-  "description": "Autonomous Hyperliquid trading agent -- 15 strategies, APEX orchestrator, risk management",
+  "description": "Autonomous Hyperliquid trading agent -- strategies, APEX orchestrator, risk management",
   "workspace": ".",
   "mcp": [
     {
       "name": "hl-trading",
-      "command": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/.venv/bin/python",
+      "command": "$HOME/path/to/hyperliquid-agent/.venv/bin/python",
       "args": ["-m", "cli.main", "mcp", "serve"],
-      "cwd": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli",
+      "cwd": "$HOME/path/to/hyperliquid-agent",
       "env": {
-        "PYTHONPATH": "/Users/cdi/Developer/HyperLiquid_Bot/agent-cli"
+        "PYTHONPATH": "$HOME/path/to/hyperliquid-agent"
       }
     }
   ],

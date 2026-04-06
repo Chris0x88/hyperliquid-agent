@@ -102,6 +102,7 @@ TELEGRAM_COMMANDS = [
     ("/bug", "Report a bug"),
     ("/todo", "Add or list todos"),
     ("/feedback", "Submit feedback"),
+    ("/feedback_resolve", "Resolve feedback items"),
     ("/guide", "How to use this bot"),
     ("/help", "Full command list"),
 ]

@@ -1,0 +1,11 @@
+{
+  "xyz:BRENTOIL": {
+    "canonical_id": "xyz:BRENTOIL",
+    "hl_coin": "BRENTOIL",
+    "dex": "xyz"
+  },
+  "BTC-PERP": {
+    "canonical_id": "BTC-PERP",
+    "hl_coin": "BTC"
+  }
+}

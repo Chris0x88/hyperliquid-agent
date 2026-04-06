@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS launchd plist for the trading daemon.
+     Replace $AGENT_DIR with your actual install path, e.g.:
+       /Users/yourname/hyperliquid-agent
+     Then copy to ~/Library/LaunchAgents/ and load with:
+       launchctl load ~/Library/LaunchAgents/com.hyperliquid.daemon.plist
+-->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
@@ -7,7 +13,7 @@
 
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/.venv/bin/python</string>
+		<string>$AGENT_DIR/.venv/bin/python</string>
 		<string>-m</string>
 		<string>cli.main</string>
 		<string>daemon</string>
@@ -20,18 +26,18 @@
 	</array>
 
 	<key>WorkingDirectory</key>
-	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+	<string>$AGENT_DIR</string>
 
 	<key>StandardOutPath</key>
-	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/daemon/daemon_launchd.log</string>
+	<string>$AGENT_DIR/data/daemon/daemon_launchd.log</string>
 
 	<key>StandardErrorPath</key>
-	<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli/data/daemon/daemon_launchd_err.log</string>
+	<string>$AGENT_DIR/data/daemon/daemon_launchd_err.log</string>
 
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PYTHONPATH</key>
-		<string>/Users/cdi/Developer/HyperLiquid_Bot/agent-cli</string>
+		<string>$AGENT_DIR</string>
 	</dict>
 
 	<key>RunAtLoad</key>

@@ -1,0 +1,84 @@
+{
+  "events": [
+    {
+      "name": "Trump Iran deadline",
+      "date": "2026-04-06",
+      "time": "00:00",
+      "impact": "critical",
+      "market": "oil",
+      "notes": "Escalation (→$130-150) or deadline extension (→consolidation). Reduce 20% exposure 24h before."
+    },
+    {
+      "name": "BRENTOIL contract roll BZM6→BZN6",
+      "date": "2026-04-07",
+      "time": "00:00",
+      "impact": "high",
+      "market": "oil",
+      "notes": "Extreme backwardation ($25+) makes this significant. April 7-13 window. Reduce 30% 48h before."
+    },
+    {
+      "name": "BRENTOIL contract roll end",
+      "date": "2026-04-13",
+      "time": "00:00",
+      "impact": "high",
+      "market": "oil",
+      "notes": "End of BZM6→BZN6 roll period. Reassess position after roll completes."
+    },
+    {
+      "name": "OPEC+ Meeting",
+      "date": "2026-04-03",
+      "time": "12:00",
+      "impact": "high",
+      "market": "oil",
+      "notes": "OPEC+ production decisions. Any output increase commitment is bearish near-term."
+    },
+    {
+      "name": "US CPI (March)",
+      "date": "2026-04-10",
+      "time": "12:30",
+      "impact": "high",
+      "market": "macro",
+      "notes": "Hot CPI = higher for longer rates = risk off. Affects BTC and broad risk."
+    },
+    {
+      "name": "FOMC Minutes (March meeting)",
+      "date": "2026-04-09",
+      "time": "18:00",
+      "impact": "medium",
+      "market": "macro",
+      "notes": "Hawkish tilt = risk off. Dovish = risk on."
+    },
+    {
+      "name": "US Q1 GDP advance estimate",
+      "date": "2026-04-29",
+      "time": "12:30",
+      "impact": "high",
+      "market": "macro",
+      "notes": "Weak GDP + high oil = stagflation narrative. Strong GDP = demand holds despite oil shock."
+    },
+    {
+      "name": "FOMC Decision (May)",
+      "date": "2026-05-06",
+      "time": "18:00",
+      "impact": "critical",
+      "market": "macro",
+      "notes": "Rate decision. Stagflation dilemma: cut into inflation or hold into weakness."
+    },
+    {
+      "name": "Estimated US SPR exhaustion",
+      "date": "2026-07-15",
+      "time": "00:00",
+      "impact": "critical",
+      "market": "oil",
+      "notes": "If SPR release continues at 3.4M bpd, runs out ~July. Supply gap reappears hard."
+    },
+    {
+      "name": "BTC options mega-expiry (quarterly)",
+      "date": "2026-06-26",
+      "time": "08:00",
+      "impact": "medium",
+      "market": "btc",
+      "notes": "Quarterly options expiry — max pain pin possible. Elevated vol into expiry."
+    }
+  ]
+}

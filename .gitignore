@@ -10,21 +10,58 @@ build/
 # Environment
 .env
 .env.*
+!.env.example
 .venv/
 env/
 
-# Data / state
-data/
+# Private data — NEVER commit
+data/daemon/
+data/cli/
+data/snapshots/
+data/diagnostics/
+data/reports/
+data/backtest/
+data/candles/
+data/research/markets/*/charts/
+data/research/markets/*/notes/
+data/research/evaluations/
+data/research/trades/
+data/research/market_notes/
+data/research/issues.jsonl
+data/research/issues_summary.md
+data/research/learnings.md
+data/thesis/
+data/btc_history_*.json
+data/agent_memory/
+data/memory/
+data/feedback.jsonl
+data/bugs.md
+data/todos.jsonl
+data/test_leak.txt
+data/power_law/
+*.jsonl
+
+# Logs and runtime state
 logs/
 state/
+*.pid
 *.db
-*.jsonl
 
 # Secrets / wallets
 *.keystore
 *.key
 .ows/
 wallets/
+
+# Agent memory (local only)
+memory/
+.claude/
+
+# Plists have hardcoded local paths — use .example templates
+plists/*.plist
+
+# OpenClaw config has hardcoded local paths
+openclaw.json
 
 # IDE
 .vscode/
@@ -39,7 +76,3 @@ Thumbs.db
 .pytest_cache/
 htmlcov/
 .coverage
-
-# Memory / agent state (local only)
-memory/
-.claude/

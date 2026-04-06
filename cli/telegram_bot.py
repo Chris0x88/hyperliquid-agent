@@ -1433,12 +1433,64 @@ def cmd_feedback(token: str, chat_id: str, args: str) -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "telegram",
         "text": args.strip()[:1000],
+        "resolved": False,
     }
     with open(feedback_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
     tg_send(token, chat_id, f"*Feedback Recorded*\n\n`{args.strip()[:100]}`")
     log.info("Feedback via Telegram: %s", args.strip()[:80])
+
+
+def cmd_feedback_resolve(token: str, chat_id: str, args: str) -> None:
+    """Mark feedback item(s) as resolved. Usage: /feedback_resolve <number> or 'all'"""
+    feedback_path = Path("data/feedback.jsonl")
+    if not feedback_path.exists():
+        tg_send(token, chat_id, "No feedback file found.")
+        return
+
+    arg = args.strip().lower()
+    if not arg:
+        # Show unresolved feedback with indices
+        lines = feedback_path.read_text().strip().split("\n")
+        unresolved = []
+        for i, line in enumerate(lines, 1):
+            entry = json.loads(line)
+            if not entry.get("resolved", False):
+                text_preview = entry.get("text", "")[:60]
+                date = entry.get("timestamp", "")[:10]
+                unresolved.append(f"`{i}.` {date} — {text_preview}")
+        if not unresolved:
+            tg_send(token, chat_id, "*All feedback resolved!*")
+        else:
+            tg_send(token, chat_id, f"*Unresolved Feedback ({len(unresolved)})*\n\n" + "\n".join(unresolved) + "\n\nResolve: `/feedback_resolve <number>` or `all`")
+        return
+
+    lines = feedback_path.read_text().strip().split("\n")
+    entries = [json.loads(line) for line in lines]
+
+    if arg == "all":
+        for e in entries:
+            e["resolved"] = True
+        count = len(entries)
+    else:
+        try:
+            idx = int(arg) - 1
+            if 0 <= idx < len(entries):
+                entries[idx]["resolved"] = True
+                count = 1
+            else:
+                tg_send(token, chat_id, f"Index {arg} out of range (1-{len(entries)})")
+                return
+        except ValueError:
+            tg_send(token, chat_id, "Usage: `/feedback_resolve <number>` or `all`")
+            return
+
+    with open(feedback_path, "w") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+
+    tg_send(token, chat_id, f"*Resolved {count} feedback item(s)*")
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2825,6 +2877,8 @@ HANDLERS = {
     "/todo": cmd_todo,
     "/feedback": cmd_feedback,
     "/fb": cmd_feedback,
+    "/feedback_resolve": cmd_feedback_resolve,
+    "/fbr": cmd_feedback_resolve,
     "/memory": cmd_memory,
     "/mem": cmd_memory,
     "/diag": cmd_diag,

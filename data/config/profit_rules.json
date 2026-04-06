@@ -1,0 +1,18 @@
+{
+  "xyz:BRENTOIL": {
+    "quick_profit_pct": 5.0,
+    "quick_profit_window_min": 30,
+    "quick_profit_take_pct": 25,
+    "extended_profit_pct": 10.0,
+    "extended_profit_window_min": 120,
+    "extended_profit_take_pct": 25
+  },
+  "BTC-PERP": {
+    "quick_profit_pct": 8.0,
+    "quick_profit_window_min": 60,
+    "quick_profit_take_pct": 20,
+    "extended_profit_pct": 15.0,
+    "extended_profit_window_min": 240,
+    "extended_profit_take_pct": 25
+  }
+}

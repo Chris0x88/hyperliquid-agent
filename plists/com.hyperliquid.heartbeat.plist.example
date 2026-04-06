@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS launchd plist for the heartbeat monitor.
+     Replace $AGENT_DIR with your actual install path, e.g.:
+       /Users/yourname/hyperliquid-agent
+     Then copy to ~/Library/LaunchAgents/ and load with:
+       launchctl load ~/Library/LaunchAgents/com.hyperliquid.heartbeat.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.hyperliquid.heartbeat</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>$AGENT_DIR/.venv/bin/python</string>
+		<string>$AGENT_DIR/scripts/run_heartbeat.py</string>
+	</array>
+
+	<key>StartInterval</key>
+	<integer>120</integer>
+
+	<key>WorkingDirectory</key>
+	<string>$AGENT_DIR</string>
+
+	<key>StandardOutPath</key>
+	<string>$AGENT_DIR/data/memory/logs/heartbeat_launchd.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>$AGENT_DIR/data/memory/logs/heartbeat_launchd_err.log</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PYTHONPATH</key>
+		<string>$AGENT_DIR</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>KeepAlive</key>
+	<false/>
+</dict>
+</plist>

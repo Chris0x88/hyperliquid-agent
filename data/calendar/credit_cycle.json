@@ -1,0 +1,59 @@
+{
+  "cycle": "Global credit/liquidity cycle",
+  "current_phase": "fiscal_dominance_expansion",
+  "phase_pct": 0.40,
+
+  "description": "We are in a fiscal dominance regime. The US government is the marginal driver of credit creation, not the private sector. War spending (Iran, Ukraine), deficit expansion ($2T+/yr), and Bessent/Lutnick's explicit debt monetization strategy = 1970s playbook. The Fed is constrained: they can't tighten enough to kill inflation without blowing up the treasury market. This is the squeeze that creates crises to justify spending.",
+
+  "implication": "Hard assets (oil, gold, BTC) outperform in fiscal dominance. Nominal equities rise but real returns compress. Cash and bonds are losers. Commodity cycles extend beyond normal durations because the government NEEDS high nominal GDP to inflate away debt. This is the regime until either: (a) a Volcker-style rate shock, (b) formal debt restructuring, or (c) the geopolitical situation resolves and spending drops. None of these are imminent.",
+
+  "phases_historical": [
+    {
+      "name": "private_credit_expansion",
+      "typical_duration_years": "3-5",
+      "description": "Banks lending freely, credit growth high, asset prices rising. Innovation cycle.",
+      "assets": "Equities > commodities. Growth > value. Leverage works."
+    },
+    {
+      "name": "peak_credit",
+      "typical_duration_years": "1-2",
+      "description": "Credit standards loosening, leverage maxing, early warning signs. VIX compressed.",
+      "assets": "Everything goes up. Junk outperforms. Meme assets peak."
+    },
+    {
+      "name": "credit_contraction",
+      "typical_duration_years": "1-3",
+      "description": "Banks tighten, defaults rise, liquidity dries up. Bear market.",
+      "assets": "Cash > everything. UST rally. USD strength. Commodities crash."
+    },
+    {
+      "name": "fiscal_dominance_expansion",
+      "typical_duration_years": "3-7",
+      "description": "Government becomes marginal lender/spender. Deficits expand. Debt monetized. Inflation structurally above target. THIS IS WHERE WE ARE.",
+      "assets": "Commodities, gold, BTC, real assets. Nominal equities OK but real return negative. Bonds are a trap."
+    },
+    {
+      "name": "resolution",
+      "typical_duration_years": "1-3",
+      "description": "Either Volcker shock (unlikely — too much debt), formal restructuring, or inflation burns the debt down to manageable levels.",
+      "assets": "Depends on resolution type. Volcker = cash/bonds. Inflation burn = commodities/BTC continue."
+    }
+  ],
+
+  "1970s_analog": {
+    "description": "Nixon closed gold window 1971. Oil embargo 1973. Inflation ran to 14%. Volcker hiked to 20% in 1980. Gold went 35→850. Oil went 3→40. Stocks were flat in real terms for a decade.",
+    "current_parallel": "Bessent/Lutnick = explicit debt monetization. Iran/Hormuz = oil supply shock. Deficit $2T+/yr. Same playbook, different century. Gold already $3000+. Oil next.",
+    "key_difference": "BTC didn't exist in the 1970s. It's the new gold, but with better monetization properties. BTC may capture share of the inflation hedge flow that went to gold in the 70s.",
+    "duration_warning": "The 1970s commodity bull lasted 9 years (1971-1980). Don't assume this ends in months. The policy backdrop sustains it until a credible regime change (Volcker moment or peace deal)."
+  },
+
+  "where_assets_sit": {
+    "btc": "Digital gold. Benefits from monetary debasement + institutional adoption. Halving supply shock amplified by fiscal dominance demand.",
+    "oil": "Physical supply/demand story overlaid on geopolitical weapon. Hormuz closure = physical scarcity. Fiscal dominance = government needs high oil for war spending justification.",
+    "gold": "Traditional inflation hedge. Already at $3000+. Institutional + central bank buying. Safe haven bid.",
+    "sp500": "Nominal OK, real returns negative. Earnings grow in nominal terms but margins compress from input costs (energy, wages).",
+    "bonds": "The victim. Real yields negative. Duration risk enormous. The asset the government is explicitly trying to inflate away."
+  },
+
+  "forward_looking": "People aren't stupid — markets price 6-12 months ahead. The spread between current price and future expectation IS the edge. If the market thinks Hormuz reopens in 3 months but physical reality says 6-12 months, that gap is profit. If the market prices BTC cycle top in Q2 2026 but fiscal dominance extends the cycle to Q4, that gap is profit. Trade the delta between consensus expectation and your first-principles analysis."
+}
