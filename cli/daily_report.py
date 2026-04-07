@@ -124,8 +124,18 @@ def _load_funding_summary(hours: int = 24) -> dict:
     }
 
 
-def generate_report() -> Path:
-    """Generate the daily report PDF."""
+def generate_report(mechanical: bool = False) -> Path:
+    """Generate the daily report PDF.
+
+    mechanical=False (default): full brief — includes the AI-influenced
+    THESIS line and the hardcoded CATALYSTS list. Used by the scheduled
+    morning/evening report and by the `/briefai` Telegram command.
+
+    mechanical=True: pure-data brief — portfolio, positions, orders, market
+    technicals (price/EMA/RSI/trend/liquidity regime), funding (24h), and
+    the chart. NO thesis text, NO catalysts list, NO narrative. Used by
+    the `/brief` Telegram command. Per the slash-commands-are-fixed-code
+    rule (CLAUDE.md), `/brief` MUST NOT contain AI-influenced content."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -134,7 +144,8 @@ def generate_report() -> Path:
     now = datetime.now(timezone.utc)
     aest = now + timedelta(hours=10)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    pdf_path = REPORT_DIR / f"report_{aest.strftime('%Y%m%d_%H%M')}.pdf"
+    suffix = "mech" if mechanical else "ai"
+    pdf_path = REPORT_DIR / f"report_{aest.strftime('%Y%m%d_%H%M')}_{suffix}.pdf"
 
     # Gather data
     spot = _hl({"type": "spotClearinghouseState", "user": ADDR})
@@ -286,27 +297,28 @@ def generate_report() -> Path:
                     fontsize=8, color=inst_color, family="monospace",
                 )
 
-        # Catalyst Calendar
-        y -= 0.04
-        fig.text(0.05, y, "CATALYSTS", fontsize=12, fontweight="bold", color="#58a6ff")
-        catalysts = [
-            ("Apr 6", "Trump deadline for Iran — escalation or extension"),
-            ("Apr 7-13", "BRENTOIL contract roll BZM6→BZN6 ($25 backwardation)"),
-            ("Weekly", "EIA petroleum inventory report (Wednesday)"),
-            ("Late Apr", "Possible partial Hormuz military reopening"),
-            ("Jul-Aug", "SPR exhaustion if not replenished"),
-        ]
-        for date, desc in catalysts:
-            y -= 0.022
-            fig.text(0.05, y, f"  {date}:", fontsize=9, fontweight="bold", color="#f0883e")
-            fig.text(0.2, y, desc, fontsize=8, color="#c9d1d9")
+        # Catalyst Calendar + Thesis — AI-INFLUENCED, only in /briefai
+        if not mechanical:
+            y -= 0.04
+            fig.text(0.05, y, "CATALYSTS", fontsize=12, fontweight="bold", color="#58a6ff")
+            catalysts = [
+                ("Apr 6", "Trump deadline for Iran — escalation or extension"),
+                ("Apr 7-13", "BRENTOIL contract roll BZM6→BZN6 ($25 backwardation)"),
+                ("Weekly", "EIA petroleum inventory report (Wednesday)"),
+                ("Late Apr", "Possible partial Hormuz military reopening"),
+                ("Jul-Aug", "SPR exhaustion if not replenished"),
+            ]
+            for date, desc in catalysts:
+                y -= 0.022
+                fig.text(0.05, y, f"  {date}:", fontsize=9, fontweight="bold", color="#f0883e")
+                fig.text(0.2, y, desc, fontsize=8, color="#c9d1d9")
 
-        # Thesis
-        y -= 0.04
-        fig.text(0.05, y, "THESIS: STRONG LONG", fontsize=12, fontweight="bold", color="#3fb950")
-        y -= 0.022
-        fig.text(0.05, y, "10M bpd gap unfillable. Physical > paper. Druckenmiller-grade conviction.",
-                 fontsize=9, color="#c9d1d9")
+            # Thesis
+            y -= 0.04
+            fig.text(0.05, y, "THESIS: STRONG LONG", fontsize=12, fontweight="bold", color="#3fb950")
+            y -= 0.022
+            fig.text(0.05, y, "10M bpd gap unfillable. Physical > paper. Druckenmiller-grade conviction.",
+                     fontsize=9, color="#c9d1d9")
 
         # Chart (bottom half)
         if candles:

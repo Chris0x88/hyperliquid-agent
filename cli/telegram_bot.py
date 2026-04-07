@@ -723,28 +723,41 @@ def cmd_chart(token: str, chat_id: str, args: str) -> None:
         tg_send(token, chat_id, f"Chart error: {e}")
 
 
-def cmd_brief(token: str, chat_id: str, _args: str) -> None:
-    """Generate and send the daily report PDF on demand. C6 from the
-    2026-04-07 connections audit. Triggers cli/daily_report.generate_report()
-    and uploads the result via sendDocument. Slow (matplotlib + multiple
-    HL API calls), so we send a typing indicator first and the response
-    landing in 5-15s is normal."""
+def _send_brief_pdf(token: str, chat_id: str, mechanical: bool, label: str) -> None:
+    """Shared sender for /brief and /briefai. Calls daily_report with the
+    requested flavour and uploads the PDF via sendDocument."""
     try:
-        tg_send(token, chat_id, "Generating brief... (5-15s)")
+        tg_send(token, chat_id, f"Generating {label}... (5-15s)")
         from cli import daily_report
-        path = daily_report.generate_report()
+        path = daily_report.generate_report(mechanical=mechanical)
         url = f"https://api.telegram.org/bot{token}/sendDocument"
         with open(path, "rb") as f:
             resp = requests.post(
                 url,
-                data={"chat_id": chat_id, "caption": f"Brief on demand — {path.name}"},
+                data={"chat_id": chat_id, "caption": f"{label} — {path.name}"},
                 files={"document": (path.name, f, "application/pdf")},
                 timeout=60,
             )
         if not resp.json().get("ok"):
-            tg_send(token, chat_id, f"Brief upload failed: {resp.text[:200]}")
+            tg_send(token, chat_id, f"{label} upload failed: {resp.text[:200]}")
     except Exception as e:
-        tg_send(token, chat_id, f"Brief error: {e}")
+        tg_send(token, chat_id, f"{label} error: {e}")
+
+
+def cmd_brief(token: str, chat_id: str, _args: str) -> None:
+    """MECHANICAL brief — fixed code, NO AI content. Portfolio, positions,
+    orders, market technicals (price/EMA/RSI/trend/liquidity), funding 24h,
+    chart. Use `/briefai` for the thesis + catalysts version. Per CLAUDE.md
+    slash commands MUST be fixed code; AI-dependent variants get the `ai`
+    suffix."""
+    _send_brief_pdf(token, chat_id, mechanical=True, label="Brief")
+
+
+def cmd_briefai(token: str, chat_id: str, _args: str) -> None:
+    """AI-INFLUENCED brief — same as `/brief` plus the THESIS line and
+    hardcoded CATALYSTS list. Marked with the `ai` suffix because the thesis
+    text and catalyst calendar are seeded by AI/research, not pure code."""
+    _send_brief_pdf(token, chat_id, mechanical=False, label="BriefAI")
 
 
 def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
@@ -1080,6 +1093,8 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /chartgold — gold chart\n"
         "  /watchlist — all markets + prices\n"
         "  /powerlaw — BTC power law model\n"
+        "  /brief — mechanical PDF (fixed code, no AI)\n"
+        "  /briefai — brief + thesis & catalysts (AI)\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1097,7 +1112,11 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /feedback text — submit feedback\n"
         "  /guide — how to use this bot\n"
         "\n*AI Chat*\n"
-        "  Type anything — AI responds with live data")
+        "  Type anything — AI responds with live data\n"
+        "\n*Convention*\n"
+        "  Slash commands = fixed code, no AI.\n"
+        "  Commands ending in `ai` (e.g. /briefai) include AI content.\n"
+        "  Natural-language messages always go to the AI agent.")
 
 
 # ── Vault rebalancer daemon control ─────────────────────────────────────
@@ -1532,6 +1551,13 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "\n📈 *Charts*\n"
         "`/chartoil 72` — 72h oil chart\n"
         "Shortcuts: `/chartbtc`, `/chartgold`, `/chartwti`\n"
+        "\n📄 *Brief PDFs*\n"
+        "`/brief` — mechanical 1-page PDF (fixed code, no AI). Portfolio, "
+        "positions, technicals, funding, chart.\n"
+        "`/briefai` — same brief plus the thesis line and catalyst calendar "
+        "(those are AI/research-seeded, hence the `ai` suffix).\n"
+        "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
+        "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
         "Type anything that's not a `/command` and the AI responds. "
         "It sees your live positions, prices, thesis, and memory — refreshed every message. "
@@ -2913,6 +2939,8 @@ HANDLERS = {
     "/rebalance": cmd_rebalance,
     "/brief": cmd_brief,
     "/b": cmd_brief,
+    "/briefai": cmd_briefai,
+    "/bai": cmd_briefai,
     "/restart": cmd_restart,
     "/signals": cmd_signals,
     "/sig": cmd_signals,
@@ -2955,6 +2983,8 @@ HANDLERS = {
     "rebalance": cmd_rebalance,
     "brief": cmd_brief,
     "b": cmd_brief,
+    "briefai": cmd_briefai,
+    "bai": cmd_briefai,
     "restart": cmd_restart,
     "signals": cmd_signals,
     "sig": cmd_signals,
@@ -3021,7 +3051,8 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "chartbtc", "description": "BTC price chart"},
         {"command": "chartgold", "description": "Gold price chart"},
         {"command": "watchlist", "description": "All markets + prices"},
-        {"command": "brief", "description": "Generate full daily brief PDF on demand"},
+        {"command": "brief", "description": "Mechanical brief PDF (no AI content)"},
+        {"command": "briefai", "description": "AI brief PDF — adds thesis + catalysts"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
