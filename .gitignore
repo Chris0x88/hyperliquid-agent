@@ -16,6 +16,7 @@ env/
 
 # Private data — NEVER commit
 data/daemon/
+data/daemon_test/
 data/cli/
 data/snapshots/
 data/diagnostics/
