@@ -1988,26 +1988,54 @@ def _handle_model_callback(token: str, chat_id: str, callback_id: str, model_id:
     tg_send(token, chat_id, f"🤖 Model switched to *{name}*")
 
 
+def _lock_approval_message(token: str, chat_id: str, message_id: int, approved: bool) -> None:
+    """Replace Approve/Reject buttons with a single locked indicator button.
+
+    Gives the user clear visual confirmation that their tap registered:
+    the button row changes to a single locked label (✅ Approved or ❌ Rejected)
+    with callback_data='noop' so further taps do nothing. editMessageReplyMarkup
+    is cheaper than editMessageText — no need to re-send the original text.
+    """
+    if message_id is None:
+        return
+    label = "✅  Approved" if approved else "❌  Rejected"
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reply_markup": {"inline_keyboard": [[
+                    {"text": label, "callback_data": "noop"},
+                ]]},
+            },
+            timeout=5,
+        )
+    except Exception as e:
+        log.warning("Lock approval message failed: %s", e)
+
+
 def _handle_tool_approval(token: str, chat_id: str, callback_id: str,
                            action_id: str, approved: bool, message_id: int = None) -> None:
     """Handle approve/reject of a pending write tool action."""
     from cli.agent_tools import pop_pending, execute_tool
 
-    if message_id is not None:
-        tg_remove_buttons(token, chat_id, message_id)
+    # 1. Answer callback IMMEDIATELY — dismisses spinner and shows toast.
+    toast = "✅ Approved" if approved else "❌ Rejected"
+    tg_answer_callback(token, callback_id, toast)
+
+    # 2. Lock the button row so the user sees which was pressed.
+    _lock_approval_message(token, chat_id, message_id, approved)
 
     action = pop_pending(action_id)
     if action is None:
-        tg_answer_callback(token, callback_id, "Expired or not found")
         tg_send(token, chat_id, "Action expired or already handled.")
         return
 
     if not approved:
-        tg_answer_callback(token, callback_id, "Rejected")
-        tg_send(token, chat_id, f"❌ Action rejected.")
+        tg_send(token, chat_id, "❌ Action rejected.")
         return
 
-    tg_answer_callback(token, callback_id, "Executing...")
     try:
         result = execute_tool(action["tool"], action["arguments"])
         tg_send(token, chat_id, f"✅ *{action['tool']}*\n\n{result}")
