@@ -3087,6 +3087,30 @@ def run() -> None:
     except Exception as e:
         log.warning("Failed to set Telegram command menu: %s", e)
 
+    # Audit F9: log chat history continuity at startup so the operator can
+    # confirm prior conversation context is intact across restarts. The bot
+    # is already stateless across restarts (every message reloads history
+    # from disk via _load_chat_history), but this gives explicit visibility.
+    try:
+        history_path = Path("data/daemon/chat_history.jsonl")
+        if history_path.exists():
+            lines = [l for l in history_path.read_text().splitlines() if l.strip()]
+            if lines:
+                last_entry = json.loads(lines[-1])
+                last_ts = last_entry.get("ts", 0)
+                age_min = (time.time() - last_ts) / 60 if last_ts else -1
+                last_role = last_entry.get("role", "?")
+                log.info(
+                    "Chat history continuity: %d entries on disk, last=%s %.1fm ago",
+                    len(lines), last_role, age_min,
+                )
+            else:
+                log.info("Chat history continuity: file present but empty")
+        else:
+            log.info("Chat history continuity: no prior history (first run)")
+    except Exception as e:
+        log.warning("Failed to log chat history continuity at startup: %s", e)
+
     log.info("Telegram bot started — polling every %.0fs", POLL_INTERVAL)
     tg_send(token, chat_id, "Bot online. /help for commands.")
 
