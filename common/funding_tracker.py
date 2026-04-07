@@ -174,7 +174,14 @@ class FundingTracker:
         self._save()
 
     def _save(self) -> None:
-        """Persist funding state to disk."""
+        """Persist funding state to disk.
+
+        H8 hardening: also writes a best-effort ``{filepath}.bak`` copy in the
+        same directory so a single corrupt or deleted primary file is
+        recoverable. Funding history is not regenerable from the exchange
+        (HyperLiquid does not expose cumulative-paid funding by position).
+        Closes the SPOF flagged in the data-stores.md verification ledger.
+        """
         data = {}
         for sym, pf in self._positions.items():
             d = {
@@ -189,13 +196,28 @@ class FundingTracker:
             }
             data[sym] = d
 
+        serialized = json.dumps(data, indent=2)
+
+        # Primary write — atomic via .tmp + rename (existing behavior)
         tmp = self.filepath.with_suffix(".tmp")
         try:
             with open(tmp, "w") as f:
-                json.dump(data, f, indent=2)
+                f.write(serialized)
             os.replace(tmp, self.filepath)
         except Exception as e:
             log.warning("Failed to save funding state: %s", e)
+            return
+
+        # H8 — best-effort .bak dual-write in the same directory
+        try:
+            from pathlib import Path as _Path
+            bak_path = _Path(str(self.filepath) + ".bak")
+            bak_tmp = _Path(str(self.filepath) + ".bak.tmp")
+            with open(bak_tmp, "w") as f:
+                f.write(serialized)
+            os.replace(bak_tmp, bak_path)
+        except Exception as e:
+            log.warning("Funding state backup write failed: %s", e)
 
     def _load(self) -> None:
         """Load funding state from disk."""
