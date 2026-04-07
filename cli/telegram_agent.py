@@ -194,7 +194,12 @@ def _convert_messages_to_anthropic(messages: List[Dict]) -> tuple:
                     "type": "tool_use", "id": tc.get("id", ""),
                     "name": fn.get("name", ""), "input": parsed_input,
                 })
-            conv_messages.append({"role": "assistant", "content": assistant_content or msg.get("content", "")})
+            # Drop fully-empty assistant turns — Anthropic rejects messages
+            # whose content is "" or [{"type":"text","text":""}]. An assistant
+            # turn with no text and no tool_use is meaningless context anyway.
+            if not assistant_content:
+                continue
+            conv_messages.append({"role": "assistant", "content": assistant_content})
         elif msg.get("role") == "tool":
             pending_tool_results.append({
                 "type": "tool_result",
@@ -462,9 +467,15 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # OUT of the system prompt lets the static system prompt + tools stay cached.
         messages.append({"role": "user", "content": f"[LIVE CONTEXT — auto-injected, not from user]\n{live_context}"})
         messages.append({"role": "assistant", "content": "Understood. I have the latest market data."})
-        # Add chat history as conversation turns
+        # Add chat history as conversation turns.
+        # Skip entries whose text is empty/whitespace (e.g. an assistant turn
+        # that _sanitize_assistant_history stripped down to nothing). Anthropic
+        # rejects empty text content blocks with HTTP 400.
         for entry in history[:-1]:  # exclude the message we just logged
-            messages.append({"role": entry["role"], "content": entry["text"]})
+            txt = entry.get("text", "")
+            if not (isinstance(txt, str) and txt.strip()):
+                continue
+            messages.append({"role": entry["role"], "content": txt})
         # Add current user message
         messages.append({"role": "user", "content": text})
 
