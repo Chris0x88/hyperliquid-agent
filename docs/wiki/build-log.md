@@ -4,6 +4,75 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-07 -- Audit Hardening Session (H1–H5)
+
+**Five fixes shipped over one session, all additive, zero regressions.**
+
+### What shipped
+- **F6 — `liquidation_monitor` iterator** (commit `4088602`). New per-position
+  cushion-monitoring iterator wired into all 3 daemon tiers, sitting after
+  `connector` and before `market_structure`. Tiered alerts: ≥20% safe,
+  10–20% warning, <10% critical with 10-tick repeat throttling. Pure
+  additive — `exchange_protection` ruin SLs were already in place; this is
+  the early-warning layer above them. 19 new tests in
+  `tests/test_liquidation_monitor.py`.
+- **F9 — chat history continuity diagnostic** (commit `e4e8576`). Bot was
+  already stateless across restarts — every message reloads history from
+  disk via `_load_chat_history()`. Added a 20-line startup INFO log so the
+  operator can confirm prior context is intact at boot. F9 re-scoped from
+  "fix" to "diagnostic".
+- **H4 — `account_snapshots` table dual-write** (commit `1cde050`). New
+  table in `data/memory/memory.db` plus `log_account_snapshot()` helper.
+  `account_collector` iterator now writes both the canonical JSON
+  (unchanged) and a queryable row. Enables time-range queries that the
+  flat JSON files can't answer. Best-effort write — DB failure cannot
+  break the snapshot path. 12 new tests.
+- **F4 verification** — read-only investigation, no code change.
+  `_fetch_account_state_for_harness()` correctly iterates
+  `for dex in ['', 'xyz']` and F2 (auto-watchlist) handles the SP500
+  symptom that originally triggered the audit item.
+- **H5 doc alignment** (commit `41f73b3`). MASTER_PLAN reframed
+  (Phase 3 marked Shipped), PHASE_3_REFLECT_LOOP status updated,
+  AUDIT_FIX_PLAN status table appended, root CLAUDE.md "approved markets"
+  wording clarified (thesis-driven core vs auto-watchlist tracking),
+  ADR-011 committed to wiki in `Proposed` status, byte-identical
+  `tmp_architecture.md` duplicate deleted from project root.
+
+### Suite
+- 1753 → 1765 tests passing. Zero failures throughout the session.
+- Full suite ran clean after every commit.
+
+### Process retro — important
+The session began with a brainstorming pass that wrote a 600-line ADR
+based on a stale picture of the system. During execution it became
+clear that:
+1. **Phase 3 (REFLECT loop) was already shipped** — `autoresearch`
+   iterator runs `ReflectEngine` every cycle and emits round-trip
+   metrics. The MASTER_PLAN said "in progress", reality said
+   `REFLECT: 1 round trips, 100% WR, $+14.94 net` in the daemon log.
+2. **`AUDIT_FIX_PLAN.md` already existed** (written earlier the same
+   day by the embedded agent self-audit) and **6 of 9 fixes had
+   already shipped** in commits before the session started.
+3. **Snapshot bleeding wasn't real** — `_expire_old_snapshots()` had
+   been in place all along.
+4. **F9 wasn't a real bug** — the bot is stateless by design.
+5. **F6 was a different shape than the audit suggested** — ruin SLs
+   on all positions were already in `exchange_protection.py`; the gap
+   was the early-warning layer.
+
+The lesson: read `docs/plans/AUDIT_FIX_PLAN.md` and the commits since
+the last `alignment:` commit BEFORE claiming anything is missing or
+unbuilt. Added a gotcha to the root `CLAUDE.md` workflow section so
+future sessions don't repeat the mistake.
+
+### Out of scope (deferred at user request)
+- Full quant-research-app build (ADR-011 stays `Proposed`)
+- Vault BTC fetch in `_fetch_account_state_for_harness` (vault is
+  managed independently by the rebalancer; `/status` shows vault
+  details correctly via separate path)
+
+---
+
 ## 2026-04-05 -- v4: Embedded Agent Runtime + Wiki System
 
 **Major architecture upgrade.** Two parallel efforts:
