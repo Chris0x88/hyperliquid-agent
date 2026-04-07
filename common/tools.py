@@ -427,19 +427,29 @@ def list_files(pattern: str) -> dict:
 
 
 def web_search(query: str, max_results: int = 5) -> dict:
-    """Search the web using DuckDuckGo. No API key needed."""
+    """Search the web using DuckDuckGo (via ddgs package). No API key needed.
+
+    Note: was previously importing the legacy `duckduckgo_search` package which
+    was renamed to `ddgs` upstream. The legacy package now silently returns
+    empty results, which is why the audit reported "web search broken".
+    """
     try:
-        import warnings
-        warnings.filterwarnings("ignore", message=".*renamed.*ddgs.*")
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
         return {
             "query": query,
-            "results": [{"title": r["title"], "url": r["href"], "snippet": r["body"]} for r in results],
+            "results": [
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("href") or r.get("url", ""),
+                    "snippet": r.get("body") or r.get("description", ""),
+                }
+                for r in results
+            ],
         }
     except ImportError:
-        return {"error": "duckduckgo_search not installed. Run: pip install duckduckgo-search"}
+        return {"error": "ddgs not installed. Run: pip install ddgs"}
     except Exception as e:
         return {"error": f"web_search failed: {e}"}
 
