@@ -194,6 +194,56 @@ TOOL_DEFS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_position",
+            "description": "Close an existing position via IOC market order. The 'side' is the CLOSING side (opposite of position direction): use 'sell' to close a long, 'buy' to close a short. REQUIRES USER APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coin": {"type": "string", "description": "Market identifier, e.g. 'BTC', 'xyz:BRENTOIL', 'xyz:SP500'"},
+                    "side": {"type": "string", "enum": ["buy", "sell"], "description": "Closing side (opposite of position direction)"},
+                    "size": {"type": "number", "description": "Number of contracts/coins to close"},
+                },
+                "required": ["coin", "side", "size"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_sl",
+            "description": "Place an exchange-side stop-loss trigger order. Every position MUST have a stop-loss on the exchange (hard rule). REQUIRES USER APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coin": {"type": "string", "description": "Market identifier"},
+                    "side": {"type": "string", "enum": ["buy", "sell"], "description": "Stop side (opposite of position direction — 'sell' stops a long, 'buy' stops a short)"},
+                    "size": {"type": "number", "description": "Size to stop"},
+                    "trigger_price": {"type": "number", "description": "Trigger price for the stop"},
+                },
+                "required": ["coin", "side", "size", "trigger_price"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_tp",
+            "description": "Place an exchange-side take-profit trigger order. Every position MUST have a take-profit on the exchange (hard rule). REQUIRES USER APPROVAL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coin": {"type": "string", "description": "Market identifier"},
+                    "side": {"type": "string", "enum": ["buy", "sell"], "description": "TP side (opposite of position direction)"},
+                    "size": {"type": "number", "description": "Size to take profit on"},
+                    "trigger_price": {"type": "number", "description": "Trigger price for the take-profit"},
+                },
+                "required": ["coin", "side", "size", "trigger_price"],
+            },
+        },
+    },
     # ── General tools ─────────────────────────────────────────────
     {
         "type": "function",
@@ -732,9 +782,39 @@ def _tool_place_trade(args: dict) -> str:
         )
         if fill is None:
             return f"Trade failed: no fill (order rejected or not matched) — {norm_side} {size} {coin}"
-        return f"Trade executed: {norm_side.upper()} {fill.quantity} {fill.instrument} @ {fill.price} (oid={fill.oid})"
+        # Audit F7-B: read-back verification — confirm position actually changed
+        verification = _verify_position_after_trade(coin, norm_side, float(size))
+        return (
+            f"Trade executed: {norm_side.upper()} {fill.quantity} {fill.instrument} "
+            f"@ {fill.price} (oid={fill.oid})\n{verification}"
+        )
     except Exception as e:
         return f"Trade failed: {e}"
+
+
+def _verify_position_after_trade(coin: str, side: str, size: float) -> str:
+    """Read-back: confirm a trade actually moved the position. Audit F7-B."""
+    try:
+        from common.account_resolver import resolve_main_wallet
+        addr = resolve_main_wallet(required=False)
+        if not addr:
+            return "VERIFY: skipped (no wallet)"
+        bare = coin.replace("xyz:", "")
+        for dex in ("", "xyz"):
+            payload = {"type": "clearinghouseState", "user": addr}
+            if dex:
+                payload["dex"] = dex
+            state = _hl_post(payload)
+            for p in state.get("assetPositions", []):
+                pos = p.get("position", {})
+                pos_coin = pos.get("coin", "")
+                if pos_coin == coin or pos_coin.replace("xyz:", "") == bare:
+                    sz = float(pos.get("szi", 0))
+                    direction = "LONG" if sz > 0 else "SHORT" if sz < 0 else "FLAT"
+                    return f"VERIFY: {pos_coin} now {direction} {abs(sz)} (entry {pos.get('entryPx')})"
+        return f"VERIFY: no position found for {coin} after trade — flat or fill missing"
+    except Exception as e:
+        return f"VERIFY: read-back failed: {e}"
 
 
 def _tool_update_thesis(args: dict) -> str:
@@ -764,7 +844,14 @@ def _tool_update_thesis(args: dict) -> str:
         data["last_evaluation_ts"] = int(time.time() * 1000)
 
         path.write_text(json.dumps(data, indent=2) + "\n")
-        return f"Thesis updated: {market} {direction} conviction={conviction:.2f}"
+        # Audit F7-B: read-back verification — confirm file actually has new values
+        try:
+            verify = json.loads(path.read_text())
+            if verify.get("direction") == direction and abs(float(verify.get("conviction", -1)) - conviction) < 1e-9:
+                return f"Thesis updated: {market} {direction} conviction={conviction:.2f} (verified on disk)"
+            return f"Thesis update VERIFICATION FAILED: wrote {direction}/{conviction} but disk has {verify.get('direction')}/{verify.get('conviction')}"
+        except Exception as ve:
+            return f"Thesis updated: {market} {direction} conviction={conviction:.2f} (verify read failed: {ve})"
     except Exception as e:
         return f"Thesis update failed: {e}"
 
@@ -788,7 +875,12 @@ def _tool_close_position(args: dict) -> str:
         )
         if fill is None:
             return f"Close failed: no fill — {norm_side} {size} {coin}"
-        return f"Position closed: {norm_side.upper()} {fill.quantity} {fill.instrument} @ {fill.price} (oid={fill.oid})"
+        # Audit F7-B: read-back verification
+        verification = _verify_position_after_trade(coin, norm_side, float(size))
+        return (
+            f"Position closed: {norm_side.upper()} {fill.quantity} {fill.instrument} "
+            f"@ {fill.price} (oid={fill.oid})\n{verification}"
+        )
     except Exception as e:
         return f"Close failed: {e}"
 
