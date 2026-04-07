@@ -337,6 +337,41 @@ TOOL_DEFS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "introspect_self",
+            "description": (
+                "Returns a live snapshot of YOUR OWN state — active model, available tools, "
+                "approved markets (watchlist), open positions across all venues, thesis files "
+                "with ages, last memory consolidation timestamp, and daemon health. "
+                "Call this whenever you are unsure what you can do, what you are configured "
+                "to know, or what state the system is in. Prefer this over guessing from prompt knowledge."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_reference",
+            "description": (
+                "Read one of your built-in reference docs at agent/reference/<topic>.md. "
+                "Topics: 'tools' (every tool, when to use it, failure modes), "
+                "'architecture' (what runs where, file roles), "
+                "'workflows' (how to think about a trade, verify execution, handle failures), "
+                "'rules' (current trading rules and constraints). "
+                "Use these when you need depth that the always-loaded prompt does not carry."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "enum": ["tools", "architecture", "workflows", "rules"]},
+                },
+                "required": ["topic"],
+            },
+        },
+    },
 ]
 
 
@@ -890,6 +925,130 @@ def _tool_get_feedback(args: dict) -> str:
     return f"{result['count']} feedback entries:\n" + "\n".join(lines)
 
 
+def _tool_introspect_self(args: dict) -> str:
+    """Live snapshot of the agent's own state. Audit F1.
+
+    Pulls from the running system rather than from prompt-loaded knowledge,
+    so the agent can answer 'what tools do I have / what markets am I
+    approved on / what positions are open' from reality.
+    """
+    lines: List[str] = []
+
+    # Active model
+    try:
+        from cli.telegram_agent import _get_active_model
+        lines.append(f"ACTIVE MODEL: {_get_active_model()}")
+    except Exception as e:
+        lines.append(f"ACTIVE MODEL: <unavailable: {e}>")
+
+    # Tools available (introspect from this module)
+    tool_names = sorted(t["function"]["name"] for t in TOOL_DEFS)
+    write_set = WRITE_TOOLS
+    lines.append(f"TOOLS ({len(tool_names)}):")
+    for n in tool_names:
+        marker = " [WRITE — needs approval]" if n in write_set else ""
+        lines.append(f"  - {n}{marker}")
+
+    # Approved markets (watchlist)
+    try:
+        from common.watchlist import load_watchlist
+        wl = load_watchlist()
+        names = ", ".join(m.get("display") or m.get("coin", "?") for m in wl)
+        lines.append(f"WATCHLIST ({len(wl)}): {names}")
+    except Exception as e:
+        lines.append(f"WATCHLIST: <unavailable: {e}>")
+
+    # Open positions (both venues)
+    try:
+        from common.account_resolver import resolve_main_wallet
+        addr = resolve_main_wallet(required=False)
+        positions: List[str] = []
+        if addr:
+            for dex in ("", "xyz"):
+                payload = {"type": "clearinghouseState", "user": addr}
+                if dex:
+                    payload["dex"] = dex
+                state = _hl_post(payload)
+                for p in state.get("assetPositions", []):
+                    pos = p.get("position", {})
+                    sz = float(pos.get("szi", 0))
+                    if sz == 0:
+                        continue
+                    side = "LONG" if sz > 0 else "SHORT"
+                    coin = pos.get("coin", "?")
+                    entry = float(pos.get("entryPx", 0))
+                    upnl = float(pos.get("unrealizedPnl", 0))
+                    lev = (pos.get("leverage") or {}).get("value", "?") if isinstance(pos.get("leverage"), dict) else "?"
+                    positions.append(f"  {coin} {side} {abs(sz)} @ {entry} | uPnL {upnl:+.2f} | {lev}x")
+        if positions:
+            lines.append(f"OPEN POSITIONS ({len(positions)}):")
+            lines.extend(positions)
+        else:
+            lines.append("OPEN POSITIONS: none")
+    except Exception as e:
+        lines.append(f"OPEN POSITIONS: <unavailable: {e}>")
+
+    # Thesis files + ages
+    try:
+        thesis_dir = _PROJECT_ROOT / "data" / "thesis"
+        if thesis_dir.exists():
+            now = time.time()
+            entries = []
+            for f in sorted(thesis_dir.glob("*.json")):
+                age_h = (now - f.stat().st_mtime) / 3600
+                entries.append(f"  {f.stem} ({age_h:.1f}h old)")
+            if entries:
+                lines.append(f"THESIS FILES ({len(entries)}):")
+                lines.extend(entries)
+            else:
+                lines.append("THESIS FILES: none")
+    except Exception as e:
+        lines.append(f"THESIS FILES: <unavailable: {e}>")
+
+    # Memory state
+    try:
+        mem_dir = _PROJECT_ROOT / "data" / "agent_memory"
+        if mem_dir.exists():
+            topics = sorted(f.stem for f in mem_dir.glob("*.md") if f.name != "MEMORY.md")
+            lines.append(f"MEMORY TOPICS ({len(topics)}): {', '.join(topics) or '(none)'}")
+            dream = mem_dir / "dream_consolidation.md"
+            if dream.exists():
+                age_h = (time.time() - dream.stat().st_mtime) / 3600
+                lines.append(f"LAST DREAM CONSOLIDATION: {age_h:.1f}h ago")
+    except Exception as e:
+        lines.append(f"MEMORY: <unavailable: {e}>")
+
+    # Daemon health
+    try:
+        pid_file = _PROJECT_ROOT / "data" / "daemon" / "daemon.pid"
+        if pid_file.exists():
+            pid = int(pid_file.read_text().strip())
+            import os
+            try:
+                os.kill(pid, 0)
+                lines.append(f"DAEMON: running (pid {pid})")
+            except ProcessLookupError:
+                lines.append(f"DAEMON: STALE PID {pid} — not running")
+        else:
+            lines.append("DAEMON: no pid file")
+    except Exception as e:
+        lines.append(f"DAEMON: <unavailable: {e}>")
+
+    return "\n".join(lines)
+
+
+def _tool_read_reference(args: dict) -> str:
+    """Read a built-in reference doc. Audit F1."""
+    topic = args.get("topic", "")
+    allowed = {"tools", "architecture", "workflows", "rules"}
+    if topic not in allowed:
+        return f"Unknown topic '{topic}'. Allowed: {', '.join(sorted(allowed))}"
+    path = _PROJECT_ROOT / "agent" / "reference" / f"{topic}.md"
+    if not path.exists():
+        return f"Reference doc not found: agent/reference/{topic}.md"
+    return _cap(path.read_text())
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -915,6 +1074,8 @@ _TOOL_DISPATCH = {
     "run_bash": _tool_run_bash,
     "get_errors": _tool_get_errors,
     "get_feedback": _tool_get_feedback,
+    "introspect_self": _tool_introspect_self,
+    "read_reference": _tool_read_reference,
 }
 
 
