@@ -1495,8 +1495,23 @@ def _call_via_claude_cli(messages: List[Dict], model: str, tools: Optional[list]
     full_prompt += prompt
 
     try:
+        # ``--allowedTools`` whitelists Claude Code's built-in tools that are
+        # allowed to run without user approval inside the -p subprocess.
+        # Without this flag, the CLI runs in non-interactive print mode with
+        # no TTY and no way to click "approve" — any built-in tool that needs
+        # permission (WebSearch, WebFetch, etc.) gets blocked and the model
+        # returns "I need permission" text to the user, which surfaces on
+        # Telegram as an "approval required" message with no approval button.
+        #
+        # BUG-FIX 2026-04-08: WebSearch + WebFetch are whitelisted so the
+        # embedded Claude can search the web in response to user questions
+        # (e.g. "what's the current crude oil price?") without requiring a
+        # Telegram approval round-trip that has no UI path.  These are both
+        # read-only HTTP fetches with no local filesystem or exchange impact;
+        # whitelisting them is strictly a UX fix, not a security change.
         result = sp.run(
             [str(cli_path), "--model", model, "--output-format", "json",
+             "--allowedTools", "WebSearch WebFetch",
              "-p", full_prompt],
             capture_output=True, text=True, timeout=90,
         )
