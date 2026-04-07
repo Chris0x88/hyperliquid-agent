@@ -601,12 +601,33 @@ def run_heartbeat(
     dd_level = check_drawdown(equity, state.session_peak_equity, config)
     escalation_levels.append(dd_level)
 
-    # Build trigger order lookup: coin → list of existing trigger orders
+    # Build trigger order lookups: coin → list of existing trigger orders.
+    #
+    # BUG-FIX 2026-04-08 HB-2: the original code placed ALL trigger orders
+    # (both SL and TP) into a single `existing_stops` dict.  The SL-placement
+    # guard (`has_stop = bool(existing_stops.get(coin))`) therefore returned
+    # True whenever *any* trigger existed — including a lone TP.  The result:
+    # a position that had a TP but no SL silently skipped SL placement, running
+    # permanently unprotected.  Fix: split into `existing_sls` (Stop Market /
+    # Stop Limit) and `existing_tps_by_coin` (Take Profit Market / Take Profit
+    # Limit) so the two guards can be evaluated independently.  The legacy
+    # `existing_stops` dict is kept for any consumer that still needs the
+    # combined view (e.g. future callers that want "any trigger exists").
     trigger_orders = account_state.get("trigger_orders", [])
-    existing_stops: dict[str, list] = {}
+    existing_stops: dict[str, list] = {}   # combined — kept for compat
+    existing_sls: dict[str, list] = {}     # stop-losses only
+    existing_tps_by_coin: dict[str, list] = {}  # take-profits only
     for trig in trigger_orders:
         tcoin = trig.get("coin", "")
+        if not tcoin:
+            continue
         existing_stops.setdefault(tcoin, []).append(trig)
+        ot = str(trig.get("orderType", ""))
+        if "Take Profit" in ot:
+            existing_tps_by_coin.setdefault(tcoin, []).append(trig)
+        elif "Stop" in ot:
+            existing_sls.setdefault(tcoin, []).append(trig)
+        # else: unrecognised trigger type — conservative: skip both dicts
 
     # ── Conviction Engine: load thesis states ────────────────────────────────
     conviction_enabled = config.conviction_bands.enabled
@@ -718,8 +739,11 @@ def run_heartbeat(
         if conviction_enabled:
             thesis = thesis_states.get(coin) or thesis_states.get(canonical_id)
 
-        # Check if stop-loss already exists on exchange
-        has_stop = bool(existing_stops.get(coin))
+        # Check if stop-loss already exists on exchange.
+        # BUG-FIX 2026-04-08 HB-2 (guard): use `existing_sls` (SL-only dict)
+        # instead of `existing_stops` (combined SL+TP dict) so that a lone TP
+        # on a coin does not masquerade as an existing SL.
+        has_stop = bool(existing_sls.get(coin))
         pos_summary["has_stop"] = has_stop
 
         # Compute stop price and place if needed
@@ -786,13 +810,15 @@ def run_heartbeat(
             tp_reason = f"Mechanical TP (no thesis): 5x ATR=${atr_val:.2f}"
 
         if tp_price and not dry_run:
-            # Check if TP already exists for this coin (trigger above entry for longs)
-            existing_tps = [
-                t for t in existing_stops.get(coin, [])
-                if (side == "long" and float(t.get("triggerPx", 0)) > entry)
-                or (side != "long" and float(t.get("triggerPx", 0)) < entry)
-            ]
-            if not existing_tps:
+            # BUG-FIX 2026-04-08 HB-3: the original heuristic inferred "this
+            # is a TP" from triggerPx direction relative to entry.  That
+            # misclassified SLs on SHORT positions (which sit *above* entry)
+            # as TPs, causing TP placement to be skipped for every short.  It
+            # also breaks when entry price drifts (partial fills, averaging).
+            # Fix: use `existing_tps_by_coin` populated by explicit orderType
+            # check above ("Take Profit" in orderType) — no heuristic needed.
+            existing_tps_for_coin = existing_tps_by_coin.get(coin, [])
+            if not existing_tps_for_coin:
                 valid_tp = (side == "long" and tp_price > entry) or (side != "long" and tp_price < entry)
                 if valid_tp:
                     try:
@@ -1499,6 +1525,14 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     all_positions = []
     main_equity = 0.0
     vault_equity = 0.0
+    # BUG-FIX 2026-04-08 HB-1: `all_triggers` was only defined inside the
+    # `if main_acct:` block (line ~1572), so a vault-only configuration
+    # (main_acct empty, vault_addr set) would raise NameError when the vault
+    # block tried to call `all_triggers.extend(vault_triggers)`.  BTC vault
+    # positions were permanently unprotected.  Initialise here at the same
+    # scope as `all_positions` so both the main and vault paths can append
+    # safely regardless of which wallets are configured.
+    all_triggers: list = []
 
     import requests as _req
 
