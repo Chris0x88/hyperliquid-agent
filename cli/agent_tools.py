@@ -685,13 +685,19 @@ def _tool_place_trade(args: dict) -> str:
         from cli.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
 
-        is_buy = side.lower() in ("buy", "long", "b")
-        result = proxy.market_order(
-            coin=coin,
-            is_buy=is_buy,
-            sz=float(size),
+        # Normalise side: agent may say "long"/"buy"/"b" or "short"/"sell"/"s"
+        norm_side = "buy" if side.lower() in ("buy", "long", "b") else "sell"
+        # IOC market order: price=0.0 triggers snapshot+slippage path in adapter
+        fill = proxy.place_order(
+            instrument=coin,
+            side=norm_side,
+            size=float(size),
+            price=0.0,
+            tif="Ioc",
         )
-        return f"Trade executed: {side.upper()} {size} {coin}\nResult: {result}"
+        if fill is None:
+            return f"Trade failed: no fill (order rejected or not matched) — {norm_side} {size} {coin}"
+        return f"Trade executed: {norm_side.upper()} {fill.quantity} {fill.instrument} @ {fill.price} (oid={fill.oid})"
     except Exception as e:
         return f"Trade failed: {e}"
 
@@ -736,9 +742,18 @@ def _tool_close_position(args: dict) -> str:
     try:
         from cli.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
-        is_buy = side.lower() in ("buy", "long", "b")
-        result = proxy.market_order(coin=coin, is_buy=is_buy, sz=float(size))
-        return f"Position closed: {side.upper()} {size} {coin}\nResult: {result}"
+        # The 'side' arg here is the closing side (opposite of position direction)
+        norm_side = "buy" if side.lower() in ("buy", "long", "b") else "sell"
+        fill = proxy.place_order(
+            instrument=coin,
+            side=norm_side,
+            size=float(size),
+            price=0.0,
+            tif="Ioc",
+        )
+        if fill is None:
+            return f"Close failed: no fill — {norm_side} {size} {coin}"
+        return f"Position closed: {norm_side.upper()} {fill.quantity} {fill.instrument} @ {fill.price} (oid={fill.oid})"
     except Exception as e:
         return f"Close failed: {e}"
 
