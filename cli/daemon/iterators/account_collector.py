@@ -91,6 +91,14 @@ class AccountCollectorIterator:
             log.error("Failed to write snapshot: %s", e)
             return
 
+        # Dual-write to memory.db for queryable historical access.
+        # Best-effort — failure here must NOT break the snapshot path.
+        try:
+            from common.memory import log_account_snapshot
+            log_account_snapshot(snapshot, snapshot_filename=filename)
+        except Exception as e:
+            log.warning("Snapshot dual-write to memory.db failed (non-fatal): %s", e)
+
         # Update context
         equity = float(snapshot.get("account_value", 0))
 

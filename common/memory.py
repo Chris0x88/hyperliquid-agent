@@ -111,6 +111,29 @@ def _init(con: sqlite3.Connection):
             actions_taken   TEXT,
             errors          TEXT
         );
+
+        -- Account snapshots: queryable historical record of account state.
+        -- Dual-written from cli/daemon/iterators/account_collector.py alongside
+        -- the JSON files in data/snapshots/. JSON files remain the canonical
+        -- source for "latest snapshot"; this table enables time-range queries
+        -- and analytical access to history (equity over time, drawdown
+        -- timeline, position count history, etc.).
+        CREATE TABLE IF NOT EXISTS account_snapshots (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_ms      INTEGER NOT NULL,
+            snapshot_filename TEXT,
+            equity_total      REAL NOT NULL DEFAULT 0,
+            equity_native     REAL NOT NULL DEFAULT 0,
+            equity_xyz        REAL NOT NULL DEFAULT 0,
+            spot_usdc         REAL NOT NULL DEFAULT 0,
+            high_water_mark   REAL NOT NULL DEFAULT 0,
+            drawdown_pct      REAL NOT NULL DEFAULT 0,
+            has_positions     INTEGER NOT NULL DEFAULT 0,
+            position_count    INTEGER NOT NULL DEFAULT 0,
+            positions_json    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_account_snapshots_ts
+            ON account_snapshots(timestamp_ms);
     """)
     con.commit()
 
@@ -143,6 +166,90 @@ def log_event(
             (ts, market, event_type, title, detail, tags_str, source),
         )
         return cur.lastrowid
+
+
+def log_account_snapshot(
+    snapshot: dict,
+    snapshot_filename: Optional[str] = None,
+    db_path: str = _DB_PATH,
+) -> int:
+    """Append an account snapshot row from the daemon's account_collector.
+
+    Dual-write: this is called from account_collector.py AFTER the JSON file
+    has been written successfully. Failure here must NOT break the daemon —
+    callers should wrap in try/except.
+
+    Args:
+        snapshot: the dict produced by AccountCollectorIterator._build_snapshot()
+        snapshot_filename: optional filename of the matching JSON on disk
+        db_path: SQLite path
+
+    Returns:
+        Inserted row id.
+    """
+    ts = int(snapshot.get("timestamp", int(time.time() * 1000)))
+    equity_total = float(snapshot.get("total_equity", snapshot.get("account_value", 0) or 0))
+    equity_xyz = float(snapshot.get("xyz_account_value", 0) or 0)
+    spot_usdc = float(snapshot.get("spot_usdc", 0) or 0)
+    # Native equity = total - xyz - spot. account_value got overwritten with
+    # total_equity earlier in _build_snapshot, so derive native by subtraction.
+    equity_native = max(0.0, equity_total - equity_xyz - spot_usdc)
+    hwm = float(snapshot.get("high_water_mark", 0) or 0)
+    drawdown_pct = float(snapshot.get("drawdown_pct", 0) or 0)
+
+    # Position summary
+    native_positions = snapshot.get("positions_native", []) or []
+    xyz_positions = snapshot.get("positions_xyz", []) or []
+    # Filter to non-zero positions; xyz wraps each in {"position": {...}}
+    nonzero = []
+    for p in native_positions:
+        if isinstance(p, dict) and float(p.get("szi", 0)) != 0:
+            nonzero.append(p)
+    for wrap in xyz_positions:
+        if isinstance(wrap, dict):
+            inner = wrap.get("position", wrap)
+            if isinstance(inner, dict) and float(inner.get("szi", 0)) != 0:
+                nonzero.append(inner)
+    has_positions = 1 if nonzero else 0
+    position_count = len(nonzero)
+    positions_json_blob = json.dumps(nonzero) if nonzero else None
+
+    with _conn(db_path) as con:
+        cur = con.execute(
+            """
+            INSERT INTO account_snapshots (
+                timestamp_ms, snapshot_filename, equity_total, equity_native,
+                equity_xyz, spot_usdc, high_water_mark, drawdown_pct,
+                has_positions, position_count, positions_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ts, snapshot_filename, equity_total, equity_native,
+                equity_xyz, spot_usdc, hwm, drawdown_pct,
+                has_positions, position_count, positions_json_blob,
+            ),
+        )
+        return cur.lastrowid
+
+
+def get_account_snapshots(
+    days: int = 7,
+    limit: Optional[int] = None,
+    db_path: str = _DB_PATH,
+) -> list[dict]:
+    """Return account snapshots from the last N days, newest first."""
+    cutoff = int((time.time() - days * 86400) * 1000)
+    con = _conn(db_path)
+    query = (
+        "SELECT * FROM account_snapshots WHERE timestamp_ms >= ? "
+        "ORDER BY timestamp_ms DESC"
+    )
+    params: list = [cutoff]
+    if limit:
+        query += " LIMIT ?"
+        params.append(limit)
+    rows = con.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 def log_learning(
