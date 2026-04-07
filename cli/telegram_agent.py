@@ -476,6 +476,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # for premium models with session tokens).
         # Haiku: use streaming for real-time Telegram output.
         active_model = _get_active_model()
+        log.info("[turn] handling message with model=%s user=%s", active_model, user_name or "?")
         use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model)
 
         if use_cli:
@@ -807,7 +808,16 @@ def _build_live_context() -> str:
             token_budget=3500,
         )
 
-        header = "--- LIVE CONTEXT (fetched just now) ---"
+        # Audit F5: surface real snapshot age so the agent knows when to distrust prices
+        fetched_at = account_state.get("fetched_at", time.time())
+        age_s = int(time.time() - fetched_at)
+        if age_s < 15:
+            age_str = "fetched just now"
+        elif age_s < 120:
+            age_str = f"fetched {age_s}s ago"
+        else:
+            age_str = f"⚠️ STALE: fetched {age_s}s ago — verify with a tool call before citing prices as current"
+        header = f"--- LIVE CONTEXT ({age_str}) ---"
         footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
         return f"{header}\n{assembled.text}\n{footer}"
 
@@ -882,11 +892,38 @@ def _fetch_account_state_for_harness() -> dict:
         except Exception:
             pass
 
+    # Audit F2: auto-watchlist any market we have a position in.
+    # The user said "if I have a position it's approved". add_market is
+    # idempotent (returns False if already present) so this is safe to
+    # call every fetch.
+    try:
+        from common.watchlist import load_watchlist, add_market
+        existing_coins = {m.get("coin") for m in load_watchlist()}
+        for pos in positions:
+            coin = pos.get("coin", "")
+            if not coin:
+                continue
+            stripped = coin.replace("xyz:", "")
+            if coin in existing_coins or stripped in existing_coins:
+                continue
+            display = stripped or coin
+            added = add_market(
+                display=display,
+                coin=coin,
+                aliases=[stripped.lower()] if stripped else [],
+                category="auto",
+            )
+            if added:
+                log.info("[auto-watchlist] added %s (open position detected)", coin)
+    except Exception as e:
+        log.warning("[auto-watchlist] failed: %s", e)
+
     result = {
         "account": {"total_equity": total_equity},
         "positions": positions,
         "alerts": alerts,
         "escalation": escalation,
+        "fetched_at": now,  # Audit F5: timestamp for staleness detection
     }
     _CACHE["account_state"] = {"ts": now, "data": result}
     return result
