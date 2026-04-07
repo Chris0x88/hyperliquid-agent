@@ -110,8 +110,21 @@ class AccountCollectorIterator:
             or snapshot.get("positions_xyz")
         )
         # Filter to non-zero positions (HL returns closed positions with szi=0)
+        #
+        # BUG-FIX 2026-04-08: the native branch previously passed the raw
+        # ``positions_native`` list straight through without unwrapping the
+        # outer ``{"type": "oneWay", "position": {...}}`` envelope the HL
+        # assetPositions endpoint returns. The xyz branch already unwraps
+        # correctly — this change applies the same unwrap to native so that
+        # ``p.get("szi")`` reads the inner ``szi`` rather than always
+        # returning 0, which made ``has_positions`` falsely flip to False
+        # on every tick with open native perps and caused the "Flat (no
+        # positions) — resetting HWM" log line to fire spuriously.
         if has_positions:
-            all_pos = list(snapshot.get("positions_native", []))
+            all_pos = [
+                p.get("position", p) if isinstance(p, dict) and "position" in p else p
+                for p in snapshot.get("positions_native", [])
+            ]
             all_pos.extend(
                 p.get("position", p) if isinstance(p, dict) and "position" in p else p
                 for p in snapshot.get("positions_xyz", [])
