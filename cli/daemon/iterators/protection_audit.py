@@ -71,7 +71,8 @@ class ProtectionAuditIterator:
     def __init__(self) -> None:
         self._last_check: float = 0.0
         # Track last alert state per coin so we don't spam every tick
-        # State values: "ok" | "no_stop" | "wrong_side" | "too_close" | "too_far"
+        # State values: "ok" | "no_stop" | "no_tp" | "wrong_side" | "too_close" | "too_far"
+        # Priority (highest → lowest): no_stop > no_tp > wrong_side > too_close > too_far > ok
         self._last_state: Dict[str, str] = {}
 
     def on_start(self, ctx: TickContext) -> None:
@@ -114,11 +115,23 @@ class ProtectionAuditIterator:
                 continue
             stops_by_coin.setdefault(tcoin, []).append(t)
 
+        # Build coin → list of take-profit trigger orders (parallel to stops_by_coin)
+        # FEATURE 2026-04-08: CLAUDE.md rule "Every position MUST have both SL and TP
+        # on exchange." — audit for missing TP just as we do for missing SL.
+        tps_by_coin: Dict[str, List[dict]] = {}
+        for t in triggers:
+            if not self._is_tp_trigger(t):
+                continue
+            tcoin = t.get("coin", "")
+            if not tcoin:
+                continue
+            tps_by_coin.setdefault(tcoin, []).append(t)
+
         seen_coins = set()
         for pos in live_positions:
             inst = pos.instrument
             seen_coins.add(inst)
-            self._audit_position(pos, stops_by_coin, ctx)
+            self._audit_position(pos, stops_by_coin, tps_by_coin, ctx)
 
         # Clean up state for closed positions
         gone = [c for c in self._last_state if c not in seen_coins]
@@ -199,10 +212,38 @@ class ProtectionAuditIterator:
             return True
         return False
 
+    @staticmethod
+    def _is_tp_trigger(order: dict) -> bool:
+        """Return True if this trigger order looks like a take-profit (not an SL).
+
+        Mirrors _is_stop_trigger with the same check order and conservative default.
+        HL's ``frontendOpenOrders`` endpoint only populates ``orderType``, not ``tpsl``,
+        so we must inspect ``orderType`` to distinguish TP from SL.
+
+        Order of checks:
+        1. ``tpsl == "tp"`` → TP
+        2. ``tpsl == "sl"`` → SL
+        3. ``orderType`` contains ``"Take Profit"`` → TP
+        4. ``orderType`` contains ``"Stop"`` → SL
+        5. Default → NOT a TP (conservative; better to under-classify)
+        """
+        tpsl = order.get("tpsl", "")
+        if tpsl == "tp":
+            return True
+        if tpsl == "sl":
+            return False
+        order_type = str(order.get("orderType", ""))
+        if "Take Profit" in order_type:
+            return True
+        if "Stop" in order_type:
+            return False
+        return False
+
     def _audit_position(
         self,
         pos,
         stops_by_coin: Dict[str, List[dict]],
+        tps_by_coin: Dict[str, List[dict]],
         ctx: TickContext,
     ) -> None:
         inst = pos.instrument
@@ -211,14 +252,21 @@ class ProtectionAuditIterator:
         mark_raw = ctx.prices.get(inst)
         mark = Decimal(str(mark_raw)) if mark_raw is not None else ZERO
 
-        # Find any stop with a matching coin (handles xyz: prefix)
+        # Find any stop/TP with a matching coin (handles xyz: prefix)
         matching_stops: List[dict] = []
         for stop_coin, stops in stops_by_coin.items():
             if _coin_matches(stop_coin, inst):
                 matching_stops.extend(stops)
 
+        matching_tps: List[dict] = []
+        for tp_coin, tps in tps_by_coin.items():
+            if _coin_matches(tp_coin, inst):
+                matching_tps.extend(tps)
+
         prev_state = self._last_state.get(inst, "ok")
 
+        # Priority: no_stop > no_tp > wrong_side > too_close > too_far > ok
+        # Check SL first — missing SL is the highest severity.
         if not matching_stops:
             new_state = "no_stop"
             if prev_state != new_state:
@@ -261,6 +309,28 @@ class ProtectionAuditIterator:
                     inst=inst,
                     direction="LONG" if is_long else "SHORT",
                     msg=f"INVALID STOP: {inst} trigger order has trigger_price=0",
+                    state=new_state,
+                )
+            self._last_state[inst] = new_state
+            return
+
+        # FEATURE 2026-04-08: Check for missing TP (second-highest severity after no_stop).
+        # CLAUDE.md mandates "Every position MUST have both SL and TP on exchange."
+        # A position with an SL but no TP satisfies the stop rule but violates the
+        # full protection rule. Priority: no_stop > no_tp > wrong_side > ...
+        if not matching_tps:
+            new_state = "no_tp"
+            if prev_state != new_state:
+                self._emit_alert(
+                    ctx,
+                    severity="critical",
+                    inst=inst,
+                    direction="LONG" if is_long else "SHORT",
+                    msg=(
+                        f"UNPROTECTED: {inst} "
+                        f"{'LONG' if is_long else 'SHORT'} has NO take-profit. "
+                        f"Entry={float(entry):.4f}"
+                    ),
                     state=new_state,
                 )
             self._last_state[inst] = new_state

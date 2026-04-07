@@ -137,7 +137,7 @@ class TestNoStop:
         assert ctx2.alerts == []
 
     def test_takes_profit_only_still_counts_as_unguarded(self, iterator):
-        # TP exists, but no SL
+        # TP exists, but no SL — still UNGUARDED (no_stop > no_tp priority)
         _patch_fetch(iterator, [_tp("BTC", 120)])
         ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
@@ -148,7 +148,8 @@ class TestNoStop:
 
 class TestWrongSideStop:
     def test_long_with_stop_above_entry(self, iterator):
-        _patch_fetch(iterator, [_stop("BTC", 110)])  # stop above entry for long = wrong
+        # stop above entry for long = wrong; include TP so no_tp doesn't intercept first
+        _patch_fetch(iterator, [_stop("BTC", 110), _tp("BTC", 120)])
         ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
         assert len(ctx.alerts) == 1
@@ -158,7 +159,8 @@ class TestWrongSideStop:
         assert a.data["state"] == "wrong_side"
 
     def test_short_with_stop_below_entry(self, iterator):
-        _patch_fetch(iterator, [_stop("BTC", 90)])  # stop below entry for short = wrong
+        # stop below entry for short = wrong; include TP so no_tp doesn't intercept first
+        _patch_fetch(iterator, [_stop("BTC", 90), _tp("BTC", 80)])
         ctx = _ctx(positions=[_short("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
         assert len(ctx.alerts) == 1
@@ -168,8 +170,8 @@ class TestWrongSideStop:
 
 class TestStopDistance:
     def test_too_close(self, iterator):
-        # mark=100, stop=99.9, distance=0.1% < 0.5% min
-        _patch_fetch(iterator, [_stop("BTC", 99.9)])
+        # mark=100, stop=99.9, distance=0.1% < 0.5% min; include TP so no_tp doesn't intercept
+        _patch_fetch(iterator, [_stop("BTC", 99.9), _tp("BTC", 110)])
         ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
         assert len(ctx.alerts) == 1
@@ -178,8 +180,8 @@ class TestStopDistance:
         assert ctx.alerts[0].data["state"] == "too_close"
 
     def test_too_far(self, iterator):
-        # mark=100, stop=40, distance=60% > 50% max
-        _patch_fetch(iterator, [_stop("BTC", 40)])
+        # mark=100, stop=40, distance=60% > 50% max; include TP so no_tp doesn't intercept
+        _patch_fetch(iterator, [_stop("BTC", 40), _tp("BTC", 150)])
         ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
         assert len(ctx.alerts) == 1
@@ -188,8 +190,8 @@ class TestStopDistance:
         assert ctx.alerts[0].data["state"] == "too_far"
 
     def test_reasonable_stop_no_alert(self, iterator):
-        # mark=100, stop=95, distance=5% — between 0.5% and 50%
-        _patch_fetch(iterator, [_stop("BTC", 95)])
+        # mark=100, stop=95, distance=5% — between 0.5% and 50%; include TP
+        _patch_fetch(iterator, [_stop("BTC", 95), _tp("BTC", 115)])
         ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx)
         assert ctx.alerts == []
@@ -198,14 +200,14 @@ class TestStopDistance:
 
 class TestRecovery:
     def test_recovery_alert_from_no_stop_to_ok(self, iterator):
-        # Tick 1: no stop
+        # Tick 1: no stop, no TP
         _patch_fetch(iterator, [])
         ctx1 = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx1)
         assert ctx1.alerts[0].severity == "critical"
-        # Tick 2: stop appears (heartbeat caught up)
+        # Tick 2: both SL and TP appear (heartbeat caught up); both needed for recovery to ok
         iterator._last_check = -10000
-        _patch_fetch(iterator, [_stop("BTC", 95)])
+        _patch_fetch(iterator, [_stop("BTC", 95), _tp("BTC", 115)])
         ctx2 = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
         iterator.tick(ctx2)
         assert len(ctx2.alerts) == 1
@@ -215,7 +217,8 @@ class TestRecovery:
 
 class TestXyzPrefix:
     def test_xyz_position_with_xyz_stop(self, iterator):
-        _patch_fetch(iterator, [_stop("xyz:BRENTOIL", 80)])
+        # Include TP — position is fully protected; tests xyz prefix matching for both
+        _patch_fetch(iterator, [_stop("xyz:BRENTOIL", 80), _tp("xyz:BRENTOIL", 92)])
         ctx = _ctx(
             positions=[_long("xyz:BRENTOIL", 10, 85)],
             prices={"xyz:BRENTOIL": 85},
@@ -224,34 +227,37 @@ class TestXyzPrefix:
         assert ctx.alerts == []  # ok
 
     def test_xyz_position_with_unprefixed_stop(self, iterator):
-        # Stop trigger has unprefixed coin name (some HL responses do this)
-        _patch_fetch(iterator, [_stop("BRENTOIL", 80)])
+        # Stop and TP triggers have unprefixed coin name (some HL responses do this)
+        _patch_fetch(iterator, [_stop("BRENTOIL", 80), _tp("BRENTOIL", 92)])
         ctx = _ctx(
             positions=[_long("xyz:BRENTOIL", 10, 85)],
             prices={"xyz:BRENTOIL": 85},
         )
         iterator.tick(ctx)
-        assert ctx.alerts == []  # _coin_matches handles both
+        assert ctx.alerts == []  # _coin_matches handles both for SL and TP
 
 
 class TestMultiplePositions:
     def test_independent_state_per_instrument(self, iterator):
         _patch_fetch(iterator, [
-            _stop("BTC", 95),       # ok
-            _stop("ETH", 49.9),     # too close (0.2% from mark 50)
+            _stop("BTC", 95),       # ok (with TP)
+            _tp("BTC", 115),        # BTC fully protected
+            _stop("ETH", 49.9),     # too close (0.2% from mark 50) (with TP)
+            _tp("ETH", 55),         # ETH TP present
+            # SOL: no stop, no TP → no_stop (highest priority)
         ])
         ctx = _ctx(
             positions=[
                 _long("BTC", 1, 100),
                 _long("ETH", 10, 50),
-                _long("SOL", 5, 200),  # no stop at all
+                _long("SOL", 5, 200),  # no stop at all → no_stop critical
             ],
             prices={"BTC": 100, "ETH": 50, "SOL": 200},
         )
         iterator.tick(ctx)
         # BTC: ok (no alert)
         # ETH: too close warning
-        # SOL: no stop critical
+        # SOL: no stop critical (no_stop > no_tp priority so still "UNGUARDED")
         severities = sorted(a.severity for a in ctx.alerts)
         assert severities == ["critical", "warning"]
         instruments = {a.data["instrument"] for a in ctx.alerts}
@@ -399,3 +405,99 @@ class TestRealHLTriggerShape:
         # Distance from mark 6500 to stop 6431.8 = 1.05% — between 0.5% and 50%
         # → no distance alert either
         assert ctx.alerts == [], f"Expected no alerts; got {[a.message for a in ctx.alerts]}"
+
+
+# ---------------------------------------------------------------------------
+# FEATURE 2026-04-08: Missing TP audit — CLAUDE.md "both SL and TP" rule.
+# A position with an SL but no TP must emit a CRITICAL "no_tp" alert.
+# Priority: no_stop > no_tp > wrong_side > too_close > too_far > ok.
+# ---------------------------------------------------------------------------
+
+class TestNoTp:
+    def test_sl_only_position_alerts_no_tp(self, iterator):
+        """SL present but no TP -> CRITICAL UNPROTECTED alert with state=no_tp."""
+        _patch_fetch(iterator, [_stop("BTC", 95)])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert len(ctx.alerts) == 1
+        a = ctx.alerts[0]
+        assert a.severity == "critical"
+        assert "UNPROTECTED" in a.message
+        assert "BTC" in a.message
+        assert "LONG" in a.message
+        assert "NO take-profit" in a.message
+        assert a.data["state"] == "no_tp"
+
+    def test_neither_sl_nor_tp_alerts_unguarded_not_no_tp(self, iterator):
+        """No SL and no TP -> UNGUARDED (no_stop is higher priority than no_tp)."""
+        _patch_fetch(iterator, [])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert len(ctx.alerts) == 1
+        assert ctx.alerts[0].data["state"] == "no_stop"
+        assert "UNGUARDED" in ctx.alerts[0].message
+
+    def test_both_sl_and_tp_present_no_alert(self, iterator):
+        """SL below entry and TP above entry -> fully protected, no alert."""
+        _patch_fetch(iterator, [_stop("BTC", 95), _tp("BTC", 115)])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert ctx.alerts == []
+        assert iterator._last_state["BTC"] == "ok"
+
+    def test_both_present_wrong_side_sl_fires_wrong_side(self, iterator):
+        """SL wrong side + TP present -> wrong_side alert (no_tp does not fire)."""
+        _patch_fetch(iterator, [_stop("BTC", 110), _tp("BTC", 120)])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert len(ctx.alerts) == 1
+        assert ctx.alerts[0].data["state"] == "wrong_side"
+        assert "WRONG-SIDE" in ctx.alerts[0].message
+
+    def test_no_tp_state_no_repeat_alert(self, iterator):
+        """Same no_tp state across ticks -> alert fires once, then silent."""
+        _patch_fetch(iterator, [_stop("BTC", 95)])
+        ctx1 = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx1)
+        assert len(ctx1.alerts) == 1
+        assert ctx1.alerts[0].data["state"] == "no_tp"
+        # Same state next tick — no repeat
+        iterator._last_check = -10000
+        ctx2 = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx2)
+        assert ctx2.alerts == []
+
+    def test_real_hl_sl_only_alerts_no_tp(self, iterator):
+        """Real HL shape SL-only position -> no_tp critical fires."""
+        _patch_fetch(iterator, [_hl_real_sl("BTC", 95)])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert len(ctx.alerts) == 1
+        assert ctx.alerts[0].data["state"] == "no_tp"
+        assert "UNPROTECTED" in ctx.alerts[0].message
+
+    def test_real_hl_sl_and_tp_both_present_no_alert(self, iterator):
+        """Real HL shape with both SL and TP -> fully protected, no alert."""
+        _patch_fetch(iterator, [
+            _hl_real_sl("BTC", 95),
+            _hl_real_tp("BTC", 115),
+        ])
+        ctx = _ctx(positions=[_long("BTC", 1, 100)], prices={"BTC": 100})
+        iterator.tick(ctx)
+        assert ctx.alerts == []
+        assert iterator._last_state["BTC"] == "ok"
+
+    def test_is_tp_trigger_recognises_real_hl_tp(self):
+        """_is_tp_trigger correctly identifies a real HL Take Profit Market order."""
+        order = _hl_real_tp("xyz:SP500", 6773.9)
+        assert ProtectionAuditIterator._is_tp_trigger(order) is True
+
+    def test_is_tp_trigger_rejects_real_hl_sl(self):
+        """_is_tp_trigger returns False for a real HL Stop Market order."""
+        order = _hl_real_sl("xyz:SP500", 6431.8)
+        assert ProtectionAuditIterator._is_tp_trigger(order) is False
+
+    def test_is_tp_trigger_unknown_defaults_to_false(self):
+        """Conservative default — unrecognised orderType is NOT classified as TP."""
+        order = {"coin": "X", "isTrigger": True, "triggerCondition": "weird"}
+        assert ProtectionAuditIterator._is_tp_trigger(order) is False
