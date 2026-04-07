@@ -178,8 +178,11 @@ def _convert_messages_to_anthropic(messages: List[Dict]) -> tuple:
                 conv_messages.append({"role": "user", "content": pending_tool_results})
                 pending_tool_results = []
             assistant_content = []
-            if msg.get("content"):
-                assistant_content.append({"type": "text", "text": msg["content"]})
+            # Anthropic API rejects text blocks containing only whitespace.
+            # Must check .strip() not just truthiness — "\n" is truthy but invalid.
+            _content = msg.get("content")
+            if isinstance(_content, str) and _content.strip():
+                assistant_content.append({"type": "text", "text": _content})
             for tc in msg.get("tool_calls", []):
                 fn = tc.get("function", {})
                 raw_input = fn.get("arguments", "{}")
@@ -1288,7 +1291,11 @@ def _parse_anthropic_response(data: dict) -> dict:
     tool_calls = []
     for block in content_blocks:
         if block.get("type") == "text":
-            text_parts.append(block["text"])
+            # Drop empty/whitespace text blocks — Anthropic rejects them when
+            # they come back through as message history on the next turn.
+            txt = block.get("text", "")
+            if txt and txt.strip():
+                text_parts.append(txt)
         elif block.get("type") == "tool_use":
             tool_calls.append({
                 "id": block["id"],
@@ -1573,11 +1580,15 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
 
             resp = client.messages.create(**kwargs)
 
-            # Convert SDK response to OpenAI-compatible format
+            # Convert SDK response to OpenAI-compatible format.
+            # Filter out whitespace-only text blocks — Anthropic emits empty
+            # text blocks alongside tool_use sometimes, and storing them
+            # causes a 400 on the NEXT turn when they get re-fed into the
+            # converter as message history.
             text_parts = []
             tool_calls = []
             for block in resp.content:
-                if block.type == "text":
+                if block.type == "text" and getattr(block, "text", None) and block.text.strip():
                     text_parts.append(block.text)
                 elif block.type == "tool_use":
                     tool_calls.append({
