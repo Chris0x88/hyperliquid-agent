@@ -4,6 +4,93 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-07 -- Architecture Verification + Work-Cell Taxonomy (5-phase session)
+
+**Five-phase doc session that verified the prior assessment, reconciled
+contradictions, and established the work-cell architecture for parallel agent
+dispatch.** No production code touched — all wiki + ADR.
+
+### What shipped
+- **Phase 1 — Verification ledger + 6 doc fixes** (commit `86929ba`). New
+  `architecture/verification-ledger.md` (~450 lines) records every claim from the
+  six prior architecture docs with verdict, code reference, and recommended fix.
+  Then patched `tier-state-machine.md`, `writers-and-authority.md`,
+  `tickcontext-provenance.md`, `data-stores.md`, `system-grouping.md`, and
+  `workflows/input-routing-detailed.md` in place — minimal diffs, prior author
+  voice preserved (+138 / -53 across 6 files plus the new ledger).
+- **Phase 2 — Telegram input trace** (commit `31c16e7`). New
+  `workflows/telegram-input-trace.md` (~570 lines). Three line-by-line traces with
+  mermaid sequence diagrams: slash command (`/status`), natural-language
+  (`"What's my BTC PnL?"`), inline button callback (Approve/Reject for write tools).
+  Each trace verified against `cli/telegram_bot.run()`,
+  `cli/telegram_agent.handle_ai_message()`, `cli/agent_tools.execute_tool()`,
+  and the four callback handlers.
+- **Phase 3 — Master diagrams** (commit `5910ec8`). New
+  `architecture/master-diagrams.md` (~680 lines) with seven canonical mermaid
+  views: process topology, three-writer authority model, TickContext fan-out per
+  tier, conviction→execution chain, daemon clock harness (the 5 safety
+  subsystems prior docs missed), data store ownership map, telegram routing tree.
+- **Phase 4 — Work-cells** (commit `0596c13`). New
+  `architecture/work-cells.md` (~915 lines) defining 9 production cells for
+  parallel agent dispatch (P1-P9), complementing the 7 research cells in
+  `system-grouping.md`. Each cell carries purpose, files, LOC budget, freeze
+  list, test surface, safe ops, risky ops, common tasks, and dependencies.
+- **Phase 5 — ADR-012** (this commit). New
+  `decisions/012-work-cells-and-production-hardening.md` formalizes the
+  work-cell taxonomy, the status-badge convention (ACTIVE / LATENT-REBALANCE /
+  LATENT-OPPORTUNISTIC / MITIGATED), the verification-ledger pattern as the
+  standard for architecture assessment, and the H1-H10 production hardening
+  roadmap.
+
+### Headline findings (recorded in the verification ledger)
+- `tier-state-machine.md` self-contradicted on iterator counts **three times
+  within the same file** (14, 16, 17 — actual is 17 per `cli/daemon/tiers.py`).
+  This was the worst single-doc offender.
+- `exchange_protection` has **NO authority check** in code (verified via reading
+  `exchange_protection.py:86-180` directly). The doc was right that there was a
+  bug, wrong about which doc was authoritative — `tier-state-machine.md` claimed
+  the iterator was authority-aware, contradicting `writers-and-authority.md`.
+- `chat_history.jsonl` is **~78 KB** (verified by `ls -lh`), not "6 MB observed
+  Apr 7" as `data-stores.md` claimed.
+- The `risk_gate` "dual-writer" was misframed — `risk.py` uses a structured
+  worst-gate-wins merge and `execution_engine.py:114` only writes at drawdown
+  ≥ 40%. Real bug exists but it's tier-ordering, not "no coordination".
+- The five clock harness subsystems (`run_with_middleware`,
+  `_consecutive_failures` circuit breaker, `HealthWindow` error budget,
+  `TelemetryRecorder`, `TrajectoryLogger`, auto-tier-downgrade) were not
+  mentioned in any of the six docs. They are documented in `master-diagrams.md`
+  View 5 and ADR-012.
+- Production runs in **WATCH tier**, where most "CRITICAL" bugs in the prior
+  docs are LATENT (only fire on tier promotion). Status badges throughout the
+  reconciled docs make this distinction explicit.
+
+### Process retro
+- The session was prompted by the user noting the previous architecture
+  assessment work felt low-quality and untrustworthy. Verification confirmed the
+  instinct — the six docs from commit `977bcc2` had real but mixed quality, and
+  needed a sequential code-backed audit.
+- The audit was performed sequentially in this conversation (no parallel agents),
+  per user preference for full reasoning visibility. Every claim was checked
+  against the actual source file before any wiki edit.
+- The verification-ledger pattern (claim → code → verdict → minimal-diff fix)
+  is now canonical for future architecture review work and is documented in
+  ADR-012.
+- All edits to existing docs followed the minimal-diff principle — prior author
+  wording preserved where possible, only wrong sentences replaced or added to.
+
+### Out of scope (next session — H1-H10 production hardening from ADR-012)
+- H1-H4: close the four latent authority gaps in `exchange_protection`,
+  `execution_engine`, `clock._execute_orders`, and `guard` (P0; required before
+  any WATCH→REBALANCE tier promotion)
+- H5: add rotation logic for `data/daemon/journal/ticks.jsonl` (P1; active
+  growth concern at ~1.1 MB/day)
+- H6-H8: add dual-write backups for thesis files, working_state.json, and
+  funding.json (P1; SPOF mitigation)
+- H11: decompose `common/heartbeat.py` (1631 LOC god-file) — deferred (P3) until
+  forcing function
+
+---
+
 ## 2026-04-07 -- Audit Hardening Session (H1–H5)
 
 **Five fixes shipped over one session, all additive, zero regressions.**
