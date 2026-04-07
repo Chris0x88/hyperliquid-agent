@@ -5,6 +5,7 @@ TIER_ITERATORS = {
     "watch": [
         "account_collector",   # always first — injects live account state
         "connector",
+        "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
@@ -19,6 +20,7 @@ TIER_ITERATORS = {
     "rebalance": [
         "account_collector",
         "connector",
+        "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "market_structure",
         "thesis_engine",
         "execution_engine",    # conviction-based sizing
@@ -38,6 +40,7 @@ TIER_ITERATORS = {
     "opportunistic": [
         "account_collector",
         "connector",
+        "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "market_structure",
         "thesis_engine",
         "execution_engine",
