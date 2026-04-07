@@ -2,6 +2,14 @@
 
 Tracks positions across ticks. When a position disappears (closed) or flips direction,
 creates a full JournalEntry with entry/exit/SL/TP/PnL and persists via JournalGuard.
+
+Tick snapshot rotation (H5 hardening): tick snapshots are written to a
+date-stamped file (``ticks-YYYYMMDD.jsonl``) under ``data/daemon/journal/``,
+not to a single growing ``ticks.jsonl``. Files older than ``RETENTION_DAYS``
+days are pruned automatically. This closes the active growth concern from
+the 2026-04-07 verification ledger (~1.1 MB/day → 365 MB/year unrotated).
+The legacy single-file ``ticks.jsonl``, if present from before this rollout,
+is left in place — operators can rename or archive it manually.
 """
 from __future__ import annotations
 
@@ -19,6 +27,10 @@ log = logging.getLogger("daemon.journal")
 ZERO = Decimal("0")
 JOURNAL_JSONL = "data/research/journal.jsonl"
 
+# H5 — keep two weeks of tick journals (~14 MB at current ~1 MB/day rate).
+# Older files get unlinked on the first tick of each new UTC day.
+RETENTION_DAYS = 14
+
 
 class JournalIterator:
     name = "journal"
@@ -30,6 +42,8 @@ class JournalIterator:
         # Position tracking across ticks
         self._prev_positions: Dict[str, _TrackedPosition] = {}
         self._trade_counter = 0
+        # H5 — track which UTC day we last pruned old tick journals
+        self._last_prune_day: Optional[str] = None
 
     def on_start(self, ctx: TickContext) -> None:
         self._journal_dir.mkdir(parents=True, exist_ok=True)
@@ -38,6 +52,20 @@ class JournalIterator:
         # Count existing trades for numbering
         existing = list(self._trades_dir.glob("*.json"))
         self._trade_counter = len(existing)
+        # H5 — flag any pre-rotation legacy ticks.jsonl so the operator notices
+        legacy = self._journal_dir / "ticks.jsonl"
+        if legacy.exists():
+            try:
+                size = legacy.stat().st_size
+            except OSError:
+                size = 0
+            log.info(
+                "JournalIterator: legacy ticks.jsonl found (%d bytes). New tick "
+                "snapshots write to ticks-YYYYMMDD.jsonl with %d-day retention. "
+                "Rename or archive the legacy file when convenient.",
+                size, RETENTION_DAYS,
+            )
+        self._prune_old_journals()
         log.info("JournalIterator started (existing trades: %d)", self._trade_counter)
 
     def on_stop(self) -> None:
@@ -47,7 +75,7 @@ class JournalIterator:
         # --- 1. Detect position changes ---
         self._detect_position_changes(ctx)
 
-        # --- 2. Log tick snapshot (existing behavior) ---
+        # --- 2. Log tick snapshot (existing behavior, now date-rotated) ---
         snapshot = {
             "timestamp": ctx.timestamp,
             "tick": ctx.tick_number,
@@ -63,9 +91,39 @@ class JournalIterator:
             },
         }
 
-        journal_file = self._journal_dir / "ticks.jsonl"
+        # H5 — write to ticks-YYYYMMDD.jsonl (daily rotation by UTC date)
+        today = time.strftime("%Y%m%d", time.gmtime())
+        journal_file = self._journal_dir / f"ticks-{today}.jsonl"
         with open(journal_file, "a") as f:
             f.write(json.dumps(snapshot) + "\n")
+
+        # H5 — once per UTC day, prune files older than RETENTION_DAYS
+        if self._last_prune_day != today:
+            self._prune_old_journals()
+            self._last_prune_day = today
+
+    def _prune_old_journals(self) -> None:
+        """Delete date-stamped tick journal files older than RETENTION_DAYS days.
+
+        Only matches the ``ticks-YYYYMMDD.jsonl`` pattern; the legacy
+        ``ticks.jsonl`` (if any) is left alone for the operator to handle.
+        """
+        if not self._journal_dir.exists():
+            return
+        cutoff = time.time() - (RETENTION_DAYS * 86_400)
+        pruned = 0
+        for fp in self._journal_dir.glob("ticks-*.jsonl"):
+            try:
+                if fp.stat().st_mtime < cutoff:
+                    fp.unlink()
+                    pruned += 1
+            except OSError as e:
+                log.debug("JournalIterator: prune skipped %s (%s)", fp.name, e)
+        if pruned > 0:
+            log.info(
+                "JournalIterator pruned %d old ticks-*.jsonl files (>%d days)",
+                pruned, RETENTION_DAYS,
+            )
 
     def _detect_position_changes(self, ctx: TickContext) -> None:
         """Compare current positions to previous tick. Log closed trades."""
