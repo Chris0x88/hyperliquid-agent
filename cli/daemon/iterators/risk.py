@@ -77,8 +77,19 @@ class RiskIterator:
         if triggered:
             reasons = " | ".join(t.reason for t in triggered)
             worst_severity = "critical" if chain_gate == RiskGate.CLOSED else "warning"
+            # C4: append calendar regime tags so the operator knows the
+            # market context the protection chain fired in
+            from cli.daemon.calendar_tags import get_current_tags
+            cal = get_current_tags()
+            tag_suffix = f" [{', '.join(cal['tags'])}]" if cal["tags"] else ""
             ctx.alerts.append(Alert(
                 severity=worst_severity,
                 source=self.name,
-                message=f"Protection chain [{chain_gate.value}]: {reasons}",
+                message=f"Protection chain [{chain_gate.value}]: {reasons}{tag_suffix}",
+                data={
+                    "calendar_tags": cal["tags"],
+                    "weekend": cal["weekend"],
+                    "thin_session": cal["thin_session"],
+                    "high_impact_event_24h": cal["high_impact_event_24h"],
+                },
             ))

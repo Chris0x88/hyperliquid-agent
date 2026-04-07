@@ -131,10 +131,15 @@ class LiquidationMonitorIterator:
                 direction = "LONG" if is_long else "SHORT"
                 cushion_pct = float(cushion) * 100
                 lev_str = f"{float(pos.leverage):.1f}x" if pos.leverage else "?"
+                # C4: append calendar regime tags so the operator knows what
+                # market context this alert fired in
+                from cli.daemon.calendar_tags import get_current_tags
+                cal = get_current_tags()
+                tag_suffix = f" [{', '.join(cal['tags'])}]" if cal["tags"] else ""
                 msg = (
                     f"{prefix}{inst} {direction} cushion={cushion_pct:.1f}% "
                     f"mark={float(mark_dec):.4f} liq={float(liq_dec):.4f} "
-                    f"lev={lev_str}"
+                    f"lev={lev_str}{tag_suffix}"
                 )
                 ctx.alerts.append(Alert(
                     severity=severity,
@@ -149,6 +154,10 @@ class LiquidationMonitorIterator:
                         "leverage": float(pos.leverage) if pos.leverage else None,
                         "tier": tier,
                         "previous_tier": prev_tier,
+                        "calendar_tags": cal["tags"],
+                        "weekend": cal["weekend"],
+                        "thin_session": cal["thin_session"],
+                        "high_impact_event_24h": cal["high_impact_event_24h"],
                     },
                 ))
                 log.info("[%s] %s", severity, msg)
