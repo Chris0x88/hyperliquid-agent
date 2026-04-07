@@ -36,10 +36,26 @@ class ConnectorIterator:
             return
 
         # Fetch balances
+        #
+        # BUG-FIX 2026-04-08: the original code read
+        # ``account_state["marginSummary"]["accountValue"]`` which is the
+        # raw HL clearinghouseState shape, but ``DirectHLProxy.get_account_state``
+        # (the production adapter) flattens that into a top-level
+        # ``account_value`` key — there is no ``marginSummary`` key in the
+        # returned dict. The lookup silently returned ``"0"`` and
+        # ``ctx.balances["USDC"]`` was always ``Decimal("0")``, which made
+        # ``execution_engine._process_market`` bail at the
+        # ``account_equity <= 0`` early-return *before* the H2 authority
+        # gate ever fired. This branch supports both shapes (DirectHLProxy
+        # flat keys preferred, raw HL nested fallback) so the H2 gate is
+        # actually reachable.
         try:
             account_state = self._adapter.get_account_state()
             if account_state:
-                equity = account_state.get("marginSummary", {}).get("accountValue", "0")
+                equity = account_state.get("account_value")
+                if equity is None:
+                    # Fall back to raw HL clearinghouseState shape
+                    equity = account_state.get("marginSummary", {}).get("accountValue", "0")
                 ctx.balances["USDC"] = Decimal(str(equity))
         except Exception as e:
             log.warning("Failed to fetch account state: %s", e)
@@ -57,11 +73,44 @@ class ConnectorIterator:
                 log.warning("Failed to fetch snapshot for %s: %s", inst, e)
 
         # Fetch positions (native HL perps)
+        #
+        # BUG-FIX 2026-04-08: the original branch only called
+        # ``self._adapter.get_positions()``, which does not exist on
+        # ``DirectHLProxy`` (the production adapter). The hasattr check
+        # silently fell through, so ``ctx.positions`` never included any
+        # native HL positions — every downstream iterator that reads
+        # ``ctx.positions`` (exchange_protection, guard, liquidation_monitor,
+        # protection_audit, apex_advisor, catalyst_deleverage, autoresearch)
+        # saw zero native positions regardless of what was on the exchange.
+        # The fallback path below uses ``get_account_state()["positions"]``
+        # (raw HL ``assetPositions`` list) and builds proper ``Position``
+        # objects so the H1-H4 authority gates actually have something to
+        # gate on.
         try:
             if hasattr(self._adapter, 'get_positions'):
                 ctx.positions = self._adapter.get_positions()
+            elif hasattr(self._adapter, 'get_account_state'):
+                from parent.position_tracker import Position
+                from decimal import Decimal as _D
+                state = self._adapter.get_account_state()
+                native_positions = state.get("positions", []) or []
+                built: list[Position] = []
+                for ap in native_positions:
+                    p = ap.get("position", ap) if isinstance(ap, dict) else {}
+                    coin = p.get("coin", "")
+                    szi = float(p.get("szi", 0))
+                    if not coin or szi == 0:
+                        continue
+                    built.append(Position(
+                        instrument=coin,
+                        net_qty=_D(str(szi)),
+                        avg_entry_price=_D(str(p.get("entryPx", 0))),
+                        liquidation_price=_D(str(p.get("liquidationPx") or 0)),
+                        leverage=_D(str((p.get("leverage") or {}).get("value", 1))),
+                    ))
+                ctx.positions = built
         except Exception as e:
-            log.warning("Failed to fetch positions: %s", e)
+            log.warning("Failed to fetch native positions: %s", e)
 
         # Merge xyz dex positions (BRENTOIL and other commodity perps)
         try:
