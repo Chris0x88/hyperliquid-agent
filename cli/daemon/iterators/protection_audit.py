@@ -164,19 +164,40 @@ class ProtectionAuditIterator:
 
     @staticmethod
     def _is_stop_trigger(order: dict) -> bool:
-        """Return True if this trigger order looks like a stop-loss (not a TP)."""
-        # HL marks tpsl as 'sl' for stop, 'tp' for take-profit
+        """Return True if this trigger order looks like a stop-loss (not a TP).
+
+        BUG-FIX 2026-04-08: HL's ``frontendOpenOrders`` endpoint does NOT
+        populate the ``tpsl`` field on the orders it returns — it only sets
+        ``orderType`` to ``"Stop Market"`` for stop-losses and
+        ``"Take Profit Market"`` for take-profits. The previous fallback
+        defaulted to ``bool(order.get("isTrigger") or order.get("triggerCondition"))``
+        which returned True for *every* trigger order — so take-profits
+        slipped through the filter and ended up in ``stops_by_coin``,
+        which made the wrong-side check at ``_audit_position`` line ~250
+        emit a spurious ``WRONG-SIDE STOP`` CRITICAL alert for any TP that
+        was (correctly) above entry on a long. The user just hit this on
+        an xyz:SP500 LONG with a TP at 6773.9 (above entry 6564.5).
+
+        Order of checks:
+        1. ``tpsl == "sl"`` → SL (kept for forward-compat with API responses
+           that DO populate this field, e.g. fills/place_trigger_order echoes)
+        2. ``tpsl == "tp"`` → TP
+        3. ``orderType`` contains ``"Take Profit"`` → TP (HL frontendOpenOrders)
+        4. ``orderType`` contains ``"Stop"`` → SL (HL frontendOpenOrders)
+        5. Default → NOT a stop (conservative; better to under-classify
+           than to default-True and falsely alert)
+        """
         tpsl = order.get("tpsl", "")
         if tpsl == "sl":
             return True
         if tpsl == "tp":
             return False
-        # Fallback: orderType containing "Stop"
         order_type = str(order.get("orderType", ""))
+        if "Take Profit" in order_type:
+            return False
         if "Stop" in order_type:
             return True
-        # Default: treat trigger orders as stops if we can't classify
-        return bool(order.get("isTrigger") or order.get("triggerCondition"))
+        return False
 
     def _audit_position(
         self,
