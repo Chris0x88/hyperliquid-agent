@@ -12,6 +12,7 @@ from cli.daemon.context import Alert, Iterator, OrderIntent, TickContext
 from cli.daemon.roster import Roster
 from cli.daemon.state import DaemonState, StateStore
 from cli.daemon.tiers import iterators_for_tier
+from common.authority import is_agent_managed
 from common.middleware import run_with_middleware
 from common.telemetry import TelemetryRecorder
 from common.trajectory import TrajectoryLogger
@@ -230,6 +231,36 @@ class Clock:
             if ctx.risk_gate == RiskGate.COOLDOWN and not intent.reduce_only:
                 log.info("Risk gate COOLDOWN — skipping entry: %s %s",
                          intent.action, intent.instrument)
+                continue
+
+            # H3 hardening — defense-in-depth per-asset authority gate.
+            # This is the LAST guard before an order hits the exchange. If
+            # H1/H2/H4 leak through (e.g. some iterator queues an OrderIntent
+            # for a non-delegated asset without checking authority), this
+            # catches it. Surfaced as CRITICAL because reaching this point
+            # means an upstream gate failed and the operator should know.
+            # Closes the LATENT-REBALANCE gap from the verification ledger.
+            if not is_agent_managed(intent.instrument):
+                log.error(
+                    "Clock dropping OrderIntent for %s — authority is not 'agent'. "
+                    "An upstream iterator queued this without checking authority.",
+                    intent.instrument,
+                )
+                ctx.alerts.append(Alert(
+                    severity="critical",
+                    source="clock",
+                    message=(
+                        f"AUTHORITY GAP: dropped {intent.action} {intent.instrument} "
+                        f"order — authority is not 'agent'. An upstream iterator "
+                        f"queued this without checking. Investigate which iterator."
+                    ),
+                    data={
+                        "instrument": intent.instrument,
+                        "action": intent.action,
+                        "size": str(intent.size),
+                        "strategy": getattr(intent, "strategy_name", ""),
+                    },
+                ))
                 continue
 
             if self.adapter is None:
