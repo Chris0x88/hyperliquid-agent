@@ -91,6 +91,15 @@ class GuardIterator:
                         source=self.name,
                         message=f"Guard released {inst} (authority reclaimed)",
                     ))
+                else:
+                    # BUG-FIX 2026-04-08: the "new position, not delegated"
+                    # path was previously a silent continue.  Add an INFO
+                    # log so operators can see the H4 gate firing in the
+                    # daemon log per tick, matching H1/H2 visibility.
+                    log.info(
+                        "GuardIterator skipping %s — authority is not 'agent' (H4 gate)",
+                        inst,
+                    )
                 continue
 
             qty = pos.net_qty

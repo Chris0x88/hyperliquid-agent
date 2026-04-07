@@ -107,8 +107,13 @@ class ExchangeProtectionIterator:
             if pos.net_qty == ZERO:
                 continue
             if not is_agent_managed(pos.instrument):
-                log.debug(
-                    "ExchangeProtection skipping %s — authority is not 'agent'",
+                # BUG-FIX 2026-04-08: promoted from log.debug to log.info so
+                # operators can actually see the H1 authority gate fire in
+                # the daemon log.  A silent skip is indistinguishable from
+                # "iterator ran and had no work to do" — the INFO line
+                # confirms the gate is doing its job per-tick.
+                log.info(
+                    "ExchangeProtection skipping %s — authority is not 'agent' (H1 gate)",
                     pos.instrument,
                 )
                 continue

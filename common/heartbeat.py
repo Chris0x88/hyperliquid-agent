@@ -730,7 +730,14 @@ def run_heartbeat(
                     atr_val = compute_atr(candles, period=config.atr_period) or 0.0
                     state.atr_cache[cache_key] = {"value": atr_val, "cached_at_ms": now_ms}
             except Exception as e:
-                log.debug("ATR fetch failed for %s: %s", coin, e)
+                # BUG-FIX 2026-04-08 SUS-1: promoted from log.debug to log.warning
+                # and appended to errors[] so operators actually see ATR fetch
+                # failures.  When ATR is unavailable, the 'atr_val > 0' guard
+                # below silently skips stop placement for the affected position
+                # — at DEBUG level this failure was invisible in production
+                # logs and could leave positions unprotected without any alert.
+                log.warning("ATR fetch failed for %s: %s — position will be skipped for SL placement this cycle", coin, e)
+                errors.append(f"ATR fetch failed for {coin}: {e}")
 
         # ── Thesis lookup (needed for TP placement below) ─────────────────
         canonical_id = _find_canonical_id(coin, config)
