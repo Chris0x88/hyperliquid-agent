@@ -57,6 +57,73 @@ def _liquidity_regime() -> str:
     return "NORMAL"
 
 
+def _load_funding_summary(hours: int = 24) -> dict:
+    """Read data/daemon/funding_tracker.jsonl and aggregate over the last N hours.
+
+    Each JSONL record is a per-instrument funding payment event written by
+    the funding_tracker daemon iterator (C2). Returns a dict shaped for the
+    daily report. Returns an "empty" dict if the file is missing — failure
+    here must NEVER break the report; funding visibility is informational.
+
+    Sign convention from funding_tracker.py:
+        payment_usd > 0 → we PAID funding (cost)
+        payment_usd < 0 → we EARNED funding (profit)
+    """
+    empty = {
+        "available": False,
+        "hours": hours,
+        "paid_usd": 0.0,
+        "earned_usd": 0.0,
+        "net_usd": 0.0,
+        "by_instrument": {},
+    }
+    path = Path("data/daemon/funding_tracker.jsonl")
+    if not path.exists():
+        return empty
+    cutoff = int(time.time()) - hours * 3600
+    paid = 0.0
+    earned = 0.0
+    by_instrument: dict = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                ts = rec.get("timestamp", 0)
+                if ts < cutoff:
+                    continue
+                inst = rec.get("instrument", "?")
+                payment = float(rec.get("payment_usd", 0) or 0)
+                if payment > 0:
+                    paid += payment
+                else:
+                    earned += -payment  # store as positive earned amount
+                slot = by_instrument.setdefault(
+                    inst, {"paid": 0.0, "earned": 0.0, "events": 0}
+                )
+                slot["events"] += 1
+                if payment > 0:
+                    slot["paid"] += payment
+                else:
+                    slot["earned"] += -payment
+    except OSError as e:
+        log.warning("Funding summary load failed: %s", e)
+        return empty
+    return {
+        "available": True,
+        "hours": hours,
+        "paid_usd": round(paid, 4),
+        "earned_usd": round(earned, 4),
+        "net_usd": round(earned - paid, 4),  # positive = net earned
+        "by_instrument": by_instrument,
+    }
+
+
 def generate_report() -> Path:
     """Generate the daily report PDF."""
     import matplotlib
@@ -194,6 +261,30 @@ def generate_report() -> Path:
         trend = "BULLISH" if ema9 > ema21 else "BEARISH"
         fig.text(0.35, y, f"Trend: {trend}", fontsize=9,
                  color="#3fb950" if trend == "BULLISH" else "#f85149")
+
+        # Funding (last 24h, from funding_tracker.jsonl) — C5
+        funding = _load_funding_summary(hours=24)
+        if funding.get("available"):
+            y -= 0.04
+            fig.text(0.05, y, "FUNDING (24h)", fontsize=12, fontweight="bold", color="#58a6ff")
+            y -= 0.025
+            net = funding["net_usd"]
+            net_color = "#3fb950" if net >= 0 else "#f85149"
+            net_sign = "+" if net >= 0 else ""
+            fig.text(
+                0.05, y,
+                f"Paid: ${funding['paid_usd']:.2f}   Earned: ${funding['earned_usd']:.2f}   Net: {net_sign}${net:.2f}",
+                fontsize=9, color=net_color, family="monospace",
+            )
+            for inst, slot in list(funding["by_instrument"].items())[:4]:
+                y -= 0.02
+                inst_net = slot["earned"] - slot["paid"]
+                inst_color = "#3fb950" if inst_net >= 0 else "#f85149"
+                fig.text(
+                    0.05, y,
+                    f"  {inst}: paid ${slot['paid']:.2f}  earned ${slot['earned']:.2f}  ({slot['events']} events)",
+                    fontsize=8, color=inst_color, family="monospace",
+                )
 
         # Catalyst Calendar
         y -= 0.04
