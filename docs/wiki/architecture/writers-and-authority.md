@@ -1,14 +1,17 @@
 # Three-Writer Story: Stop-Loss & Exchange State Authority Model
 
 **Status**: Architecture document
-**Last Updated**: 2026-04-07 (verified, reconciled with code)
-**Context**: C1 dual-writer bug post-mortem and C1' through C7 hardening
+**Last Updated**: 2026-04-08 (post H1-H4 hardening, §§1.2, 1.3, 5.1, 6 reconciled with post-fix code)
+**Context**: C1 dual-writer bug post-mortem, C1' through C7 hardening, and H1-H4 authority gates
 **Owner**: Trading bot team
 
 > **Verification status:** Every claim in this doc has been spot-checked against
-> source code on 2026-04-07. See `verification-ledger.md` for the audit trail.
-> Production currently runs in **WATCH tier**, so most issues flagged below are
-> 🟡 LATENT (only fire on tier promotion).
+> source code. The H1-H4 production hardening (four authority gates) landed
+> 2026-04-07 and the affected sections (§§1.2, 1.3, 5.1, 6) have been updated in
+> place. The historical §5 "Race Conditions & Authority Bypasses" text is
+> preserved as audit trail, with ✅ RESOLVED markers at the top of each issue.
+> See `verification-ledger.md` for the full audit trail.
+> Production still runs in **WATCH tier**; H1-H4 becomes active on tier promotion.
 
 ## Executive Summary
 
@@ -113,49 +116,58 @@ asset_authority = get_authority(coin)  # Returns: "agent", "manual", or "off"
 
 ### 1.2 exchange_protection (REBALANCE/OPPORTUNISTIC Daemon Iterator)
 
-**File**: `cli/daemon/iterators/exchange_protection.py`  
-**Activation**: REBALANCE tier and above  
-**Authority checks**: ❌ **NO AUTHORITY CHECK** ⚠️
+**File**: `cli/daemon/iterators/exchange_protection.py`
+**Activation**: REBALANCE tier and above
+**Authority checks**: ✅ **Per-asset `is_agent_managed()` gate** (H1 hardening, commit `37be8c7`)
 
 #### What it writes:
 - **Stop-loss only**: Ruin prevention, `liq_price × 1.02` (2% buffer above liq)
 - **NO take-profit orders**: Exits are conviction-driven via execution_engine
 - **Order type**: Trigger orders (conditional exchange orders)
-- **Instruments**: **All positions in ctx.positions** (no filtering)
+- **Instruments**: **Agent-delegated positions only** (H1 gate skips `manual` / `off`)
 
 #### How it works:
 1. Every 60 seconds, iterates `ctx.positions`
 2. For each position with `net_qty ≠ 0`:
+   - **H1 gate**: `is_agent_managed(pos.instrument)` — skip if not agent
    - Calculates target SL = `liq_px × 1.02` (long) or `liq_px × 0.98` (short)
    - Checks if existing SL drifted >0.5% from target
    - Cancels old SL, places new one
-3. When position closes, cancels the SL
+3. When position closes (or authority is reclaimed mid-flight), the cleanup loop
+   cancels the SL — the alert message reads "position closed or authority reclaimed".
 
-#### ⚠️ CRITICAL: No authority gate
+#### Authority gate (post-H1):
 ```python
-# exchange_protection.py:96-114
+# exchange_protection.py — H1 hardening
 for pos in ctx.positions:
-    if pos.net_qty != ZERO:
-        active[pos.instrument] = pos
+    if pos.net_qty == ZERO:
+        continue
+    if not is_agent_managed(pos.instrument):
+        log.debug("H1: skipping non-agent position %s", pos.instrument)
+        continue
+    active[pos.instrument] = pos
 
 # ... then for each position:
 for inst, pos in active.items():
-    self._protect_position(inst, pos, ctx)  # NO authority check
+    self._protect_position(inst, pos, ctx)
 ```
 
-**This is a BUG**: `exchange_protection` should check `is_agent_managed(inst)` before placing any stop. Currently it will place SLs on `manual` and `off` assets in REBALANCE tier.
+Tested in `tests/test_exchange_protection_authority.py` (7 tests covering agent,
+manual, off, mixed, reclaim, zero-qty, and close paths).
 
 #### Comparison to heartbeat:
 - **heartbeat**: SL is ATR-based (market-informed), acts as safety net on all positions
-- **exchange_protection**: SL is liq-only (ruin prevention), but lacks authority gate
+  regardless of authority — it's the user's safety floor in WATCH tier
+- **exchange_protection**: SL is liq-only (ruin prevention), gated per-asset so it only
+  manages assets the user has explicitly delegated
 
 ---
 
 ### 1.3 execution_engine (REBALANCE/OPPORTUNISTIC Daemon Iterator)
 
-**File**: `cli/daemon/iterators/execution_engine.py`  
-**Activation**: REBALANCE tier and above  
-**Authority checks**: ❌ **INDIRECT — via thesis_states** ⚠️
+**File**: `cli/daemon/iterators/execution_engine.py`
+**Activation**: REBALANCE tier and above
+**Authority checks**: ✅ **Per-asset `is_agent_managed()` gate at top of `_process_market()`** (H2 hardening, commit `45df230`)
 
 #### What it writes:
 - **Entries**: Buy/sell orders when conviction band > 0
@@ -166,32 +178,31 @@ for inst, pos in active.items():
 #### How it works:
 1. Every 2 minutes, iterates `ctx.thesis_states.items()`
 2. For each `(market, ThesisState)` in the dict:
+   - **H2 gate**: `is_agent_managed(market)` — short-circuit before any conviction or sizing math
    - Calculates conviction → target size & leverage
    - Compares to current position
    - If delta > 5% threshold, queues OrderIntent
-3. Iterators cannot add markets to `thesis_states` themselves
+3. The **global drawdown-ruin gate** (≥40%) at the `tick()` scope is intentionally
+   NOT gated on authority — it fires globally and closes everything on account ruin.
 
-#### Authority check (indirect):
+#### Authority gate (post-H2):
 ```python
-# execution_engine.py:130-131
-for market, thesis in ctx.thesis_states.items():
-    self._process_market(market, thesis, ctx)
+# execution_engine.py — H2 hardening
+def _process_market(self, market, thesis, ctx):
+    if not is_agent_managed(market):
+        log.warning("H2: skipping non-agent market %s", market)
+        return
+    # ... conviction band math, sizing, OrderIntent enqueue ...
 ```
 
-**How authority is respected**:
-- The **thesis_engine** iterator (layer 1) loads thesis files from disk into `ctx.thesis_states`
-- AI scheduled task writes thesis only for markets where AI has authority (via delegation)
-- If a market is not in `ctx.thesis_states`, execution_engine will never touch it
+The previous implicit defense — "thesis files only get written for delegated assets,
+so `ctx.thesis_states` is already filtered" — was brittle. A manually-created thesis
+file or a delegation change between thesis_engine load and execution_engine tick could
+produce a thesis for a non-delegated asset and trigger an autonomous trade. H2 closes
+that window with an explicit check.
 
-**But**: There is no explicit `is_agent_managed(market)` check in execution_engine. It trusts that thesis_states is already filtered. If a thesis file somehow gets created for a `manual` asset, execution_engine **will trade it**.
-
-#### Defense-in-depth:
-The real gate is in the OrderIntent → adapter flow:
-1. `execution_engine` queues OrderIntent
-2. `clock._execute_orders()` submits to adapter
-3. Adapter's `place_order()` (currently) has no per-asset authority check
-
-**Result**: Execution_engine can trade any market in thesis_states, even if authority is wrong. **This is a gap.**
+Tested in `tests/test_execution_engine_authority.py` (6 tests covering agent, manual,
+off, mixed, gate-order vs conviction, and the global drawdown-ruin carve-out).
 
 ---
 
@@ -419,11 +430,16 @@ guard: ratchets stop upward as ROE grows (trailing stop)
 
 ### 5.1 Identified Issues
 
-#### ❌ Issue #1: exchange_protection lacks authority gate
+#### ✅ Issue #1 (RESOLVED): exchange_protection lacks authority gate
 
-**Status:** 🟡 **LATENT-REBALANCE** — `exchange_protection` is not in
-`tiers.py['watch']`, so this gap is dormant in production WATCH. It activates the
-moment the daemon is promoted to REBALANCE or OPPORTUNISTIC.
+**Status:** ✅ **RESOLVED** by H1 hardening (commit `37be8c7`, 2026-04-07). Per-asset
+`is_agent_managed()` gate now lives at the top of `exchange_protection.tick()`.
+Tested in `tests/test_exchange_protection_authority.py` (7 tests). The text below
+is preserved as historical context — see §1.2 above for current behavior.
+
+**Original status (pre-fix):** 🟡 **LATENT-REBALANCE** — `exchange_protection` is not in
+`tiers.py['watch']`, so this gap was dormant in production WATCH. It would have activated
+the moment the daemon was promoted to REBALANCE or OPPORTUNISTIC.
 
 **File**: `cli/daemon/iterators/exchange_protection.py:96-114`
 
@@ -451,12 +467,17 @@ if not is_agent_managed(inst):
 
 ---
 
-#### ⚠️ Issue #2: execution_engine lacks explicit authority check
+#### ✅ Issue #2 (RESOLVED): execution_engine lacks explicit authority check
 
-**Status:** 🟡 **LATENT-REBALANCE** — `execution_engine` only runs in REBALANCE+ tiers
-and only acts on markets present in `ctx.thesis_states`. Thesis files are AI-written
-under delegation, so this is theoretical unless someone manually creates a thesis
-file for a non-delegated asset. Still worth a defensive check.
+**Status:** ✅ **RESOLVED** by H2 hardening (commit `45df230`, 2026-04-07). Explicit
+`is_agent_managed()` check now sits at the top of `_process_market()`, before any
+conviction or sizing math. Tested in `tests/test_execution_engine_authority.py`
+(6 tests). See §1.3 above for current behavior.
+
+**Original status (pre-fix):** 🟡 **LATENT-REBALANCE** — `execution_engine` only runs
+in REBALANCE+ tiers and only acted on markets present in `ctx.thesis_states`. Thesis
+files are AI-written under delegation, so this was theoretical unless someone manually
+created a thesis file for a non-delegated asset. Still worth a defensive check.
 
 **File**: `cli/daemon/iterators/execution_engine.py:130-131`
 
@@ -487,12 +508,18 @@ if not is_agent_managed(market):
 
 ---
 
-#### ⚠️ Issue #3: Clock._execute_orders() has no per-asset authority check
+#### ✅ Issue #3 (RESOLVED): Clock._execute_orders() has no per-asset authority check
 
-**Status:** 🟡 **LATENT-REBALANCE** — `_execute_orders` only drains the order queue
-when other iterators have queued OrderIntents. In WATCH no iterator queues orders
-(none are write-capable), so this defense-in-depth gap is dormant. It only matters
-in REBALANCE+ if Issues #1/#2 leak through.
+**Status:** ✅ **RESOLVED** by H3 defense-in-depth (commit `5c20ada`, 2026-04-07). A
+per-asset authority check now sits between the risk_gate check and adapter submission.
+Non-agent intents are dropped and surfaced as CRITICAL alerts (with iterator origin in
+`alert.data["strategy"]`) so the operator can identify the upstream iterator that queued
+without checking. Tested in `tests/test_clock_authority_gate.py` (7 tests).
+
+**Original status (pre-fix):** 🟡 **LATENT-REBALANCE** — `_execute_orders` only drains
+the order queue when other iterators have queued OrderIntents. In WATCH no iterator
+queued orders (none are write-capable), so this defense-in-depth gap was dormant. It
+would have mattered in REBALANCE+ only if Issues #1/#2 leaked through.
 
 **File**: `cli/daemon/clock.py:215-273`
 
@@ -559,24 +586,24 @@ Detection: Logs + Telegram alert (journal iterator), but too late
 
 ### Checklist: Per-Writer Authority Enforcement
 
-| Component | Check | Where? | Gap? |
-|-----------|-------|--------|------|
-| **heartbeat** | `is_watched()` + `get_authority()` | Lines 667-671 | ✅ No (complete) |
-| **exchange_protection** | NONE | N/A | ❌ YES (place SL on all) |
-| **execution_engine** | Implicit (thesis_states) | Context | ⚠️ YES (no explicit check) |
-| **guard** | NONE on order queue | N/A | ⚠️ YES (could queue on manual) |
-| **rebalancer** | NONE visible | N/A | ⚠️ YES (unknown) |
-| **clock** | NONE | `_execute_orders()` | ⚠️ YES (no per-asset check) |
-| **protection_audit** | N/A (read-only) | N/A | ✅ No |
+| Component | Check | Where? | Status |
+|-----------|-------|--------|--------|
+| **heartbeat** | `is_watched()` + `get_authority()` | Lines 667-671 | ✅ Complete (pre-existing) |
+| **exchange_protection** | `is_agent_managed()` at top of `tick()` | H1 commit `37be8c7` | ✅ Complete (H1 hardening) |
+| **execution_engine** | `is_agent_managed()` at top of `_process_market()` | H2 commit `45df230` | ✅ Complete (H2 hardening) |
+| **guard** | `is_agent_managed()` at top of per-position loop; reclaim teardown | H4 commit `0193191` | ✅ Complete (H4 hardening) |
+| **rebalancer** | Per-strategy — strategies can query authority | N/A (social contract) | ⚠️ Strategy-dependent |
+| **clock** | `is_agent_managed()` between risk_gate and adapter submit | H3 commit `5c20ada` | ✅ Complete (H3 defense-in-depth) |
+| **protection_audit** | N/A (read-only) | N/A | ✅ No writes — verifier only |
 
 ### Recommendations
 
-1. **CRITICAL**: Add authority check to `exchange_protection.py` before `_protect_position()`
-2. **HIGH**: Add explicit `is_agent_managed()` check in `execution_engine._process_market()`
-3. **HIGH**: Add per-asset authority check in `clock._execute_orders()` as fallback
-4. **MEDIUM**: Document that thesis files should only exist for delegated assets
-5. **MEDIUM**: Add authority check to guard before order queueing
-6. **LOW**: Update this doc when changes are made
+1. ✅ **DONE** — `exchange_protection` authority gate (H1 commit `37be8c7`)
+2. ✅ **DONE** — `execution_engine._process_market` authority gate (H2 commit `45df230`)
+3. ✅ **DONE** — `clock._execute_orders` per-asset defense-in-depth (H3 commit `5c20ada`)
+4. ✅ **DONE** — `guard.tick` per-position authority gate with reclaim teardown (H4 commit `0193191`)
+5. **ONGOING** — Document that thesis files should only exist for delegated assets (social contract; the H2 gate no longer depends on this invariant)
+6. **ONGOING** — Rebalancer strategies should query authority themselves before queueing OrderIntents; the H3 gate at `clock._execute_orders` is the backstop for anything that doesn't
 
 ---
 

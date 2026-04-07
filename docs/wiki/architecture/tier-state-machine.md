@@ -111,10 +111,10 @@ Inherits all WATCH iterators, plus adds:
 #### Write-capable protection + rebalancing:
 | Iterator | Role | Writes? | Triggers | Authority Check |
 |----------|------|---------|----------|-----------------|
-| `exchange_protection` | Places ruin-prevention SL at `liq_px * 1.02` (2% buffer) for every open position | ✅ trigger orders | Every position without an SL; throttle 60s | ❌ **NO authority check** in code (verified 2026-04-07 — see `writers-and-authority.md` §1.2 and the verification-ledger). Must be fixed before WATCH→REBALANCE promotion. |
-| `execution_engine` | Conviction-based rebalancing: moves position size to match thesis conviction band | ✅ market orders | Conviction drift >5%; throttle 2min | ✅ Reads `ctx.thesis_states`; skips if conviction is 0 (exit band) |
+| `exchange_protection` | Places ruin-prevention SL at `liq_px * 1.02` (2% buffer) for every open position | ✅ trigger orders | Every position without an SL; throttle 60s | ✅ **Per-asset `is_agent_managed()` gate at top of `tick()`** (H1 hardening, commit `37be8c7` — closes the LATENT-REBALANCE gap from the 2026-04-07 verification ledger). Positions whose asset is not delegated to the agent are skipped with a debug log. Authority reclaim mid-flight is handled by the existing cleanup loop. |
+| `execution_engine` | Conviction-based rebalancing: moves position size to match thesis conviction band | ✅ market orders | Conviction drift >5%; throttle 2min | ✅ **Per-asset `is_agent_managed()` gate at top of `_process_market()`** (H2 hardening, commit `45df230`). Non-agent assets short-circuit before any conviction or sizing math. The global drawdown-ruin gate (≥40%) at the tick scope is intentionally NOT gated — it fires globally regardless of per-asset authority. |
 | `vault_rebalancer` | Maintains target vault allocation per `data/config/rebalancer.yaml` | ✅ market orders | Drift from target; throttle varies | ✅ Only runs if delegated; respects authority |
-| `guard` | Trailing stop engine — ratchets SL upward as profit grows, syncs to exchange | ✅ trigger order sync | Every position; per-tick | ⚠️ Runs in REBALANCE; guards ALL positions regardless of authority (but can be gated per-asset) |
+| `guard` | Trailing stop engine — ratchets SL upward as profit grows, syncs to exchange | ✅ trigger order sync | Every position; per-tick | ✅ **Per-asset `is_agent_managed()` gate at top of the per-position loop** (H4 hardening, commit `0193191`). Previously-tracked positions whose authority was reclaimed mid-flight are torn down — bridge closed, exchange SL cancelled, release alert emitted. |
 | `profit_lock` | Sweeps % of realized profits to safety (future: vault transfer; now: logs intent) | ✅ reduce-only orders | Profit threshold exceeded; throttle 5min | ✅ Respects authority; only closes on delegated assets |
 | `catalyst_deleverage` | Pre-event deleverage ahead of known catalysts (FOMC, contract rolls, etc.) | ✅ reduce-only orders | Event date ± pre_event_hours window | ✅ Per-asset gate (in config) |
 | `rebalancer` | Runs active roster strategies on their tick intervals | ✅ strategy-generated orders | Strategy tick interval | ✅ Strategies can query authority if they want per-asset checks |
@@ -305,7 +305,7 @@ User must confirm:
 1. ✅ Run WATCH for ≥2 weeks with zero `protection_audit` CRITICAL alerts that heartbeat failed to resolve
 2. ✅ `protection_audit` matches heartbeat output (no `wrong_side` or `too_close` alerts)
 3. ✅ `account_snapshots` table is populating cleanly; no drawdown excursion exceeds comfort level
-4. ✅ **STOP the heartbeat launchd job** (`launchctl unload com.hl-bot.heartbeat.plist`)
+4. ✅ **STOP the heartbeat launchd job** (`launchctl unload ~/Library/LaunchAgents/com.hyperliquid.heartbeat.plist`)
    - If you don't stop it, `exchange_protection` and heartbeat will fight over SL placement → thrashing
 5. ✅ Restart daemon with `--tier rebalance`
 6. ✅ Delegate ONE asset first (`/delegate BRENTOIL`)
@@ -444,18 +444,24 @@ timestamp and reason.
 **Q: Can I be in REBALANCE tier but have an asset in `manual` authority?**
 
 A: Yes. Tier is global capability. Authority is per-asset. A `manual` asset in REBALANCE
-tier *should* mean:
+tier means:
 - `liquidation_monitor` still alerts on it (cushion <10%) ✅
 - `protection_audit` still verifies its SL ✅
-- `exchange_protection` should skip it, **but currently does NOT** (no authority check
-  in code — see `writers-and-authority.md` §1.2). Known gap; must be fixed before
-  promoting to REBALANCE in production.
-- `execution_engine` skips it implicitly (only acts on markets in `ctx.thesis_states`,
-  which is populated only for AI-delegated assets via thesis files).
+- `exchange_protection` skips it ✅ (H1 hardening, commit `37be8c7` — per-asset
+  `is_agent_managed()` gate at the top of `tick()`, with the existing cleanup loop
+  handling authority reclaim mid-flight)
+- `execution_engine` skips it ✅ (H2 hardening, commit `45df230` — per-asset gate at
+  the top of `_process_market()`, before any conviction or sizing math; the implicit
+  thesis-file defense is no longer the only line)
+- `guard` skips it ✅ (H4 hardening, commit `0193191` — per-asset gate at the top of
+  the per-position loop; authority reclaim mid-flight tears down the bridge, cancels
+  the exchange SL, emits a release alert)
+- `clock._execute_orders` drops any stray non-agent `OrderIntent` as a CRITICAL alert
+  ✅ (H3 defense-in-depth, commit `5c20ada`)
 
-User and heartbeat manage the SL; daemon watches and alerts only — but the
-`exchange_protection` gap means a `manual` asset in REBALANCE will still receive a
-ruin-prevention SL until that gap is closed.
+User and heartbeat manage the SL; daemon watches and alerts only. The per-asset
+authority gate in each write-capable iterator + the clock-level defense-in-depth gate
+give four independent checkpoints before any order reaches the exchange.
 
 ---
 
