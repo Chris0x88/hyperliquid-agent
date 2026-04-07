@@ -10,33 +10,56 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention
 
-## Current Phase: Phase 3 — REFLECT Loop
+## Current Phase: Hardening (audit fix execution)
 
-**Goal:** Wire meta-evaluation, journal, and playbook into the daemon.
+The active work is closing the items in `docs/plans/AUDIT_FIX_PLAN.md`
+(self-audit performed by the embedded agent on 2026-04-07). Phase 3
+shipped via the autoresearch iterator before the audit ran.
 
-Modules exist (`modules/reflect_engine.py`, `journal_engine.py`, `memory_engine.py`) but are CLI-only. Need daemon iterators to run them automatically.
+For the deferred research-app build (parked), see
+`docs/wiki/decisions/011-two-app-architecture-research-sibling.md` —
+status `Proposed`, no implementation.
 
-See `docs/plans/PHASE_3_REFLECT_LOOP.md` for detailed plan.
-
-### What's Next After Phase 3
+### What's Next After Hardening
 
 - **Phase 4: Self-Improving** — Auto-tuning, catalyst calendar, convergence tracking
 - See `docs/plans/PHASE_4_SELF_IMPROVING.md`
+- **Optional: ADR-011 research-app** — only if Chris greenlights it
 
-## What Just Shipped (v4 — 2026-04-05)
+## What Has Shipped
 
+### v4 (2026-04-05) — embedded agent runtime
 - **Embedded agent runtime** — `cli/agent_runtime.py` ported from Claude Code (parallel tools, streaming, compaction, dream)
-- **20 tools** — 11 trading + 8 general (codebase, web, memory, shell) + 1 daemon health
+- Tool inventory: see `cli/agent_tools.py` (`TOOL_DEFS`)
 - **Agent memory** — persistent `data/agent_memory/` with auto-loaded MEMORY.md
 - **Self-improvement** — agent can read/edit its own code with user approval
-- **Wiki documentation system** — 27 pages, single source of truth, MAINTAINING.md guide
+- **Wiki documentation system** — single source of truth in `docs/wiki/`, MAINTAINING.md guide
+
+### Phase 3 (REFLECT loop) — SHIPPED
+The autoresearch daemon iterator now runs `ReflectEngine` on a regular
+cycle and emits round-trip metrics into the daemon log and memory.
+See `cli/daemon/iterators/autoresearch.py`. The Phase 3 plan document
+remains as the historical spec — its `Status: Planned` field is stale.
+
+### Audit hardening (2026-04-07) — IN PROGRESS
+- F1 (agent self-knowledge), F2 (auto-watchlist), F3 (model selection
+  honoured by dream/compaction), F5 (LIVE CONTEXT staleness), F7
+  (tool execution verification), F8 (model logging), web_search fix
+- F4 (context_harness verification) — verified, no fix needed
+- F6 (liquidation cushion alerts) — new `liquidation_monitor` iterator
+  in all 3 tiers, alert-only
+- F9 (chat history continuity) — bot is already stateless; added
+  startup diagnostic log line
+- H4 (account snapshot dual-write) — new `account_snapshots` table in
+  memory.db, dual-written from `account_collector` iterator
 
 ## Open Questions / Priorities
 
 - SILVER and GOLD thesis stale — conviction auto-clamped
 - Streaming not yet wired to Telegram output (helper exists, needs integration into main flow)
 - Dream consolidation runs but doesn't yet use agent tools (marks complete only)
-- REFLECT wiring (Phase 3): which iterators, what tier, what frequency?
+- Vault BTC positions are not included in `_fetch_account_state_for_harness()`
+  (vault rebalancer manages it independently — minor gap, not yet scoped)
 
 ## Package Map
 

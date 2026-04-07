@@ -1,8 +1,12 @@
 # Phase 3: Wire REFLECT Meta-Evaluation
 
-> **Status: Planned**
-> **Depends on: Phase 2 complete (daemon running)**
-> **Estimated: 1 session**
+> **Status: Shipped (2026-04-07 alignment)**
+> **Shipping commit:** `9ce5c20 feat: wire signals, trade journal, REFLECT loop, and /restart into daemon`
+>
+> The autoresearch daemon iterator now runs `ReflectEngine` and emits
+> round-trip metrics into the daemon log and memory at every cycle.
+> See `cli/daemon/iterators/autoresearch.py`. This document remains
+> as the historical specification.
 
 ## Goal
 
