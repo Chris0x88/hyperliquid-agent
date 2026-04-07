@@ -27,6 +27,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
 from cli.daemon.context import Alert, OrderIntent, TickContext
+from common.authority import is_agent_managed
 from common.thesis import ThesisState
 
 log = logging.getLogger("daemon.execution_engine")
@@ -132,6 +133,21 @@ class ExecutionEngineIterator:
 
     def _process_market(self, market: str, thesis: ThesisState, ctx: TickContext) -> None:
         """Evaluate and rebalance one market based on thesis conviction."""
+        # H2 hardening — explicit per-asset authority gate (closes the
+        # LATENT-REBALANCE gap from the 2026-04-07 verification ledger).
+        # Even though ctx.thesis_states is normally populated only for
+        # delegated assets, a manually-created thesis file or a delegation
+        # change between the thesis_engine load and the execution_engine
+        # tick could produce a thesis for a non-delegated asset. Refuse
+        # to act on anything that isn't 'agent' authority.
+        if not is_agent_managed(market):
+            log.warning(
+                "ExecutionEngine skipping %s — authority is not 'agent' "
+                "(thesis present but asset not delegated)",
+                market,
+            )
+            return
+
         conviction = thesis.effective_conviction()
         target_size_pct, max_lev, band = _conviction_band(conviction)
 
