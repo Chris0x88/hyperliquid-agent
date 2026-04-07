@@ -636,8 +636,13 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             if should_compact(messages, model):
                 log.info("Context compaction triggered at %d messages", len(messages))
                 compact_msgs = build_compact_messages(messages)
-                # Honour the user's selected model (was hardcoded Haiku/OpenRouter — audit F3)
-                summary_response = _call_anthropic(compact_msgs) if _is_anthropic_model(_get_active_model()) else _call_openrouter_direct(compact_msgs)
+                # Background task — use Haiku via SDK direct (not CLI binary).
+                # The CLI binary path adds 60-90s latency and runs synchronously
+                # in the user's request thread, blocking the bot from handling
+                # the next message. Compaction is a summarisation task where
+                # Haiku is fine. F3 originally routed this through the user's
+                # selected model but that wedged the bot — see post-mortem.
+                summary_response = _call_anthropic(compact_msgs, model_override="claude-haiku-4-5")
                 summary = summary_response.get("content", "")
                 if summary:
                     # Replace messages with summary + current user message
@@ -740,8 +745,12 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     {"role": "user", "content": f"{dream_prompt}\n\n--- Current Memory ---\n{memory_index}\n\n--- Recent History ---\n{history_text}"},
                 ]
 
-                # Honour the user's selected model (was hardcoded Haiku/OpenRouter — audit F3)
-                dream_response = _call_anthropic(dream_messages) if _is_anthropic_model(_get_active_model()) else _call_openrouter_direct(dream_messages)
+                # Background task — use Haiku via SDK direct (not CLI binary).
+                # Same reason as compaction above: dream runs synchronously
+                # after the user response is sent, and the CLI binary path
+                # blocks the bot for 60-90s+ on Sonnet, causing the next user
+                # message to silently fail. Haiku via SDK is fast and cheap.
+                dream_response = _call_anthropic(dream_messages, model_override="claude-haiku-4-5")
                 dream_text = dream_response.get("content", "")
 
                 if dream_text:
