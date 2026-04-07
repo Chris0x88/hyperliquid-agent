@@ -23,6 +23,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from cli.daemon.context import Alert, TickContext
+from common.authority import is_agent_managed
 
 log = logging.getLogger("daemon.exchange_protection")
 
@@ -92,13 +93,28 @@ class ExchangeProtectionIterator:
             return
         self._last_tick = now
 
-        # Active instruments with open positions
+        # Active instruments with open positions where the bot has authority.
+        # Per-asset authority gate (H1 hardening — closes the LATENT-REBALANCE gap
+        # documented in writers-and-authority.md): only positions whose asset is
+        # delegated to the agent get an SL placed/maintained here. Manual or 'off'
+        # assets are skipped — they're managed by the user (or by heartbeat in
+        # WATCH tier, which has its own authority gate). When authority is
+        # reclaimed (agent → manual), the asset falls out of 'active' on the
+        # next tick and the cleanup loop below cancels any SL we previously
+        # placed.
         active: Dict[str, Any] = {}
         for pos in ctx.positions:
-            if pos.net_qty != ZERO:
-                active[pos.instrument] = pos
+            if pos.net_qty == ZERO:
+                continue
+            if not is_agent_managed(pos.instrument):
+                log.debug(
+                    "ExchangeProtection skipping %s — authority is not 'agent'",
+                    pos.instrument,
+                )
+                continue
+            active[pos.instrument] = pos
 
-        # Clean up closed positions
+        # Clean up closed positions and assets where authority was reclaimed
         closed = [inst for inst in self._tracked if inst not in active]
         for inst in closed:
             tracked = self._tracked.pop(inst)
@@ -106,10 +122,10 @@ class ExchangeProtectionIterator:
             ctx.alerts.append(Alert(
                 severity="info",
                 source=self.name,
-                message=f"Exchange SL removed for {inst} (position closed)",
+                message=f"Exchange SL removed for {inst} (position closed or authority reclaimed)",
             ))
 
-        # Place/update SL for each open position
+        # Place/update SL for each agent-managed open position
         for inst, pos in active.items():
             self._protect_position(inst, pos, ctx)
 
