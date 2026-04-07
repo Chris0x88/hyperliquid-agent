@@ -8,6 +8,7 @@ TIER_ITERATORS = {
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "funding_tracker",     # cumulative funding cost tracker (C2 — read-only)
         "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
+        "brent_rollover_monitor", # alerts at T-7/T-3/T-1 days before each Brent contract roll (C7)
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
@@ -24,6 +25,7 @@ TIER_ITERATORS = {
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
+        "brent_rollover_monitor", # alerts at T-7/T-3/T-1 days before each Brent contract roll (C7)
         "market_structure",
         "thesis_engine",
         "execution_engine",    # conviction-based sizing
@@ -45,6 +47,7 @@ TIER_ITERATORS = {
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
+        "brent_rollover_monitor", # alerts at T-7/T-3/T-1 days before each Brent contract roll (C7)
         "market_structure",
         "thesis_engine",
         "execution_engine",
