@@ -25,9 +25,16 @@ class _FakeDirectAdapter:
     """Shape-matches ``DirectHLProxy`` for the parts connector.tick touches."""
 
     def __init__(self, native_positions: List[Dict[str, Any]],
-                 xyz_state: Dict[str, Any] | None = None):
+                 xyz_state: Dict[str, Any] | None = None,
+                 snapshot_prices: Dict[str, float] | None = None,
+                 snapshot_raises: set | None = None):
         self._native_positions = native_positions
         self._xyz_state = xyz_state or {}
+        # Per-instrument override: key = instrument string, value = mid_price.
+        # Falls back to 100.0 for any instrument not listed.
+        self._snapshot_prices = snapshot_prices or {}
+        # Set of instrument strings for which get_snapshot should raise.
+        self._snapshot_raises = snapshot_raises or set()
 
     # connector.tick probes this first
     def get_account_state(self) -> Dict[str, Any]:
@@ -43,12 +50,19 @@ class _FakeDirectAdapter:
     def get_xyz_state(self) -> Dict[str, Any]:
         return self._xyz_state
 
-    # connector.tick calls get_snapshot per roster instrument — not relevant
-    # for the positions path, but we stub it so the call does not blow up.
+    # connector.tick calls get_snapshot per roster instrument and per open
+    # position instrument (after the BUG-FIX 2026-04-08 position-price loop).
     def get_snapshot(self, instrument: str):
+        if instrument in self._snapshot_raises:
+            raise RuntimeError(f"simulated snapshot failure for {instrument}")
+        price = self._snapshot_prices.get(instrument, 100.0)
+
         class _S:
-            mid_price = 100.0
-        return _S()
+            pass
+
+        s = _S()
+        s.mid_price = price
+        return s
 
     def get_all_markets(self):
         return []
@@ -274,3 +288,128 @@ class TestConnectorBalancesUSDC:
         it.tick(ctx)
 
         assert ctx.balances["USDC"] == Decimal("0")
+
+
+class TestConnectorPositionPrices:
+    """Regression tests for BUG-FIX 2026-04-08 — position-instrument price gap.
+
+    The roster price loop only fetches prices for instruments in
+    ctx.active_strategies.  If a position exists for a coin not in the roster
+    (e.g. BTC when the roster uses BTC-PERP), ctx.prices[pos.instrument] was
+    never populated and protection_audit / liquidation_monitor saw mark=0.0000.
+
+    The second price loop (after the xyz merge block) closes this gap by
+    fetching and storing a price for every open position instrument not already
+    covered by the roster loop.
+    """
+
+    def test_position_only_instrument_gets_mark_price(self):
+        """Native BTC position (not in roster) gets ctx.prices["BTC"] populated."""
+        adapter = _FakeDirectAdapter(
+            native_positions=[_raw_hl_position("BTC", 0.00015, 67858.0)],
+            snapshot_prices={"BTC": 68500.0},
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        assert "BTC" in ctx.prices, "ctx.prices must contain the position coin key"
+        assert ctx.prices["BTC"] == Decimal("68500.0")
+
+    def test_xyz_position_gets_mark_price(self):
+        """xyz:BRENTOIL position (not in roster) gets ctx.prices['xyz:BRENTOIL'] populated."""
+        adapter = _FakeDirectAdapter(
+            native_positions=[],
+            xyz_state={
+                "assetPositions": [{
+                    "position": {
+                        "coin": "xyz:BRENTOIL",
+                        "szi": "0.5",
+                        "entryPx": "85.0",
+                        "liquidationPx": "75.0",
+                        "leverage": {"value": 2},
+                    }
+                }],
+            },
+            snapshot_prices={"xyz:BRENTOIL": 86.25},
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        assert "xyz:BRENTOIL" in ctx.prices, "ctx.prices must contain the xyz position coin key"
+        assert ctx.prices["xyz:BRENTOIL"] == Decimal("86.25")
+
+    def test_roster_covered_instrument_is_not_double_fetched(self):
+        """If a position instrument is already in ctx.prices the second loop skips it.
+
+        We simulate the roster having pre-populated ctx.prices["BTC"] = 67100,
+        then give the adapter a BTC position whose snapshot would return 68000.
+        The second loop must NOT overwrite the already-present price — the key
+        already exists so the ``if _pos.instrument in ctx.prices: continue``
+        guard fires and the adapter is NOT called a second time.
+
+        A separate BTC-only native position (ETH) that has NO pre-existing price
+        DOES get fetched, confirming the deduplication is per-key.
+        """
+        adapter = _FakeDirectAdapter(
+            native_positions=[
+                _raw_hl_position("BTC", 0.001, 67000.0),
+                _raw_hl_position("ETH", 1.0, 3200.0),
+            ],
+            snapshot_prices={"BTC": 68000.0, "ETH": 3300.0},
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        # Pre-populate BTC as if the roster loop had already set it
+        ctx.prices["BTC"] = Decimal("67100.0")
+        it.tick(ctx)
+
+        # BTC price must NOT be overwritten — the pre-existing value survives
+        assert ctx.prices["BTC"] == Decimal("67100.0"), (
+            "position loop must not overwrite a price already set by the roster loop"
+        )
+        # ETH (no pre-existing price) must be fetched by the second loop
+        assert ctx.prices["ETH"] == Decimal("3300.0")
+
+    def test_snapshot_failure_is_non_fatal(self):
+        """If get_snapshot raises for one position, the loop logs and continues."""
+        adapter = _FakeDirectAdapter(
+            native_positions=[
+                _raw_hl_position("BTC", 0.001, 67000.0),
+                _raw_hl_position("ETH", 1.5, 3200.0),
+            ],
+            # BTC snapshot blows up; ETH snapshot returns normally
+            snapshot_raises={"BTC"},
+            snapshot_prices={"ETH": 3250.0},
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        # ETH must have a price even though BTC's fetch failed
+        assert "ETH" in ctx.prices
+        assert ctx.prices["ETH"] == Decimal("3250.0")
+        # BTC must NOT be in ctx.prices (the failed fetch must not leave a zero)
+        assert "BTC" not in ctx.prices
+
+    def test_zero_qty_position_does_not_trigger_price_fetch(self):
+        """Closed positions (szi=0) are dropped by the build loop and never reach
+        the price loop — so no snapshot call is made for them."""
+        adapter = _FakeDirectAdapter(
+            native_positions=[
+                _raw_hl_position("BTC", 0.0, 67000.0),   # closed — must be filtered
+                _raw_hl_position("ETH", 1.0, 3200.0),    # open — must get a price
+            ],
+            snapshot_prices={"ETH": 3300.0},
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        # Only the open ETH position should have propagated
+        assert len(ctx.positions) == 1
+        assert ctx.positions[0].instrument == "ETH"
+        # ETH gets a price; BTC (closed) gets none
+        assert "ETH" in ctx.prices
+        assert "BTC" not in ctx.prices

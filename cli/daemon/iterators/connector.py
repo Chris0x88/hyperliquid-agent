@@ -148,6 +148,34 @@ class ConnectorIterator:
         except Exception as e:
             log.warning("Failed to merge xyz positions: %s", e)
 
+        # Fetch mark prices for position instruments not already in ctx.prices
+        #
+        # BUG-FIX 2026-04-08: the roster price loop above (lines ~68-73) only
+        # fetches prices for instruments that appear in ctx.active_strategies
+        # (e.g. "BTC-PERP").  When a position exists for an instrument whose
+        # coin name differs from the roster key — or when no roster slot exists
+        # at all — ctx.prices[pos.instrument] is never set.  Downstream
+        # iterators (protection_audit, liquidation_monitor, guard) then see
+        # mark=0.0000 and their distance/cushion checks silently fail.
+        #
+        # The fix runs a SECOND price-fetching loop AFTER ctx.positions is
+        # fully built (native + xyz merge above).  For every position with a
+        # non-zero qty we check whether ctx.prices already has an entry keyed
+        # by pos.instrument; if not we call get_snapshot and store the result
+        # under that exact key so that lookups like ctx.prices.get(pos.instrument)
+        # always succeed.  The roster loop is untouched (additive-only change).
+        for _pos in ctx.positions:
+            if _pos.instrument in ctx.prices:
+                continue  # already covered by roster loop — don't double-fetch
+            try:
+                _snap = self._adapter.get_snapshot(_pos.instrument)
+                ctx.prices[_pos.instrument] = Decimal(str(_snap.mid_price))
+            except Exception as e:
+                log.warning(
+                    "Failed to fetch snapshot for position instrument %s: %s",
+                    _pos.instrument, e,
+                )
+
         # Fetch all markets (for radar/pulse)
         try:
             if hasattr(self._adapter, 'get_all_markets'):
