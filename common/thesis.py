@@ -20,6 +20,13 @@ log = logging.getLogger("thesis")
 # Directory for thesis state files (relative to agent-cli working dir)
 DEFAULT_THESIS_DIR = "data/thesis"
 
+# H6 — sibling backup directory for thesis state files. Each ThesisState.save()
+# does a best-effort dual-write here so a single corrupt or deleted primary
+# file is recoverable. Default: data/thesis → data/thesis_backup.
+def _backup_dir_for(thesis_dir: str) -> str:
+    """Return the sibling backup directory for a given thesis directory."""
+    return thesis_dir.rstrip("/") + "_backup"
+
 
 @dataclass
 class Evidence:
@@ -124,9 +131,18 @@ class ThesisState:
         return self.market.replace(":", "_").replace("/", "_").replace("-", "_").lower()
 
     def save(self, thesis_dir: str = DEFAULT_THESIS_DIR) -> str:
-        """Persist state to disk. Returns filepath written."""
+        """Persist state to disk. Returns filepath written.
+
+        H6 hardening: also writes a best-effort backup copy to the sibling
+        ``{thesis_dir}_backup`` directory. The backup write is atomic (.tmp →
+        rename) and wrapped in try/except so a backup failure cannot break
+        the primary write. Closes the SPOF flagged in the data-stores.md
+        verification ledger (no dual-write backup → thesis loss = AI/execution
+        contract loss).
+        """
         Path(thesis_dir).mkdir(parents=True, exist_ok=True)
-        path = os.path.join(thesis_dir, f"{self.market_slug()}_state.json")
+        filename = f"{self.market_slug()}_state.json"
+        path = os.path.join(thesis_dir, filename)
         data = {
             "market": self.market,
             "direction": self.direction,
@@ -145,12 +161,28 @@ class ThesisState:
             "snapshot_ref": self.snapshot_ref,
             "notes": self.notes,
         }
+        serialized = json.dumps(data, indent=2) + "\n"
+
+        # Primary write — atomic via .tmp + rename
         tmp_path = path + ".tmp"
         with open(tmp_path, "w") as f:
-            json.dump(data, f, indent=2)
-            f.write("\n")
+            f.write(serialized)
         os.replace(tmp_path, path)
         log.info("ThesisState saved: %s  conviction=%.2f  direction=%s", path, self.conviction, self.direction)
+
+        # H6 — best-effort dual-write to sibling backup directory
+        try:
+            backup_dir = _backup_dir_for(thesis_dir)
+            Path(backup_dir).mkdir(parents=True, exist_ok=True)
+            backup_path = os.path.join(backup_dir, filename)
+            backup_tmp = backup_path + ".tmp"
+            with open(backup_tmp, "w") as f:
+                f.write(serialized)
+            os.replace(backup_tmp, backup_path)
+            log.debug("ThesisState backup written: %s", backup_path)
+        except Exception as e:
+            log.warning("ThesisState backup write failed for %s: %s", filename, e)
+
         return path
 
     @classmethod
