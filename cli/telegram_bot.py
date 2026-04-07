@@ -723,6 +723,30 @@ def cmd_chart(token: str, chat_id: str, args: str) -> None:
         tg_send(token, chat_id, f"Chart error: {e}")
 
 
+def cmd_brief(token: str, chat_id: str, _args: str) -> None:
+    """Generate and send the daily report PDF on demand. C6 from the
+    2026-04-07 connections audit. Triggers cli/daily_report.generate_report()
+    and uploads the result via sendDocument. Slow (matplotlib + multiple
+    HL API calls), so we send a typing indicator first and the response
+    landing in 5-15s is normal."""
+    try:
+        tg_send(token, chat_id, "Generating brief... (5-15s)")
+        from cli import daily_report
+        path = daily_report.generate_report()
+        url = f"https://api.telegram.org/bot{token}/sendDocument"
+        with open(path, "rb") as f:
+            resp = requests.post(
+                url,
+                data={"chat_id": chat_id, "caption": f"Brief on demand — {path.name}"},
+                files={"document": (path.name, f, "application/pdf")},
+                timeout=60,
+            )
+        if not resp.json().get("ok"):
+            tg_send(token, chat_id, f"Brief upload failed: {resp.text[:200]}")
+    except Exception as e:
+        tg_send(token, chat_id, f"Brief error: {e}")
+
+
 def cmd_watchlist(token: str, chat_id: str, _args: str) -> None:
     """Show the watchlist with current prices."""
     lines = ["📊 *Watchlist*", ""]
@@ -2887,6 +2911,8 @@ HANDLERS = {
     "/powerlaw": cmd_powerlaw,
     "/rebalancer": cmd_rebalancer,
     "/rebalance": cmd_rebalance,
+    "/brief": cmd_brief,
+    "/b": cmd_brief,
     "/restart": cmd_restart,
     "/signals": cmd_signals,
     "/sig": cmd_signals,
@@ -2927,6 +2953,8 @@ HANDLERS = {
     "powerlaw": cmd_powerlaw,
     "rebalancer": cmd_rebalancer,
     "rebalance": cmd_rebalance,
+    "brief": cmd_brief,
+    "b": cmd_brief,
     "restart": cmd_restart,
     "signals": cmd_signals,
     "sig": cmd_signals,
@@ -2993,6 +3021,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "chartbtc", "description": "BTC price chart"},
         {"command": "chartgold", "description": "Gold price chart"},
         {"command": "watchlist", "description": "All markets + prices"},
+        {"command": "brief", "description": "Generate full daily brief PDF on demand"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
