@@ -621,8 +621,8 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             if should_compact(messages, model):
                 log.info("Context compaction triggered at %d messages", len(messages))
                 compact_msgs = build_compact_messages(messages)
-                # Use a fast model for summarization
-                summary_response = _call_openrouter_direct(compact_msgs, model_override="anthropic/claude-haiku-4-5")
+                # Honour the user's selected model (was hardcoded Haiku/OpenRouter — audit F3)
+                summary_response = _call_anthropic(compact_msgs) if _is_anthropic_model(_get_active_model()) else _call_openrouter_direct(compact_msgs)
                 summary = summary_response.get("content", "")
                 if summary:
                     # Replace messages with summary + current user message
@@ -725,8 +725,8 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     {"role": "user", "content": f"{dream_prompt}\n\n--- Current Memory ---\n{memory_index}\n\n--- Recent History ---\n{history_text}"},
                 ]
 
-                # Use a fast model for consolidation
-                dream_response = _call_openrouter_direct(dream_messages, model_override="anthropic/claude-haiku-4-5")
+                # Honour the user's selected model (was hardcoded Haiku/OpenRouter — audit F3)
+                dream_response = _call_anthropic(dream_messages) if _is_anthropic_model(_get_active_model()) else _call_openrouter_direct(dream_messages)
                 dream_text = dream_response.get("content", "")
 
                 if dream_text:
