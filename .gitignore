@@ -41,6 +41,15 @@ data/test_leak.txt
 data/power_law/
 *.jsonl
 
+# User-maintained Brent rollover schedule (the iterator falls back to its
+# DEFAULT_CALENDAR if missing). The rest of data/calendar/ ships with the repo
+# (annual.json, quarterly.json, halving cycle, political cycle, etc.).
+data/calendar/brent_rollover.json
+
+# Brief command runtime state (last_brief_state.json + brief_log.md).
+# Not the same as the strategies/ source directory at the repo root.
+data/strategies/
+
 # Logs and runtime state
 logs/
 state/
