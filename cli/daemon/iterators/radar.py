@@ -66,18 +66,37 @@ class RadarIterator:
             self._last_scan = now
 
             if result and hasattr(result, 'opportunities') and result.opportunities:
+                # Populate ctx for downstream consumers (apex_advisor — C3).
+                # Serialize to a dict shape ApexEngine.evaluate() expects.
+                ctx.radar_opportunities = [
+                    {
+                        "asset": opp.asset,
+                        "direction": opp.direction,
+                        "final_score": opp.final_score,
+                    }
+                    for opp in result.opportunities
+                ]
+
                 for opp in result.opportunities[:3]:  # top 3
+                    # Note: previous version used opp.name / opp.score which
+                    # don't exist on the Opportunity dataclass — that was a
+                    # latent bug hidden by the fact that radar has been
+                    # producing empty results in current markets. Fixed
+                    # inline as part of C3 because the new ctx population
+                    # path needs the correct attribute names.
                     ctx.alerts.append(Alert(
                         severity="info",
                         source=self.name,
-                        message=f"Radar: {opp.name} score={opp.score:.0f} dir={opp.direction}",
-                        data={"opportunity": opp.name, "score": opp.score},
+                        message=f"Radar: {opp.asset} score={opp.final_score:.0f} dir={opp.direction}",
+                        data={"asset": opp.asset, "final_score": opp.final_score, "direction": opp.direction},
                     ))
                     # Persist to JSONL
                     self._persist_signal(opp, now)
 
                 log.info("Radar scan: %d opportunities found", len(result.opportunities))
             else:
+                # Clear stale opportunities from previous scan
+                ctx.radar_opportunities = []
                 log.debug("Radar scan: no opportunities")
 
         except Exception as e:
@@ -85,14 +104,17 @@ class RadarIterator:
 
     def _persist_signal(self, opp, timestamp: int) -> None:
         """Append opportunity to signals.jsonl for historical tracking."""
+        # Fix: Opportunity dataclass exposes .asset / .final_score, NOT
+        # .name / .score. The previous version was a latent crash that
+        # never fired because no opportunities were ever produced.
         record = {
             "timestamp": timestamp,
             "timestamp_human": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(timestamp)),
             "source": "radar",
-            "asset": opp.name,
+            "asset": opp.asset,
             "direction": opp.direction,
-            "score": opp.score,
-            "btc_macro_modifier": getattr(opp, "btc_macro_modifier", 0),
+            "final_score": opp.final_score,
+            "macro_modifier": getattr(opp, "macro_modifier", 0),
         }
         try:
             with open(SIGNALS_JSONL, "a") as f:

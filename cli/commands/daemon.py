@@ -132,6 +132,7 @@ def daemon_start(
     # Build clock and register iterators
     clock = Clock(config=config, roster=roster, store=store, adapter=adapter)
 
+    from cli.daemon.iterators.apex_advisor import ApexAdvisorIterator
     from cli.daemon.iterators.brent_rollover_monitor import BrentRolloverMonitorIterator
     from cli.daemon.iterators.connector import ConnectorIterator
     from cli.daemon.iterators.liquidation_monitor import LiquidationMonitorIterator
@@ -182,6 +183,7 @@ def daemon_start(
         clock.register(FundingTrackerIterator(data_dir=data_dir))
     if _has_catalyst:
         clock.register(CatalystDeleverageIterator(data_dir=data_dir))
+    clock.register(ApexAdvisorIterator())
     clock.register(AutoresearchIterator())
 
     # Memory consolidation — compresses old events into summaries hourly

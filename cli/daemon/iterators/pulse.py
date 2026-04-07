@@ -59,6 +59,19 @@ class PulseIterator:
             self._last_scan = now
 
             if result and hasattr(result, 'signals') and result.signals:
+                # Populate ctx for downstream consumers (apex_advisor — C3).
+                # Serialize to a dict shape ApexEngine.evaluate() expects.
+                ctx.pulse_signals = [
+                    {
+                        "asset": sig.asset,
+                        "signal_type": getattr(sig, "signal_type", "unknown"),
+                        "direction": getattr(sig, "direction", "unknown"),
+                        "tier": sig.tier,
+                        "confidence": sig.confidence,
+                    }
+                    for sig in result.signals
+                ]
+
                 for sig in result.signals[:3]:
                     ctx.alerts.append(Alert(
                         severity="info",
@@ -70,6 +83,9 @@ class PulseIterator:
                     self._persist_signal(sig, now)
 
                 log.info("Pulse scan: %d signals", len(result.signals))
+            else:
+                # Clear stale signals from previous scan if this scan found nothing
+                ctx.pulse_signals = []
 
         except Exception as e:
             log.warning("Pulse scan failed: %s", e)

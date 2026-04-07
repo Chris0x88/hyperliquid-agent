@@ -127,6 +127,15 @@ class TickContext:
     account_drawdown_pct: float = 0.0   # current drawdown from high water mark
     high_water_mark: float = 0.0        # peak account equity observed
 
+    # Latest signal outputs (populated by pulse + radar iterators on each scan).
+    # Consumed by apex_advisor (C3 — dry-run advisor) so APEX can run on the
+    # same in-memory tick rather than re-reading data/research/signals.jsonl.
+    # Each list is a snapshot of the most recent scan; iterators that produce
+    # them update on their own scan cadence (pulse=2min, radar=5min) and the
+    # lists may stay populated across multiple ticks until the next scan.
+    pulse_signals: List[Dict[str, Any]] = field(default_factory=list)
+    radar_opportunities: List[Dict[str, Any]] = field(default_factory=list)
+
 
 class Iterator(Protocol):
     """Protocol for daemon iterators."""

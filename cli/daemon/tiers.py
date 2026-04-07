@@ -15,6 +15,7 @@ TIER_ITERATORS = {
         "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
+        "apex_advisor",        # dry-run APEX advisor — proposes only (C3)
         "autoresearch",        # learning loop
         "memory_consolidation", # compress old events hourly
         "journal",

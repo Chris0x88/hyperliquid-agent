@@ -6,7 +6,7 @@ Core engines plus utilities. Pure computation (zero I/O) — `_guard` classes ha
 
 | Engine | Key File | Purpose | Status |
 |--------|----------|---------|--------|
-| APEX | `apex_engine.py` | Multi-slot autonomous trading | Wired to daemon |
+| APEX | `apex_engine.py` | Multi-slot autonomous trading | Wired via `cli/daemon/iterators/apex_advisor.py` (dry-run, WATCH tier only). Standalone runner at `skills/apex/scripts/standalone_runner.py`. |
 | GUARD | `guard_bridge.py` | Trailing stops + profit protection | Wired to daemon |
 | RADAR | `radar_engine.py` | Market scanner — find setups | Wired to daemon |
 | PULSE | `pulse_engine.py` | Capital inflow detector | Wired to daemon |
