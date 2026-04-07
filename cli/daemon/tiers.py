@@ -6,6 +6,7 @@ TIER_ITERATORS = {
         "account_collector",   # always first — injects live account state
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
+        "funding_tracker",     # cumulative funding cost tracker (C2 — read-only)
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
