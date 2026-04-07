@@ -66,13 +66,34 @@ def load_working_state(path: str = DEFAULT_STATE_PATH) -> WorkingState:
 
 
 def save_working_state(state: WorkingState, path: str = DEFAULT_STATE_PATH) -> None:
-    """Atomically write WorkingState to JSON (write .tmp then rename)."""
+    """Atomically write WorkingState to JSON (write .tmp then rename).
+
+    H7 hardening: also writes a best-effort ``{path}.bak`` copy in the same
+    directory so a single corrupt or deleted primary file is recoverable.
+    The backup write is atomic (.bak.tmp → rename) and wrapped in try/except
+    so a backup failure cannot break the primary write. Closes the SPOF
+    flagged in the data-stores.md verification ledger (no dual-write backup
+    → working state loss = heartbeat escalation level lost).
+    """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(asdict(state), indent=2)
+
+    # Primary write — atomic via .tmp + rename
     tmp_path = str(p) + ".tmp"
     with open(tmp_path, "w") as f:
-        json.dump(asdict(state), f, indent=2)
+        f.write(serialized)
     os.replace(tmp_path, str(p))
+
+    # H7 — best-effort .bak dual-write in the same directory
+    try:
+        bak_path = str(p) + ".bak"
+        bak_tmp = str(p) + ".bak.tmp"
+        with open(bak_tmp, "w") as f:
+            f.write(serialized)
+        os.replace(bak_tmp, bak_path)
+    except Exception as e:
+        log.warning("WorkingState backup write failed (%s): %s", bak_path if 'bak_path' in dir() else path, e)
 
 
 # ── ATR computation ────────────────────────────────────────────────────────────
