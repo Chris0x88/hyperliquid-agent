@@ -7,6 +7,7 @@ TIER_ITERATORS = {
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
         "funding_tracker",     # cumulative funding cost tracker (C2 — read-only)
+        "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
@@ -22,6 +23,7 @@ TIER_ITERATORS = {
         "account_collector",
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
+        "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
         "market_structure",
         "thesis_engine",
         "execution_engine",    # conviction-based sizing
@@ -42,6 +44,7 @@ TIER_ITERATORS = {
         "account_collector",
         "connector",
         "liquidation_monitor", # tiered cushion alerts on every position (audit F6)
+        "protection_audit",    # read-only verifier that every position has a sane exchange stop (C1')
         "market_structure",
         "thesis_engine",
         "execution_engine",

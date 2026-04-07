@@ -135,6 +135,7 @@ def daemon_start(
     from cli.daemon.iterators.connector import ConnectorIterator
     from cli.daemon.iterators.liquidation_monitor import LiquidationMonitorIterator
     from cli.daemon.iterators.liquidity import LiquidityIterator
+    from cli.daemon.iterators.protection_audit import ProtectionAuditIterator
     from cli.daemon.iterators.risk import RiskIterator
     from cli.daemon.iterators.guard import GuardIterator
     from cli.daemon.iterators.rebalancer import RebalancerIterator
@@ -163,6 +164,7 @@ def daemon_start(
     clock.register(AccountCollectorIterator(adapter=adapter))
     clock.register(ConnectorIterator(adapter=adapter))
     clock.register(LiquidationMonitorIterator())
+    clock.register(ProtectionAuditIterator())
     clock.register(MarketStructureIterator())
     clock.register(ThesisEngineIterator())
     clock.register(ExecutionEngineIterator(adapter=adapter))
