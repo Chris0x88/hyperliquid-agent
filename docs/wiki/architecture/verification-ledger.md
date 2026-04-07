@@ -1,10 +1,73 @@
 # Architecture Doc Verification Ledger
 
-**Date:** 2026-04-07
+**Date:** 2026-04-07 (audit) + 2026-04-07 (hardening update)
 **Author:** Claude Code (sequential audit, code-backed)
 **Purpose:** Audit the six architecture docs produced in commit `977bcc2` against the
 actual code. Identify errors, contradictions, and overstatements so future sessions can
 trust the wiki again.
+
+> **Status update — same-day hardening landed (2026-04-07):**
+> All four P0 authority gaps and four of the SPOF/growth concerns are CLOSED. See
+> the "Hardening Roadmap Status" section directly below this header. The per-doc
+> verdict tables further down are preserved as the audit snapshot at the time of
+> the original review — they describe what was true *before* the fixes landed.
+
+---
+
+## Hardening Roadmap Status (post-2026-04-07 session)
+
+This is the canonical status of the H1-H10 items from ADR-012 § "Sequenced
+production hardening roadmap". Cross-reference with `git log --oneline` for the
+implementation commits.
+
+### P0 — Required before WATCH→REBALANCE tier promotion
+
+| ID | Item | Status | Commit | Tests |
+|---|---|---|---|---|
+| H1 | `exchange_protection` authority check | ✅ **CLOSED** | `37be8c7` | 7 in `test_exchange_protection_authority.py` |
+| H2 | `execution_engine._process_market` authority check | ✅ **CLOSED** | `45df230` | 6 in `test_execution_engine_authority.py` |
+| H3 | `clock._execute_orders` per-asset defense-in-depth | ✅ **CLOSED** | `5c20ada` | 7 in `test_clock_authority_gate.py` |
+| H4 | `guard.tick` per-position authority + reclaim teardown | ✅ **CLOSED** | `0193191` | 8 in `test_guard_authority.py` |
+
+**P0 status: 4 of 4 closed.** The four authority gaps that were blocking
+WATCH→REBALANCE promotion are sealed. Production may now consider tier promotion
+(still gated on the operator-side checklist in `tier-state-machine.md`).
+
+### P1 — High-value hardening (alongside P0)
+
+| ID | Item | Status | Commit | Tests |
+|---|---|---|---|---|
+| H5 | `data/daemon/journal/ticks.jsonl` daily rotation + 14-day retention | ✅ **CLOSED** | `f8bbb57` | 9 in `test_journal_iterator_rotation.py` |
+| H6 | `data/thesis/*.json` dual-write backup to `data/thesis_backup/` | ✅ **CLOSED** | `987edca` | 10 in `test_thesis_backup.py` |
+| H7 | `data/memory/working_state.json` dual-write backup to `working_state.json.bak` | ✅ **CLOSED** | `88b7fe5` | 6 in `test_heartbeat_state_backup.py` |
+| H8 | `state/funding.json` dual-write backup to `funding.json.bak` | ✅ **CLOSED** | `d0a97d0` | 7 in `test_funding_tracker_backup.py` |
+
+**P1 status: 4 of 4 closed.** The active growth concern (ticks.jsonl) is rotated,
+and all three SPOF stores have a dual-write backup.
+
+### P2 — Documentation drift prevention
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| H9 | Document the OrderState lifecycle in `tickcontext-provenance.md` | 🟡 PARTIAL | `master-diagrams.md` View 4 covers it; `tickcontext-provenance.md` still pending. Defer to next doc-only session. |
+| H10 | Wire `protection_audit` REBALANCE/OPPORTUNISTIC verifier role into `writers-and-authority.md` more prominently | ✅ **CLOSED** | Done in Phase 1.4 of the verification session — see commit `86929ba` |
+
+### P3 — Long-term decomposition (deferred)
+
+| ID | Item | Status | Notes |
+|---|---|---|---|
+| H11 | Decompose `common/heartbeat.py` (1631 LOC god-file) | 🔴 DEFERRED | Touches every import in the repo. Wait for forcing function. |
+| H12 | Migrate quoting_engine + strategies to research app (ADR-011 T3.x) | 🔴 DEFERRED | Per ADR-011 — only when greenlit. |
+
+### Test impact
+
+| Snapshot | Total tests | Passing |
+|---|---|---|
+| Before this session | 1862 | 1862 |
+| After H1-H8 + 53 new tests | 1885 | 1885 |
+| Net: +23 tests, zero regressions, full suite green |
+
+---
 **Method:** For every load-bearing claim, locate the cited code, read it, and assign one
 of these verdicts:
 

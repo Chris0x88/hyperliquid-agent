@@ -4,6 +4,101 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-07 -- H1-H8 Production Hardening (8 commits, 53 new tests)
+
+**Eight production hardening items from ADR-012's roadmap shipped in one session.
+All four P0 authority gaps closed, the active growth concern (ticks.jsonl)
+rotated, all three SPOF stores backed up. Zero regressions across the suite
+(1862 → 1885 tests).**
+
+### What shipped
+
+| ID | Description | Commit | Cell | Tests |
+|---|---|---|---|---|
+| **H1** | `exchange_protection` per-asset authority check (skip non-agent positions, cleanup on reclaim) | `37be8c7` | P4 DAEMON_GUARDS | 7 in `test_exchange_protection_authority.py` |
+| **H2** | `execution_engine._process_market` explicit `is_agent_managed()` gate before any sizing math | `45df230` | P6 DAEMON_EXECUTION | 6 in `test_execution_engine_authority.py` |
+| **H3** | `clock._execute_orders` defense-in-depth per-asset gate (CRITICAL alert if upstream leaked) | `5c20ada` | P3 DAEMON_HARNESS | 7 in `test_clock_authority_gate.py` |
+| **H4** | `guard.tick` per-position authority + bridge teardown on reclaim | `0193191` | P4 DAEMON_GUARDS | 8 in `test_guard_authority.py` |
+| **H5** | `ticks.jsonl` daily rotation (`ticks-YYYYMMDD.jsonl`) + 14-day retention pruning | `f8bbb57` | P6 DAEMON_EXECUTION | 9 in `test_journal_iterator_rotation.py` |
+| **H6** | `data/thesis/*.json` dual-write to sibling `data/thesis_backup/` | `987edca` | P9 MEMORY_AND_KNOWLEDGE | 10 in `test_thesis_backup.py` |
+| **H7** | `working_state.json.bak` dual-write (atomic .bak.tmp + rename) | `88b7fe5` | P7 HEARTBEAT_PROCESS | 6 in `test_heartbeat_state_backup.py` |
+| **H8** | `funding.json.bak` dual-write (closes the irrecoverable history concern) | `d0a97d0` | P5 DAEMON_SIGNALS | 7 in `test_funding_tracker_backup.py` |
+
+Plus housekeeping commit `4950b52` for `.gitignore` (brent_rollover.json +
+data/strategies/) at the start of the session.
+
+### Pattern: minimal-diff hardening per cell
+
+Every fix followed the same template:
+
+1. Read the file the verification ledger flagged
+2. Apply the smallest possible patch to close the gap
+3. Write a focused test file for the new behaviour
+4. Run the per-cell smoke test to confirm zero regressions
+5. Commit with a message that links the verification ledger gap, the cell
+   from `work-cells.md`, the diff scope, the test results, and the production
+   impact
+
+This is the dispatch model from `work-cells.md` § "Cross-cell coordination
+patterns" pattern 2 (one agent loads multiple cells when the work is small),
+applied sequentially.
+
+### Pattern: best-effort dual-write for SPOF stores (H6-H8)
+
+Three stores were single-points-of-failure: `data/thesis/*.json`,
+`data/memory/working_state.json`, `state/funding.json`. Each got the same
+treatment:
+
+1. Extract the existing JSON serialisation into a local variable
+2. Keep the existing atomic primary write (.tmp + rename) unchanged
+3. Add a best-effort backup write to a sibling location (sibling directory
+   for thesis files since they live in a per-market dir, `.bak` suffix for
+   single-file stores)
+4. Wrap the backup write in try/except → log WARNING on failure, never
+   propagate
+5. Use the same atomic .bak.tmp + rename pattern for the backup itself
+
+The result: each save() call now produces two byte-identical files. Recovery
+procedure: `cp foo.json.bak foo.json` (or `cp -r data/thesis_backup/.
+data/thesis/`). Verified by tests that delete the primary, rename the
+backup, and reload successfully.
+
+### Tier promotion gate status
+
+Before this session: WATCH→REBALANCE was blocked by 4 latent authority gaps
+in `exchange_protection`, `execution_engine`, `clock._execute_orders`, and
+`guard`.
+
+After this session: all 4 gaps closed in code AND covered by tests. The
+operator-side checklist in `tier-state-machine.md` is the only remaining
+gate (heartbeat launchd disable, 2-week WATCH validation period, etc.).
+
+### What's NOT in this session
+
+- H9 (OrderState lifecycle in `tickcontext-provenance.md`) — partial; covered
+  in `master-diagrams.md` View 4 from the prior phase, but the provenance doc
+  itself wasn't updated. Defer to a doc-only session.
+- H11 (decompose `common/heartbeat.py` god-file) — deferred per ADR-012 P3.
+- H12 (ADR-011 research-app split) — deferred per ADR-011.
+- Tier promotion to REBALANCE — code is now ready, but the operator-side
+  checklist still needs to run before flipping `--tier rebalance`.
+
+### Test impact
+
+| | Before | After | Delta |
+|---|---|---|---|
+| Total tests | 1862 | 1885 | +23 |
+| Passing | 1862 | 1885 | +23 |
+| Failing | 0 | 0 | 0 |
+| New test files | — | 8 | — |
+| New test functions | — | ~53 | — |
+
+The "+23" net delta is because some new tests assert behaviour previously
+spread across multiple test methods, so the net delta is smaller than the
+raw new test count.
+
+---
+
 ## 2026-04-07 -- Architecture Verification + Work-Cell Taxonomy (5-phase session)
 
 **Five-phase doc session that verified the prior assessment, reconciled

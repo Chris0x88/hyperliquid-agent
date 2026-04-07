@@ -1,10 +1,16 @@
 # ADR-012: Work-Cell Architecture and Production Hardening Roadmap
 
 **Date:** 2026-04-07
-**Status:** Accepted
+**Status:** Accepted (with H1-H8 production hardening shipped same day)
 **Supersedes:** None
 **Related:** ADR-011 (Two-App Architecture — research sibling), `verification-ledger.md`,
 `work-cells.md`, `master-diagrams.md`, `telegram-input-trace.md`
+
+> **Implementation status:** All four P0 fixes (H1-H4 — authority gaps) and all
+> four P1 fixes (H5 ticks rotation, H6-H8 SPOF dual-write backups) shipped
+> 2026-04-07 in the same session that wrote this ADR. See the "Hardening
+> Roadmap Status" section in `verification-ledger.md` for the canonical
+> commit-by-commit status. P2/P3 items remain as listed.
 
 ## Context
 
@@ -116,28 +122,36 @@ ledger are sequenced into priority tiers:
 
 #### P0 — Required before WATCH→REBALANCE tier promotion
 
-| # | Fix | Cell | Risk if not done |
-|---|---|---|---|
-| H1 | Add `is_agent_managed()` check in `exchange_protection._protect_position` | P4 DAEMON_GUARDS | `manual` and `off` assets get ruin SLs placed in REBALANCE |
-| H2 | Add explicit `is_agent_managed()` check in `execution_engine._process_market` | P6 DAEMON_EXECUTION | A leaked thesis file for a non-delegated asset could cause an autonomous trade |
-| H3 | Add per-asset authority check in `clock._execute_orders` (defense-in-depth) | P3 DAEMON_HARNESS | Backstop if H1/H2 leak through |
-| H4 | Add `is_agent_managed()` check in `guard.tick` | P4 DAEMON_GUARDS | Trailing stops applied to manual positions |
+| # | Fix | Cell | Status | Commit |
+|---|---|---|---|---|
+| H1 | Add `is_agent_managed()` check in `exchange_protection._protect_position` | P4 DAEMON_GUARDS | ✅ **DONE** | `37be8c7` |
+| H2 | Add explicit `is_agent_managed()` check in `execution_engine._process_market` | P6 DAEMON_EXECUTION | ✅ **DONE** | `45df230` |
+| H3 | Add per-asset authority check in `clock._execute_orders` (defense-in-depth) | P3 DAEMON_HARNESS | ✅ **DONE** | `5c20ada` |
+| H4 | Add `is_agent_managed()` check in `guard.tick` | P4 DAEMON_GUARDS | ✅ **DONE** | `0193191` |
 
-#### P1 — High-value hardening (do alongside P0)
+**All four P0 items shipped 2026-04-07 in the same session that wrote this ADR.
+Production may now consider WATCH→REBALANCE promotion (still gated on the
+operator-side checklist in `tier-state-machine.md`).**
 
-| # | Fix | Cell | Why |
-|---|---|---|---|
-| H5 | Add rotation logic for `data/daemon/journal/ticks.jsonl` | P6 DAEMON_EXECUTION | Active growth concern (~365MB/year unrotated, observed 1.1MB/day) |
-| H6 | Add dual-write backup for `data/thesis/*.json` | P9 MEMORY_AND_KNOWLEDGE | Currently SPOF; thesis loss = AI/execution contract loss |
-| H7 | Add dual-write backup for `data/memory/working_state.json` | P7 HEARTBEAT_PROCESS | Currently SPOF; loss = heartbeat escalation state lost |
-| H8 | Add dual-write backup for `state/funding.json` | P5 DAEMON_SIGNALS | Currently SPOF; loss = funding history irrecoverable |
+#### P1 — High-value hardening (alongside P0)
+
+| # | Fix | Cell | Status | Commit |
+|---|---|---|---|---|
+| H5 | Add rotation logic for `data/daemon/journal/ticks.jsonl` | P6 DAEMON_EXECUTION | ✅ **DONE** | `f8bbb57` |
+| H6 | Add dual-write backup for `data/thesis/*.json` | P9 MEMORY_AND_KNOWLEDGE | ✅ **DONE** | `987edca` |
+| H7 | Add dual-write backup for `data/memory/working_state.json` | P7 HEARTBEAT_PROCESS | ✅ **DONE** | `88b7fe5` |
+| H8 | Add dual-write backup for `state/funding.json` | P5 DAEMON_SIGNALS | ✅ **DONE** | `d0a97d0` |
+
+**All four P1 items shipped 2026-04-07. ticks.jsonl now rotates daily with
+14-day retention. Thesis, working_state, and funding all carry sibling .bak
+backups via best-effort atomic writes.**
 
 #### P2 — Documentation drift prevention
 
-| # | Fix | Cell | Why |
-|---|---|---|---|
-| H9 | Document the OrderState lifecycle in tickcontext-provenance.md | P3 DAEMON_HARNESS | Already partially in `master-diagrams.md` View 4; tickcontext-provenance.md still needs the FSM section |
-| H10 | Wire `protection_audit` REBALANCE/OPPORTUNISTIC verifier role into the writers-and-authority.md narrative more prominently | (no code change) | Doc-only |
+| # | Fix | Cell | Status | Notes |
+|---|---|---|---|---|
+| H9 | Document the OrderState lifecycle in tickcontext-provenance.md | P3 DAEMON_HARNESS | 🟡 PARTIAL | `master-diagrams.md` View 4 covers it; provenance doc still pending. Defer to next doc-only session. |
+| H10 | Wire `protection_audit` REBALANCE/OPPORTUNISTIC verifier role into writers-and-authority.md narrative more prominently | (no code change) | ✅ **DONE** | Phase 1.4 of the verification session, commit `86929ba` |
 
 #### P3 — Long-term decomposition (defer until forcing function)
 
