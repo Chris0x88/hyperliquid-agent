@@ -65,7 +65,9 @@ in REBALANCE tier but an asset can still be `manual` (daemon ignores it) or
 
 ## Iterator Taxonomy by Tier
 
-### WATCH Tier (14 iterators)
+### WATCH Tier
+
+> Iterator set is the canonical list in `cli/daemon/tiers.py['watch']`. Don't trust counts in this doc — read the source.
 
 These are **read-only observers**. No exchange writes ever occur.
 
@@ -100,14 +102,16 @@ These are **read-only observers**. No exchange writes ever occur.
 
 ---
 
-### REBALANCE Tier (16 iterators)
+### REBALANCE Tier
+
+> Iterator set is the canonical list in `cli/daemon/tiers.py['rebalance']`. Don't trust counts in this doc — read the source.
 
 Inherits all WATCH iterators, plus adds:
 
 #### Write-capable protection + rebalancing:
 | Iterator | Role | Writes? | Triggers | Authority Check |
 |----------|------|---------|----------|-----------------|
-| `exchange_protection` | Places ruin-prevention SL at `liq_px * 1.02` (2% buffer) for every open position | ✅ trigger orders | Every position without an SL; throttle 60s | ✅ Respects `authority.py` — skips if asset is `manual` or `off` |
+| `exchange_protection` | Places ruin-prevention SL at `liq_px * 1.02` (2% buffer) for every open position | ✅ trigger orders | Every position without an SL; throttle 60s | ❌ **NO authority check** in code (verified 2026-04-07 — see `writers-and-authority.md` §1.2 and the verification-ledger). Must be fixed before WATCH→REBALANCE promotion. |
 | `execution_engine` | Conviction-based rebalancing: moves position size to match thesis conviction band | ✅ market orders | Conviction drift >5%; throttle 2min | ✅ Reads `ctx.thesis_states`; skips if conviction is 0 (exit band) |
 | `vault_rebalancer` | Maintains target vault allocation per `data/config/rebalancer.yaml` | ✅ market orders | Drift from target; throttle varies | ✅ Only runs if delegated; respects authority |
 | `guard` | Trailing stop engine — ratchets SL upward as profit grows, syncs to exchange | ✅ trigger order sync | Every position; per-tick | ⚠️ Runs in REBALANCE; guards ALL positions regardless of authority (but can be gated per-asset) |
@@ -121,7 +125,9 @@ every 2 minutes in WATCH mode. When promoting to REBALANCE, **stop the heartbeat
 
 ---
 
-### OPPORTUNISTIC Tier (17 iterators)
+### OPPORTUNISTIC Tier
+
+> Iterator set is the canonical list in `cli/daemon/tiers.py['opportunistic']`. Don't trust counts in this doc — read the source.
 
 Inherits all REBALANCE iterators, adds:
 
@@ -387,7 +393,7 @@ stateDiagram-v2
 
 The tick loop executes iterators in the order defined in `cli/daemon/tiers.py`.
 
-**WATCH order (16 total):**
+**WATCH order (canonical list — `cli/daemon/tiers.py['watch']`):**
 ```
 1.  account_collector       (snapshots HWM + drawdown)
 2.  connector               (fetch positions, prices)
@@ -408,13 +414,14 @@ The tick loop executes iterators in the order defined in `cli/daemon/tiers.py`.
 17. telegram                (send alerts)
 ```
 
-**REBALANCE adds (16 → 23 total):**
+**REBALANCE adds (canonical list — `cli/daemon/tiers.py['rebalance']`):**
 - Inserts `execution_engine`, `exchange_protection`, `guard`, `rebalancer`, `profit_lock`, `catalyst_deleverage`
 - Order is preserved from the tier definition in `cli/daemon/tiers.py`
 
-**OPPORTUNISTIC adds (23 → 25 total):**
+**OPPORTUNISTIC adds (canonical list — `cli/daemon/tiers.py['opportunistic']`):**
 - Removes `apex_advisor` (dry-run)
 - Upgrades `autoresearch` to write mode (conviction state updates)
+- Adds `radar` and `pulse` to the REBALANCE base set
 - (APEX engine is invoked within `execution_engine` logic, not as separate iterator)
 
 ---
@@ -437,13 +444,18 @@ timestamp and reason.
 **Q: Can I be in REBALANCE tier but have an asset in `manual` authority?**
 
 A: Yes. Tier is global capability. Authority is per-asset. A `manual` asset in REBALANCE
-tier means:
-- `liquidation_monitor` still alerts on it (cushion <10%)
-- `protection_audit` still verifies its SL
-- But `exchange_protection` **skips it** (respects authority)
-- `execution_engine` **skips it** (respects authority)
+tier *should* mean:
+- `liquidation_monitor` still alerts on it (cushion <10%) ✅
+- `protection_audit` still verifies its SL ✅
+- `exchange_protection` should skip it, **but currently does NOT** (no authority check
+  in code — see `writers-and-authority.md` §1.2). Known gap; must be fixed before
+  promoting to REBALANCE in production.
+- `execution_engine` skips it implicitly (only acts on markets in `ctx.thesis_states`,
+  which is populated only for AI-delegated assets via thesis files).
 
-User and heartbeat manage the SL; daemon watches and alerts only.
+User and heartbeat manage the SL; daemon watches and alerts only — but the
+`exchange_protection` gap means a `manual` asset in REBALANCE will still receive a
+ruin-prevention SL until that gap is closed.
 
 ---
 

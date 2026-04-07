@@ -1,8 +1,13 @@
 # System Grouping for Agent Work Parallelization
 
-**Date:** 2026-04-07  
-**Purpose:** Propose work cells — named subsets of the codebase that an agent can be assigned to independently.  
-**Related:** ADR-011 (Two-App Architecture), current.md  
+**Date:** 2026-04-07
+**Purpose:** Propose work cells — named subsets of the codebase that an agent can be assigned to independently.
+**Related:** ADR-011 (Two-App Architecture), current.md, `verification-ledger.md`
+
+> **Scope note:** The 7 cells below are oriented around **research / strategy / ML**
+> work — ports to the future `quant/` app per ADR-011. They do **not** cover the
+> ops cells an agent would need to work on the running bot itself (telegram, agent
+> runtime, daemon harness, memory layer). For those, see `work-cells.md`.
 
 ---
 
@@ -39,7 +44,8 @@ The codebase is a monolithic bot (~280 files, 18 top-level directories) with str
 | **plugins/** | Power Law plugin (charting, config, bot) | 7 | Experimental; not in critical path. Could isolate for feature work. |
 | **scripts/** | One-off utility scripts: backtest, execute action, vault rebalancer | 8 | Loose coupling; entry points for batch jobs. Safe to refactor independently. |
 
-**Total inventory:** 227 production files + ~320 test files.
+**Total inventory:** see `find . -name '*.py' | wc -l` for current counts (the
+hardcoded numbers previously here violated `MAINTAINING.md` and went stale).
 
 ---
 

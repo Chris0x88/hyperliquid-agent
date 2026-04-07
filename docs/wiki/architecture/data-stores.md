@@ -183,7 +183,10 @@ Live agent state — escalation level, positions, ATR cache, last_prices, last_a
 ### 5. Chat History (`data/daemon/chat_history.jsonl`)
 - Writer: `cli/telegram_agent.py:1273` `_log_chat()`
 - Readers: `agent_runtime.py:406` (consolidation), `telegram_bot.py` (memory hints)
-- **No rotation. 6 MB observed Apr 7. Will reach 100s of MB.**
+- **No rotation logic.** Current size: ~78 KB (verified 2026-04-07; the prior "6 MB"
+  figure was wrong). Growth is slow at current chat volume — not an immediate concern,
+  but rotation logic should be added before this file is allowed to grow into the
+  hundreds of MB.
 - Backups `.bak`, `.bak2` are manual.
 
 ### 6. Candle Cache (`data/candles/candles.db`)
@@ -239,12 +242,20 @@ Per-symbol cumulative paid/received funding.
 
 ## Orphans, Risks, Gaps
 
-**No retention policy (will grow unbounded):**
-1. `data/daemon/chat_history.jsonl`
-2. `data/daemon/journal/ticks.jsonl`
-3. `data/research/journal.jsonl`
-4. `data/candles/candles.db`
-5. `data/research/learnings.md` (trim logic exists but not fail-safe)
+**No retention policy (current size on 2026-04-07 in parens):**
+
+1. 🔴 **ACTIVE concern** — `data/daemon/journal/ticks.jsonl` (~1.1 MB after one day,
+   ~365 MB/year unrotated). Highest priority for adding rotation logic.
+2. 🟡 LATENT — `data/daemon/chat_history.jsonl` (~78 KB; growth slow, but unbounded)
+3. 🟡 LATENT — `data/candles/candles.db` (~800 KB SQLite; growing slowly,
+   regenerable from exchange API if lost)
+4. ✅ NON-ISSUE — `data/research/journal.jsonl` (~1.6 KB; basically empty —
+   verify the writer is firing as intended)
+5. ✅ MITIGATED — `data/research/learnings.md` (~25 KB; already at the
+   `_trim_learnings_file()` cap, trim logic working)
+
+**Original "5 unbounded orphans" framing was overstated** — only `ticks.jsonl` is an
+active growth concern. See `verification-ledger.md` for the verification trail.
 
 **No dual-write backup (single point of failure):**
 1. Thesis states

@@ -1,9 +1,14 @@
 # Three-Writer Story: Stop-Loss & Exchange State Authority Model
 
-**Status**: Architecture document  
-**Last Updated**: 2026-04-07  
-**Context**: C1 dual-writer bug post-mortem and C1' through C7 hardening  
+**Status**: Architecture document
+**Last Updated**: 2026-04-07 (verified, reconciled with code)
+**Context**: C1 dual-writer bug post-mortem and C1' through C7 hardening
 **Owner**: Trading bot team
+
+> **Verification status:** Every claim in this doc has been spot-checked against
+> source code on 2026-04-07. See `verification-ledger.md` for the audit trail.
+> Production currently runs in **WATCH tier**, so most issues flagged below are
+> 🟡 LATENT (only fire on tier promotion).
 
 ## Executive Summary
 
@@ -299,6 +304,11 @@ For each open position:
 
 Protection_audit runs every 120 seconds (heartbeat's cadence). If heartbeat fails or is delayed, protection_audit will surface it as `no_stop` CRITICAL within 2 minutes.
 
+**Tier coverage:** `protection_audit` is active in **all three tiers** (WATCH,
+REBALANCE, OPPORTUNISTIC) per `cli/daemon/tiers.py`. In WATCH it verifies heartbeat.
+In REBALANCE/OPPORTUNISTIC it verifies `exchange_protection`. The same verifier
+catches gaps regardless of which writer is supposed to be active.
+
 ---
 
 ## 4. Stop-Slot Ownership Matrix
@@ -411,6 +421,10 @@ guard: ratchets stop upward as ROE grows (trailing stop)
 
 #### ❌ Issue #1: exchange_protection lacks authority gate
 
+**Status:** 🟡 **LATENT-REBALANCE** — `exchange_protection` is not in
+`tiers.py['watch']`, so this gap is dormant in production WATCH. It activates the
+moment the daemon is promoted to REBALANCE or OPPORTUNISTIC.
+
 **File**: `cli/daemon/iterators/exchange_protection.py:96-114`
 
 ```python
@@ -438,6 +452,11 @@ if not is_agent_managed(inst):
 ---
 
 #### ⚠️ Issue #2: execution_engine lacks explicit authority check
+
+**Status:** 🟡 **LATENT-REBALANCE** — `execution_engine` only runs in REBALANCE+ tiers
+and only acts on markets present in `ctx.thesis_states`. Thesis files are AI-written
+under delegation, so this is theoretical unless someone manually creates a thesis
+file for a non-delegated asset. Still worth a defensive check.
 
 **File**: `cli/daemon/iterators/execution_engine.py:130-131`
 
@@ -469,6 +488,11 @@ if not is_agent_managed(market):
 ---
 
 #### ⚠️ Issue #3: Clock._execute_orders() has no per-asset authority check
+
+**Status:** 🟡 **LATENT-REBALANCE** — `_execute_orders` only drains the order queue
+when other iterators have queued OrderIntents. In WATCH no iterator queues orders
+(none are write-capable), so this defense-in-depth gap is dormant. It only matters
+in REBALANCE+ if Issues #1/#2 leak through.
 
 **File**: `cli/daemon/clock.py:215-273`
 

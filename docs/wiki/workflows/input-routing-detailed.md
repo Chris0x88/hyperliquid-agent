@@ -1,7 +1,13 @@
 # Input Routing & Workflow Map — Detailed End-to-End
 
-**Document Version:** 2025-04-07  
+**Document Version:** 2026-04-07 (verified, reconciled with code)
 **Architecture Rule:** Slash commands = fixed code. AI-suffixed commands (e.g., `/briefai`) = AI agent path. Natural-language messages = AI agent path.
+
+> **Verification status:** Routing flow has been spot-checked against
+> `cli/telegram_bot.py` and `cli/telegram_agent.py`. Specific line numbers are
+> pinned to function names below per `MAINTAINING.md` no-counts rule. See
+> `verification-ledger.md` and `telegram-input-trace.md` for the canonical
+> step-by-step trace.
 
 ---
 
@@ -33,14 +39,14 @@ The system enforces **three mutually-exclusive message paths:**
 
 | File | Role |
 |------|------|
-| `cli/telegram_bot.py:3227-3281` | Telegram message router (fixed command detection vs. NL path) |
-| `cli/telegram_handler.py:259-371` | Telegram handler (polls API, dispatches fixed commands, queues for AI) |
-| `cli/telegram_agent.py:444+` | AI agent runtime for Telegram (message loop, tool execution, streaming) |
-| `cli/agent_tools.py:39-425` | Tool definitions and implementations (agent-callable tools) |
+| `cli/telegram_bot.py` → `run()` | Telegram polling loop + message router (fixed command detection vs. NL path) |
+| `cli/telegram_bot.py` → `HANDLERS` dict | Slash command → handler function mapping (search for `HANDLERS = {`) |
+| `cli/telegram_agent.py` → `handle_ai_message()` | AI agent runtime for Telegram (message loop, tool execution, streaming) |
+| `cli/agent_tools.py` → `TOOL_DEFS`, `execute_tool()`, `is_write_tool()` | Tool definitions and implementations (agent-callable tools) |
 | `cli/agent_runtime.py` | Streaming, parallel tool execution, system prompt assembly |
 | `cli/mcp_server.py` | MCP server (alternative tool access, not used in Telegram path) |
-| `cli/main.py:14-68` | Typer CLI app registration (fixed CLI commands only) |
-| `cli/engine.py:31+` | Autonomous trading loop (strategy runner, NOT AI-driven) |
+| `cli/main.py` → `app = typer.Typer()` | Typer CLI app registration (fixed CLI commands only) |
+| `cli/engine.py` → `TradingEngine.run()` | Autonomous trading loop (strategy runner, NOT AI-driven) |
 | `cli/commands/*.py` | Fixed CLI command implementations (no AI calls) |
 
 ---

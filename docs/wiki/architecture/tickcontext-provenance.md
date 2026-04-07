@@ -1,8 +1,13 @@
 # TickContext Provenance Matrix
 
-**Generated**: 2026-04-07  
-**Version**: 1.0  
+**Generated**: 2026-04-07
+**Version**: 1.1 (verified, reconciled with code 2026-04-07)
 **Purpose**: Complete read/write dependency map for TickContext, the shared per-tick data hub in the daemon.
+
+> **Verification status:** Field list and writer/reader matrix have been verified
+> against `cli/daemon/context.py` and the iterator source. The C1 risk_gate
+> "dual-writer" framing in v1.0 was misleading — see §"Multi-Writer Fields" for the
+> reconciled story. See `verification-ledger.md` for the audit trail.
 
 ---
 
@@ -133,7 +138,7 @@ Order matches REBALANCE; additionally includes:
 | `market_snapshots` | **market_structure (W)** | ✅ SAFE | Only one writer. |
 | `positions` | **connector (W)** | ✅ SAFE | Only one writer (HL API). |
 | `balances` | **connector (W)** | ✅ SAFE | Only one writer. |
-| `risk_gate` | **execution_engine (W), risk (W)** | 🔴 CRITICAL | **BUG RISK C1**: Two independent writers in REBALANCE. execution_engine closes gate at 40% drawdown. risk iterator does independent protection chain. Last writer wins; no coordination. |
+| `risk_gate` | **risk (W) primary, execution_engine (W) at tail risk only** | 🟡 LATENT-REBALANCE — see §"Critical Issues" #1 for the reconciled story. The doc's earlier "no coordination" framing was wrong: `risk.py` uses worst-gate-wins merge, and `execution_engine.py:114` only writes when drawdown ≥ 40%. The actual gap is tier-ordering (execution_engine runs at REBALANCE position 8, risk at position 11, so risk overwrites). |
 | `pulse_signals` | **pulse (W)** | ✅ SAFE | Only one writer. |
 | `radar_opportunities` | **radar (W)** | ✅ SAFE | Only one writer. |
 
@@ -161,15 +166,36 @@ Order matches REBALANCE; additionally includes:
 
 ## Critical Issues & Recommendations
 
-### 1. **C1: Dual-Writer risk_gate (REBALANCE tier)**
+### 1. **C1: risk_gate write ordering at tail risk (REBALANCE tier)**
 
-**Status**: 🔴 CRITICAL  
-**Location**: `execution_engine.tick()` and `risk.tick()`  
-**Issue**: Two independent iterators write risk_gate in REBALANCE tier with no coordination:
-- `execution_engine` writes CLOSED at 40% drawdown
-- `risk` iterator runs protection chain independently
+**Status**: 🟡 **LATENT-REBALANCE** (reconciled from prior 🔴 CRITICAL framing)
+**Location**: `execution_engine.tick():114` and `risk.tick():41-95`
 
-**Last writer wins** — if execution_engine closes but risk iterator hasn't run yet (or vice versa), the system state is inconsistent.
+**What's actually happening (verified in code 2026-04-07):**
+
+`risk.py` is the **primary** writer of `ctx.risk_gate`:
+- Runs `pre_round_check()` (daily DD, leverage, circuit breakers) → sets OPEN/COOLDOWN/CLOSED
+- Runs the composable `ProtectionChain` (Freqtrade/LEAN pattern) → returns its own gate
+- **Merges via worst-gate-wins** using `gate_severity = {OPEN:0, COOLDOWN:1, CLOSED:2}`
+- This merge is structured and deterministic — there is NOT "no coordination" inside risk.py
+
+`execution_engine.py:114` is a **tail-risk** writer:
+- Only fires when `drawdown >= RUIN_DRAWDOWN_PCT` (40%)
+- Wrapped in a defensive `hasattr(ctx.risk_gate, 'CLOSED')` guard
+- Not a continuous write — only at the catastrophic end of the drawdown curve
+
+**The actual gap (and why this is still labelled an issue):** in REBALANCE tier
+ordering, `execution_engine` runs at position 8 and `risk` runs at position 11. So
+if execution_engine writes CLOSED at 40% drawdown, `risk.pre_round_check()` may
+return `ok=True` and **overwrite** with `RiskGate.OPEN` on line 58 — losing the
+ruin-prevention signal until the chain merge runs (which then likely re-closes it
+via `ProtectionChain.RuinProtection`). The window of incorrect state is the
+~milliseconds between line 58 and line 73 of `risk.py` *within the same tick*. In
+practice this is harmless because `_execute_orders` runs after both, and worst-gate
+wins by the time the order queue is drained.
+
+**Why it's still LATENT not active:** production runs in WATCH tier. Neither
+`execution_engine` nor the dual-writer scenario is active in WATCH.
 
 **Recommendation**:
 1. Designate **one** authoritative risk_gate writer
@@ -251,14 +277,14 @@ for alert in ctx.alerts:
 
 ## Summary Statistics
 
-- **Total TickContext fields**: 18
-- **Total iterators**: 23
-- **Total reads**: 142
-- **Total writes**: 89
-- **Multi-writer fields**: 10 (9 safe via append-only or single writer; 2 critical bugs)
-- **Orphan writes**: 1 (snapshot_ref)
-- **Critical bugs flagged**: 2
-- **Medium concerns**: 3
+- **Total TickContext fields**: 18 (verified against `cli/daemon/context.py`)
+- **Total iterators**: see `cli/daemon/tiers.py` (canonical list per tier — counts in
+  this doc were stale and have been removed per `MAINTAINING.md` no-counts rule)
+- **Multi-writer fields**: alerts (append-only, safe), order_queue (append-only, safe),
+  risk_gate (LATENT — see §"Critical Issues" #1 for reconciled story)
+- **Orphan writes**: 1 (snapshot_ref) — written by account_collector, never read in loop
+- **Active bugs in production WATCH**: 0
+- **Latent bugs (REBALANCE+)**: see §"Critical Issues" — all are tier-promotion gates
 
 ---
 
