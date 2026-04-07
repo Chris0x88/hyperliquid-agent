@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from cli.daemon.context import Alert, OrderIntent, TickContext
+from common.authority import is_agent_managed
 from modules.guard_bridge import GuardBridge
 from modules.guard_config import GuardConfig, PRESETS
 from modules.guard_state import GuardState, GuardStateStore
@@ -66,6 +67,30 @@ class GuardIterator:
             inst = pos.instrument
             price = ctx.prices.get(inst)
             if price is None:
+                continue
+
+            # H4 hardening — per-asset authority gate (closes the LATENT-REBALANCE
+            # gap from the 2026-04-07 verification ledger and the FAQ admission
+            # in tier-state-machine.md). Guard runs in REBALANCE+ tiers and used
+            # to apply trailing stops to every position regardless of delegation.
+            # Now: skip non-delegated assets, and if a previously-tracked asset
+            # was reclaimed (agent → manual or off), tear down its bridge and
+            # cancel its exchange SL on this tick.
+            if not is_agent_managed(inst):
+                if inst in self._bridges:
+                    log.info(
+                        "GuardIterator: tearing down bridge for %s — authority reclaimed",
+                        inst,
+                    )
+                    bridge = self._bridges.pop(inst)
+                    bridge.mark_closed(float(price), "authority_reclaimed")
+                    if self._adapter:
+                        bridge.cancel_exchange_sl(self._adapter, inst)
+                    ctx.alerts.append(Alert(
+                        severity="info",
+                        source=self.name,
+                        message=f"Guard released {inst} (authority reclaimed)",
+                    ))
                 continue
 
             qty = pos.net_qty
