@@ -376,7 +376,7 @@ graph LR
     L1 --> HB["common/heartbeat.py<br/>Fetch positions → check stops<br/>→ escalation → alerts<br/>→ atomic state writes"]
     L2 --> VR["run_vault_rebalancer.py<br/>Dynamic account_resolver<br/>Power Law bands → rebalance"]
     P1 --> BOT["Polling + dispatch<br/>cmd_* handlers + AI router<br/>+ agent_runtime.py"]
-    P2 --> DAEMON["19 iterators in sequence<br/>TickContext hub<br/>HealthWindow circuit-break"]
+    P2 --> DAEMON["Iterators in sequence (see iterators/ directory)<br/>TickContext hub<br/>HealthWindow circuit-break"]
 
     HB -->|"alerts"| TG_ALERTS["📱 Alert Board<br/>(one-way)"]
     BOT <-->|"commands + AI"| TG_CMD["📱 Commands Bot<br/>(two-way, streaming)"]
