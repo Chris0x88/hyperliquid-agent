@@ -63,3 +63,21 @@ def classify_region(text: str) -> str:
         if any(k in t for k in keywords):
             return region
     return "unknown"
+
+
+_FACILITY_HINTS = (
+    ("pipeline", "pipeline"),
+    ("oilfield", "oilfield"),
+    ("oil field", "oilfield"),
+    ("terminal", "terminal"),
+    ("gas plant", "gas_plant"),
+    ("refinery", "refinery"),
+)
+
+
+def refine_facility_type(text: str, default: str) -> str:
+    t = text.lower()
+    for keyword, facility in _FACILITY_HINTS:
+        if keyword in t:
+            return facility
+    return default

@@ -59,3 +59,22 @@ def test_classify_region_hormuz():
 
 def test_classify_region_unknown():
     assert classify_region("unrelated headline") == "unknown"
+
+
+from modules.supply_ledger import refine_facility_type
+
+
+def test_refine_facility_type_pipeline_wins():
+    assert refine_facility_type("Druzhba pipeline hit by drone", default="refinery") == "pipeline"
+
+
+def test_refine_facility_type_oilfield_wins():
+    assert refine_facility_type("Priobskoye oilfield strike", default="refinery") == "oilfield"
+
+
+def test_refine_facility_type_terminal_wins():
+    assert refine_facility_type("Novorossiysk oil terminal ablaze", default="refinery") == "terminal"
+
+
+def test_refine_facility_type_fallback():
+    assert refine_facility_type("Volgograd refinery fire", default="refinery") == "refinery"
