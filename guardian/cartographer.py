@@ -22,10 +22,55 @@ def is_enabled() -> bool:
     return os.environ.get("GUARDIAN_CARTOGRAPHER_ENABLED", "1") != "0"
 
 
+# ---------- Exclusions ----------
+
+# Directory names to skip entirely when walking the repo. These are vendored
+# or generated trees that would otherwise bloat the inventory by orders of
+# magnitude and slow the sweep from seconds to minutes.
+EXCLUDED_DIRS: frozenset[str] = frozenset({
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    "node_modules",
+    "dist",
+    "build",
+    ".eggs",
+    "htmlcov",
+    "site-packages",
+})
+
+
+def _iter_py_files(root: Path) -> "list[Path]":
+    """Walk `root` recursively yielding .py files, skipping excluded dirs.
+
+    This is faster than rglob + post-filter because os.walk lets us prune
+    entire subtrees before descending. On a repo with a .venv containing
+    thousands of vendored Python files this is the difference between a
+    sub-second scan and a ~40-second one.
+    """
+    results: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune in-place so os.walk doesn't descend into excluded dirs
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+        for name in filenames:
+            if name.endswith(".py"):
+                results.append(Path(dirpath) / name)
+    results.sort()
+    return results
+
+
 # ---------- Python import scanner ----------
 
 def scan_python_imports(root: Path) -> dict[str, Any]:
     """Walk `root` recursively and build an import graph of .py files.
+
+    Skips common vendored/generated directories (see EXCLUDED_DIRS).
 
     Returns a dict with two keys:
     - modules: list of {name, path, size, docstring}
@@ -34,7 +79,7 @@ def scan_python_imports(root: Path) -> dict[str, Any]:
     modules: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
 
-    for py_file in sorted(root.rglob("*.py")):
+    for py_file in _iter_py_files(root):
         rel = py_file.relative_to(root)
         module_name = rel.with_suffix("").as_posix().replace("/", ".")
         # For flat fixture repos, strip to the stem
