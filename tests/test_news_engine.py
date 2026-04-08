@@ -57,3 +57,9 @@ def test_parse_rss20_well_formed():
     titles = [e.title for e in entries]
     assert "Houthi missiles strike VLCC in Red Sea, vessel ablaze" in titles
     assert "OPEC+ agrees production cut of 1M bpd" in titles
+
+
+def test_parse_malformed_feed_returns_empty():
+    xml = (FIXTURES / "malformed.xml").read_text()
+    entries = parse_feed(xml, source="broken_feed")
+    assert entries == []
