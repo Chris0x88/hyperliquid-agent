@@ -1104,6 +1104,11 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /disruptions — list top 10 active supply disruptions\n"
         "  /disrupt — manually log a supply disruption\n"
         "  /disrupt-update — update an existing supply disruption\n"
+        "\n*Lesson Corpus*\n"
+        "  /lessons — recent trade post-mortems\n"
+        "  /lesson <id> — view verbatim body\n"
+        "  /lesson approve|reject <id> — curate\n"
+        "  /lessonsearch <query> — BM25 search\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1937,6 +1942,184 @@ def cmd_disrupt_update(token: str, chat_id: str, args: str) -> None:
             markdown=True)
 
 
+def cmd_lessons(token: str, chat_id: str, args: str) -> None:
+    """Show the most recent lessons from the trade lesson corpus.
+
+    Deterministic — reads data/memory/memory.db via common.memory.search_lessons.
+    Optional argument: integer limit (default 10, max 25).
+    Rejected lessons (reviewed_by_chris = -1) are excluded by default.
+    """
+    from common import memory as common_memory
+
+    limit = 10
+    if args.strip():
+        try:
+            limit = max(1, min(25, int(args.strip())))
+        except ValueError:
+            pass
+
+    try:
+        rows = common_memory.search_lessons(limit=limit)
+    except Exception as e:
+        tg_send(token, chat_id, f"📓 Error reading lessons: {e}")
+        return
+
+    if not rows:
+        tg_send(token, chat_id, "📓 No lessons yet. The lesson_author iterator "
+                                "has not written any post-mortems — the corpus "
+                                "is empty until a trade closes after wedge 5 ships.")
+        return
+
+    lines = [f"📓 *Latest {len(rows)} lessons*", ""]
+    for r in rows:
+        lesson_id = r.get("id")
+        market = r.get("market", "?")
+        direction = r.get("direction", "?")
+        outcome = r.get("outcome", "?")
+        signal = r.get("signal_source", "?")
+        ltype = r.get("lesson_type", "?")
+        roe = r.get("roe_pct", 0.0)
+        closed = (r.get("trade_closed_at") or "")[:10]
+        summary = (r.get("summary") or "").strip()
+        reviewed = r.get("reviewed_by_chris", 0)
+        flag = " ✅" if reviewed == 1 else ""
+        lines.append(f"`#{lesson_id}` {closed} {market} {direction} ({signal}, {ltype})")
+        lines.append(f"  → {outcome} {roe:+.1f}%{flag}")
+        lines.append(f"  _{summary}_")
+        lines.append("")
+    lines.append("Use `/lesson <id>` to see the verbatim body.")
+    tg_send(token, chat_id, "\n".join(lines))
+
+
+def cmd_lesson(token: str, chat_id: str, args: str) -> None:
+    """Show one lesson by id, or approve/reject a lesson.
+
+    Usage:
+        /lesson <id>           — show the verbatim body
+        /lesson approve <id>   — mark reviewed_by_chris = 1 (boost ranking)
+        /lesson reject <id>    — mark reviewed_by_chris = -1 (exclude, anti-pattern)
+        /lesson unreview <id>  — reset reviewed_by_chris = 0
+
+    Deterministic — reads/writes data/memory/memory.db directly, no AI.
+    """
+    from common import memory as common_memory
+
+    parts = args.strip().split()
+    if not parts:
+        tg_send(token, chat_id,
+                "Usage: `/lesson <id>` or `/lesson approve|reject|unreview <id>`")
+        return
+
+    if parts[0] in ("approve", "reject", "unreview"):
+        if len(parts) < 2:
+            tg_send(token, chat_id, f"Usage: `/lesson {parts[0]} <id>`")
+            return
+        try:
+            lesson_id = int(parts[1])
+        except ValueError:
+            tg_send(token, chat_id, f"Invalid id: {parts[1]!r}")
+            return
+        status_map = {"approve": 1, "reject": -1, "unreview": 0}
+        status = status_map[parts[0]]
+        try:
+            ok = common_memory.set_lesson_review(lesson_id, status)
+        except Exception as e:
+            tg_send(token, chat_id, f"Error: {e}")
+            return
+        if not ok:
+            tg_send(token, chat_id, f"Lesson #{lesson_id} not found.")
+            return
+        flag = {1: "approved ✅", -1: "rejected ❌", 0: "unreviewed"}[status]
+        tg_send(token, chat_id, f"Lesson #{lesson_id} marked {flag}.")
+        return
+
+    try:
+        lesson_id = int(parts[0])
+    except ValueError:
+        tg_send(token, chat_id, f"Invalid id: {parts[0]!r}")
+        return
+
+    try:
+        row = common_memory.get_lesson(lesson_id)
+    except Exception as e:
+        tg_send(token, chat_id, f"Error reading lesson: {e}")
+        return
+    if row is None:
+        tg_send(token, chat_id, f"Lesson #{lesson_id} not found.")
+        return
+
+    tags_raw = row.get("tags") or "[]"
+    try:
+        tags = json.loads(tags_raw) if isinstance(tags_raw, str) else list(tags_raw)
+    except (ValueError, TypeError):
+        tags = []
+
+    reviewed = row.get("reviewed_by_chris", 0)
+    review_flag = {1: "approved ✅", -1: "rejected ❌", 0: "unreviewed"}[reviewed]
+
+    header = [
+        f"📓 *Lesson #{row.get('id')}*",
+        f"*Closed:* {row.get('trade_closed_at', '?')[:16]}",
+        f"*Market:* {row.get('market', '?')} {row.get('direction', '?')}",
+        f"*Signal:* {row.get('signal_source', '?')} · {row.get('lesson_type', '?')}",
+        f"*Outcome:* {row.get('outcome', '?')}  "
+        f"PnL ${row.get('pnl_usd', 0):+.2f}  ROE {row.get('roe_pct', 0):+.2f}%",
+        f"*Review:* {review_flag}",
+    ]
+    if tags:
+        header.append(f"*Tags:* {', '.join(tags)}")
+    header.append("")
+    header.append(f"_{(row.get('summary') or '').strip()}_")
+    header.append("")
+    header.append("*Verbatim body:*")
+    header.append("```")
+    body = (row.get("body_full") or "").strip()
+    max_body = 3000
+    if len(body) > max_body:
+        body = body[:max_body] + "\n... [truncated, full body in memory.db]"
+    header.append(body)
+    header.append("```")
+    tg_send(token, chat_id, "\n".join(header))
+
+
+def cmd_lessonsearch(token: str, chat_id: str, args: str) -> None:
+    """BM25-ranked search over the lesson corpus.
+
+    Usage: /lessonsearch <query>
+    Deterministic — reads data/memory/memory.db directly, no AI.
+    """
+    from common import memory as common_memory
+
+    query = args.strip()
+    if not query:
+        tg_send(token, chat_id, "Usage: `/lessonsearch <query>`")
+        return
+
+    try:
+        rows = common_memory.search_lessons(query=query, limit=10)
+    except Exception as e:
+        tg_send(token, chat_id, f"📓 Search failed: {e}")
+        return
+
+    if not rows:
+        tg_send(token, chat_id, f"📓 No lessons match `{query}`.")
+        return
+
+    lines = [f"📓 *Search: `{query}` — {len(rows)} hit(s)*", ""]
+    for r in rows:
+        lesson_id = r.get("id")
+        market = r.get("market", "?")
+        direction = r.get("direction", "?")
+        outcome = r.get("outcome", "?")
+        roe = r.get("roe_pct", 0.0)
+        summary = (r.get("summary") or "").strip()
+        lines.append(f"`#{lesson_id}` {market} {direction} → {outcome} {roe:+.1f}%")
+        lines.append(f"  _{summary}_")
+        lines.append("")
+    lines.append("Use `/lesson <id>` to see the verbatim body.")
+    tg_send(token, chat_id, "\n".join(lines))
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1964,6 +2147,14 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/disruptions` — list top 10 active supply disruptions by confidence*volume\n"
         "`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"` — manual entry\n"
         "`/disrupt-update abc12345 status=restored` — update an existing entry (history preserved)\n"
+        "\n📓 *Trade Lessons*\n"
+        "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
+        "`/lesson 42` — full verbatim body of lesson #42\n"
+        "`/lesson approve 42` — boost its ranking in future prompt injection\n"
+        "`/lesson reject 42` — exclude it (anti-pattern; stays searchable)\n"
+        "`/lessonsearch weekend wick` — BM25 keyword search over summaries/bodies/tags\n"
+        "The agent sees the top recent lessons automatically in its system prompt; "
+        "use these commands to browse and curate from Telegram.\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3399,6 +3590,9 @@ HANDLERS = {
     "/disruptions": cmd_disruptions,
     "/disrupt": cmd_disrupt,
     "/disrupt-update": cmd_disrupt_update,
+    "/lessons": cmd_lessons,
+    "/lesson": cmd_lesson,
+    "/lessonsearch": cmd_lessonsearch,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3449,6 +3643,9 @@ HANDLERS = {
     "disruptions": cmd_disruptions,
     "disrupt": cmd_disrupt,
     "disrupt-update": cmd_disrupt_update,
+    "lessons": cmd_lessons,
+    "lesson": cmd_lesson,
+    "lessonsearch": cmd_lessonsearch,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3508,6 +3705,9 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "disruptions", "description": "List top 10 active supply disruptions"},
         {"command": "disrupt", "description": "Manually log a supply disruption"},
         {"command": "disrupt-update", "description": "Update an existing supply disruption"},
+        {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
+        {"command": "lesson", "description": "View/approve/reject a lesson by id"},
+        {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
