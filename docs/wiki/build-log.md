@@ -4,6 +4,65 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (PM) — Sub-system 3 shipped: Stop / Liquidity Heatmap
+
+The third sub-system of the Oil Bot-Pattern Strategy is live. Pure
+Hyperliquid info API, zero external dependencies, read-only. Polls L2
+orderbook + OI + funding for BRENTOIL on a configurable cadence
+(default 60s), clusters resting depth into ranked liquidity zones, and
+detects liquidation cascades from OI/funding deltas with severity 1-4.
+
+### Wedges shipped this session
+
+| # | What |
+|---|---|
+| 1 | Plan docs: `OIL_BOT_PATTERN_03_LIQUIDITY_HEATMAP.md` (spec) and `_PLAN.md` (wedge breakdown). Kept tight per the 2026-04-07 postmortem about over-long ADRs. |
+| 2 | `data/config/heatmap.json` kill switch + `data/heatmap/.gitkeep`. `modules/heatmap.py` with `Zone` + `Cascade` dataclasses, JSONL append/read round-trip helpers, `latest_snapshot()` selector. |
+| 3 | `cluster_l2_book()` pure function — walks each side of an HL `l2Book` outward from mid, groups levels within `cluster_bps` of an anchor into clusters, drops levels beyond `max_distance_bps`, ranks by notional, keeps top N per side. Handles empty / one-sided / under-min cases. |
+| 4 | `detect_cascade()` pure function — flags windows where OI drops by ≥ threshold while funding moves by ≥ threshold. Direction inferred from funding sign (spike up = long cascade, spike down = short cascade). Severity 1-4 by absolute OI drop. |
+| 5 | `HeatmapIterator` mirrors the `SupplyLedgerIterator` shape: config reload per tick, monotonic-clock poll throttle, in-memory `prev_state` for cascade deltas, alert emission for severity ≥3. Self-contained `_default_post` HTTP helper (no adapter dependency) with injectable `http_post` for tests. Registered in all three tiers (`watch`, `rebalance`, `opportunistic`). Coin name normalization handled per CLAUDE.md gotcha — both prefixed and bare forms checked when matching against `metaAndAssetCtxs.universe`. |
+| 6 | `/heatmap [SYMBOL]` Telegram command. Deterministic, no AI, no `ai` suffix. Five-surface checklist: handler, HANDLERS dict (both `/heatmap` and bare `heatmap`), `_set_telegram_commands()` menu entry, `cmd_help()` line, `cmd_guide()` line. Renders top bid/ask walls plus the last 5 cascades. |
+| 7 | Wiki page `docs/wiki/components/heatmap.md`, build-log entry, `cli/daemon/CLAUDE.md` known-iterators routing update, alignment commit. |
+
+### Test coverage
+
+42 new tests added across three files, all green. Full suite:
+**2295 passed, 0 failed**.
+
+- `tests/test_heatmap.py` — 18 tests for pure logic (clustering edge
+  cases, cascade severity boundaries, JSONL round-trips, snapshot
+  selection)
+- `tests/test_heatmap_iterator.py` — 8 tests for the daemon iterator
+  (kill switch, baseline tick, cascade detection on second tick,
+  threshold non-firing, empty book handling, tier registration)
+- `tests/test_telegram_heatmap_command.py` — 6 tests for the Telegram
+  surface (no-data path, zone rendering, latest-snapshot selection,
+  cascade rendering, unknown instrument, HANDLERS registration)
+
+### What this delivers
+
+Sub-systems #4 (bot-pattern classifier) and #5 (strategy engine) now
+have a structured, append-only stream of liquidity zones and
+liquidation cascades to consume. The heatmap is deliberately a
+data-only layer — it places no orders, mutates no other sub-system's
+state, and respects the existing "LONG or NEUTRAL only on oil" rule.
+The direction-rule relaxation in `OIL_BOT_PATTERN_SYSTEM.md` §4 stays
+gated to sub-system 5.
+
+CL native is supported in code but disabled by default in
+`heatmap.json` (instruments list is `["BRENTOIL"]`). Sub-system 5 is
+the gatekeeper for any CL trading.
+
+### What's next
+
+Sub-system 4 (bot-pattern classifier) consumes #1 catalysts + #2
+supply state + #3 zones/cascades + candles + OI to label moves as
+bot-driven vs informed. Outputs `data/research/bot_patterns.jsonl`.
+This is the first sub-system that depends on multiple input streams,
+so it gets a fresh plan doc before any code.
+
+---
+
 ## 2026-04-09 — Trade Lesson Layer fully closed (wedges 5 + 6)
 
 The lesson learning loop that started this morning with the mempalace

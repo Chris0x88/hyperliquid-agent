@@ -39,6 +39,12 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
   `news_ingest` catalysts + manual `/disrupt` Telegram entries, aggregates active
   physical oil disruptions into `data/supply/state.json`. Kill switch:
   `data/config/supply_ledger.json`. Spec: `agent-cli/docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER.md`.
+- `heatmap` — sub-system 3 of the Oil Bot-Pattern Strategy. Polls HL `l2Book` +
+  `metaAndAssetCtxs` for configured oil instruments; clusters resting depth into
+  liquidity zones (`data/heatmap/zones.jsonl`) and detects liquidation cascades
+  from OI/funding deltas (`data/heatmap/cascades.jsonl`). Read-only, no external
+  deps. Kill switch: `data/config/heatmap.json`. Spec:
+  `agent-cli/docs/plans/OIL_BOT_PATTERN_03_LIQUIDITY_HEATMAP.md`.
 - `lesson_author` — Trade Lesson Layer (wedge 5). Detects closed positions and
   writes lesson candidate files for agent-authored post-mortems. Output feeds
   the FTS5 lessons table in `common/memory.py`. See build-log 2026-04-09 for context.

@@ -56,6 +56,8 @@ LAST_UPDATE_FILE = Path("data/daemon/telegram_last_update_id.txt")
 CATALYSTS_JSONL = "data/news/catalysts.jsonl"  # sub-system 1: news ingest catalysts
 SUPPLY_STATE_JSON = "data/supply/state.json"  # sub-system 2: supply ledger aggregated state
 SUPPLY_DISRUPTIONS_JSONL = "data/supply/disruptions.jsonl"  # sub-system 2: append-only disruption log
+HEATMAP_ZONES_JSONL = "data/heatmap/zones.jsonl"  # sub-system 3: liquidity zones snapshots
+HEATMAP_CASCADES_JSONL = "data/heatmap/cascades.jsonl"  # sub-system 3: liquidation cascade events
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1104,6 +1106,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /disruptions — list top 10 active supply disruptions\n"
         "  /disrupt — manually log a supply disruption\n"
         "  /disrupt-update — update an existing supply disruption\n"
+        "  /heatmap [SYMBOL] — stop/liquidity heatmap (sub-system 3)\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -1943,6 +1946,116 @@ def cmd_disrupt_update(token: str, chat_id: str, args: str) -> None:
             markdown=True)
 
 
+def cmd_heatmap(token: str, chat_id: str, args: str) -> None:
+    """Show the latest stop/liquidity heatmap snapshot.
+
+    Sub-system 3 (stop/liquidity heatmap). Deterministic — reads
+    data/heatmap/{zones,cascades}.jsonl directly. NOT AI-driven.
+
+    Optional argument: instrument symbol (default BRENTOIL).
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    instrument = (args or "").strip().upper() or "BRENTOIL"
+
+    zones_path = Path(HEATMAP_ZONES_JSONL)
+    cascades_path = Path(HEATMAP_CASCADES_JSONL)
+
+    if not zones_path.exists():
+        tg_send(token, chat_id,
+                "🗺️ No heatmap data yet — heatmap iterator may be disabled or still booting.",
+                markdown=True)
+        return
+
+    # Read latest snapshot for instrument
+    rows: list[dict] = []
+    try:
+        with zones_path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("instrument") == instrument:
+                    rows.append(row)
+    except OSError as e:
+        tg_send(token, chat_id, f"🗺️ Error reading heatmap zones: {e}", markdown=True)
+        return
+
+    if not rows:
+        tg_send(token, chat_id,
+                f"🗺️ No zones logged for {instrument} yet.",
+                markdown=True)
+        return
+
+    latest_ts = max(r.get("snapshot_at", "") for r in rows)
+    latest = [r for r in rows if r.get("snapshot_at") == latest_ts]
+    bids = sorted([r for r in latest if r.get("side") == "bid"], key=lambda r: r.get("rank", 99))
+    asks = sorted([r for r in latest if r.get("side") == "ask"], key=lambda r: r.get("rank", 99))
+
+    mid = latest[0].get("mid", 0.0) if latest else 0.0
+
+    def _fmt_zone(r: dict) -> str:
+        notional_k = (r.get("notional_usd") or 0) / 1000.0
+        return (
+            f"  #{r.get('rank')} {r.get('centroid'):.2f} "
+            f"({r.get('distance_bps'):.0f}bps) "
+            f"${notional_k:,.0f}K x{r.get('level_count')}"
+        )
+
+    lines = [
+        f"🗺️ *Heatmap — {instrument}*",
+        f"_snapshot {latest_ts[:19].replace('T', ' ')} UTC | mid {mid:.2f}_",
+        "",
+    ]
+
+    if asks:
+        lines.append("*Ask walls (above mid):*")
+        for r in asks:
+            lines.append(_fmt_zone(r))
+        lines.append("")
+    if bids:
+        lines.append("*Bid walls (below mid):*")
+        for r in bids:
+            lines.append(_fmt_zone(r))
+        lines.append("")
+
+    # Recent cascades (last 5)
+    if cascades_path.exists():
+        cascades: list[dict] = []
+        try:
+            with cascades_path.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        c = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if c.get("instrument") == instrument:
+                        cascades.append(c)
+        except OSError:
+            cascades = []
+        if cascades:
+            cascades.sort(key=lambda c: c.get("detected_at", ""), reverse=True)
+            lines.append("*Recent cascades (last 5):*")
+            for c in cascades[:5]:
+                ts = (c.get("detected_at", "")[:19].replace("T", " "))
+                lines.append(
+                    f"  {ts} {c.get('side')} sev{c.get('severity')} "
+                    f"OI {c.get('oi_delta_pct'):+.1f}% "
+                    f"funding {c.get('funding_jump_bps'):+.1f}bps"
+                )
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
 def cmd_lessons(token: str, chat_id: str, args: str) -> None:
     """Show the most recent lessons from the trade lesson corpus.
 
@@ -2203,6 +2316,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/disruptions` — list top 10 active supply disruptions by confidence*volume\n"
         "`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"` — manual entry\n"
         "`/disrupt-update abc12345 status=restored` — update an existing entry (history preserved)\n"
+        "`/heatmap [BRENTOIL]` — stop/liquidity heatmap (sub-system 3): top bid/ask walls + recent cascades\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -3648,6 +3762,7 @@ HANDLERS = {
     "/disruptions": cmd_disruptions,
     "/disrupt": cmd_disrupt,
     "/disrupt-update": cmd_disrupt_update,
+    "/heatmap": cmd_heatmap,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -3701,6 +3816,7 @@ HANDLERS = {
     "supply": cmd_supply,
     "disruptions": cmd_disruptions,
     "disrupt": cmd_disrupt,
+    "heatmap": cmd_heatmap,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -3765,6 +3881,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "disruptions", "description": "List top 10 active supply disruptions"},
         {"command": "disrupt", "description": "Manually log a supply disruption"},
         {"command": "disrupt-update", "description": "Update an existing supply disruption"},
+        {"command": "heatmap", "description": "Show stop/liquidity heatmap (sub-system 3)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
