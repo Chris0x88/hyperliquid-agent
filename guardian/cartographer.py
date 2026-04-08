@@ -203,6 +203,9 @@ _HANDLERS_DICT_RE = re.compile(
 )
 _HANDLERS_KEY_RE = re.compile(r'["\']([^"\']+)["\']\s*:')
 _MENU_CMD_RE = re.compile(r'["\']command["\']\s*:\s*["\']([^"\']+)["\']')
+# Match `cmd_X` identifiers appearing as dict values (right of `: `).
+# Captures every handler function reference inside the HANDLERS dict.
+_HANDLERS_VALUE_RE = re.compile(r":\s*(cmd_\w+)")
 _HELP_MENTION_RE = re.compile(r"/([a-z_][a-z0-9_]*)")
 
 
@@ -221,6 +224,7 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
     empty = {
         "handlers": [],
         "handlers_dict_keys": [],
+        "handlers_dict_values": [],
         "menu_commands": [],
         "help_mentions": [],
         "guide_mentions": [],
@@ -239,11 +243,18 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
         for m in _HANDLER_DEF_RE.finditer(source)
     ]
 
-    # HANDLERS dict keys
+    # HANDLERS dict — extract both keys (user-facing command tokens) and
+    # values (handler function references). The "values" set is the
+    # authoritative check for "is cmd_X routed?" because user-facing keys
+    # like "addmarket!" or "disrupt-update" can legitimately differ from
+    # the Python handler name cmd_addmarket_confirm / cmd_disrupt_update.
     handlers_dict_keys: list[str] = []
+    handlers_dict_values: list[str] = []
     dict_match = _HANDLERS_DICT_RE.search(source)
     if dict_match:
-        handlers_dict_keys = _HANDLERS_KEY_RE.findall(dict_match.group(1))
+        dict_body = dict_match.group(1)
+        handlers_dict_keys = _HANDLERS_KEY_RE.findall(dict_body)
+        handlers_dict_values = _HANDLERS_VALUE_RE.findall(dict_body)
 
     # _set_telegram_commands() menu entries — find the function and extract menu
     menu_commands: list[str] = []
@@ -263,6 +274,7 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
     return {
         "handlers": handlers,
         "handlers_dict_keys": handlers_dict_keys,
+        "handlers_dict_values": handlers_dict_values,
         "menu_commands": menu_commands,
         "help_mentions": help_mentions,
         "guide_mentions": guide_mentions,

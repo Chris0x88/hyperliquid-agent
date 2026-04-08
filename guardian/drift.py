@@ -315,7 +315,11 @@ def detect_telegram_gaps(telegram: dict[str, Any]) -> list[dict[str, Any]]:
     gaps: list[dict[str, Any]] = []
 
     handler_names = {h["name"].replace("cmd_", "") for h in telegram.get("handlers", [])}
-    dict_keys = {k.lstrip("/") for k in telegram.get("handlers_dict_keys", [])}
+    # Authoritative routing check: is cmd_X referenced as a VALUE in HANDLERS?
+    # User-facing keys like "addmarket!" or "disrupt-update" legitimately
+    # differ from the handler name, so matching keys to names produces false
+    # positives. Matching values (function references) is correct.
+    dict_values = set(telegram.get("handlers_dict_values", []))
     menu = set(telegram.get("menu_commands", []))
     help_set = {h.lstrip("/") for h in telegram.get("help_mentions", [])}
     guide_set = {h.lstrip("/") for h in telegram.get("guide_mentions", [])}
@@ -324,7 +328,8 @@ def detect_telegram_gaps(telegram: dict[str, Any]) -> list[dict[str, Any]]:
         is_internal = _is_internal_continuation(name, handler_names)
 
         missing = []
-        if name not in dict_keys:
+        # Routing: does cmd_X appear as a value in HANDLERS?
+        if f"cmd_{name}" not in dict_values:
             missing.append("HANDLERS dict")
 
         # Internal continuations only need HANDLERS routing — they don't

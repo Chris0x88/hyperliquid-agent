@@ -130,35 +130,29 @@ def _rule_telegram_completeness(tool_name: str, tool_input: dict[str, Any]) -> G
         except OSError:
             pass
 
-    handler_names = {h["name"].replace("cmd_", "") for h in scan.get("handlers", [])}
-    dict_keys = {k.lstrip("/") for k in scan.get("handlers_dict_keys", [])}
-    menu = set(scan.get("menu_commands", []))
-    help_set = {h.lstrip("/") for h in scan.get("help_mentions", [])}
-    guide_set = {h.lstrip("/") for h in scan.get("guide_mentions", [])}
+    # Use drift's detect_telegram_gaps so the gate and the drift report
+    # share exactly one rule definition. Avoids drift between the gate
+    # and the reporter (meta-parallel-track!).
+    from guardian.drift import detect_telegram_gaps
 
-    missing: list[str] = []
-    for cmd in sorted(handler_names):
-        gaps = []
-        if cmd not in dict_keys:
-            gaps.append("HANDLERS dict")
-        if cmd not in menu:
-            gaps.append("_set_telegram_commands() menu")
-        if cmd not in help_set:
-            gaps.append("cmd_help")
-        if cmd not in guide_set:
-            gaps.append("cmd_guide")
-        if gaps:
-            missing.append(f"cmd_{cmd}: missing from {', '.join(gaps)}")
-
-    if missing:
+    gaps = detect_telegram_gaps(scan)
+    # Only block on P0 gaps (broken routing). P1/P2 are surfaced by drift
+    # reports and shouldn't prevent you from saving the file.
+    p0_gaps = [g for g in gaps if g.get("severity") == "P0"]
+    if p0_gaps:
+        missing_lines = [
+            f"cmd_{g['command']}: missing from {', '.join(g['missing_from'])}"
+            for g in p0_gaps
+        ]
         return GateResult(
             allow=False,
             rule="telegram-completeness",
             reason=(
-                "Telegram command registration incomplete. "
-                "Per CLAUDE.md, every new command must be registered in "
-                "HANDLERS, _set_telegram_commands(), cmd_help, and cmd_guide. "
-                "Missing:\n  " + "\n  ".join(missing)
+                "Telegram command routing incomplete. "
+                "Per CLAUDE.md, every cmd_X handler must be registered in "
+                "the HANDLERS dict. The P1/P2 checks (menu, help, guide) "
+                "are surfaced in the drift report, not blocked.\n  "
+                + "\n  ".join(missing_lines)
             ),
         )
 
