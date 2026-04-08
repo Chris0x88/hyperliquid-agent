@@ -32,8 +32,26 @@ if [ -z "$STAGED_FILES" ]; then
     exit 0
 fi
 
+# --- Allow-list: known-safe paths under otherwise-blocked directories ---
+# Files matching any ALLOWED_PATHS pattern are removed from the check set
+# BEFORE the block-list loop runs. These are paths that would otherwise hit
+# BLOCKED_PATHS (e.g. ^data/) but are explicitly safe: config files with no
+# secrets, directory placeholders (.gitkeep), etc. Layer 2 content scanning
+# still runs on these files, so secrets would still be caught.
+ALLOWED_PATHS=(
+    "^data/config/[^/]+\.(json|yaml|yml)$"
+    "^data/news/\.gitkeep$"
+    "^data/supply/\.gitkeep$"
+    "^data/research/\.gitkeep$"
+)
+
+CHECK_FILES="$STAGED_FILES"
+for allow in "${ALLOWED_PATHS[@]}"; do
+    CHECK_FILES=$(echo "$CHECK_FILES" | grep -Ev "$allow" || true)
+done
+
 for pattern in "${BLOCKED_PATHS[@]}"; do
-    MATCHES=$(echo "$STAGED_FILES" | grep -E "$pattern" || true)
+    MATCHES=$(echo "$CHECK_FILES" | grep -E "$pattern" || true)
     if [ -n "$MATCHES" ]; then
         echo -e "${RED}BLOCKED: Sensitive file path detected:${NC}"
         echo "$MATCHES" | while read -r f; do echo "  - $f"; done
