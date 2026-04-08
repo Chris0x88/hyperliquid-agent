@@ -54,6 +54,8 @@ COMMAND_QUEUE = Path("data/daemon/telegram_commands.jsonl")
 PID_FILE = Path("data/daemon/telegram_bot.pid")
 LAST_UPDATE_FILE = Path("data/daemon/telegram_last_update_id.txt")
 CATALYSTS_JSONL = "data/news/catalysts.jsonl"  # sub-system 1: news ingest catalysts
+SUPPLY_STATE_JSON = "data/supply/state.json"  # sub-system 2: supply ledger aggregated state
+SUPPLY_DISRUPTIONS_JSONL = "data/supply/disruptions.jsonl"  # sub-system 2: append-only disruption log
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1098,6 +1100,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /briefai — brief + thesis & catalysts (AI)\n"
         "  /news — last 10 catalysts by severity\n"
         "  /catalysts — upcoming catalysts in next 7 days\n"
+        "  /supply — show current supply disruption state\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1644,6 +1647,52 @@ def cmd_catalysts(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+def cmd_supply(token: str, chat_id: str, args: str) -> None:
+    """Show the latest SupplyState (deterministic, NOT AI).
+
+    Sub-system 2 (supply ledger). See docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER_PLAN.md.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(SUPPLY_STATE_JSON)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No supply state yet — supply_ledger may be disabled or still booting.", markdown=True)
+        return
+
+    try:
+        s = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        tg_send(token, chat_id, f"🛢️ Error reading supply state: {e}", markdown=True)
+        return
+
+    def _fmt(n: float, unit: str) -> str:
+        return f"{int(n):,} {unit}"
+
+    lines = [
+        "🛢️ *Supply state*",
+        f"_computed {s.get('computed_at', '?')[:19].replace('T', ' ')} UTC_",
+        "",
+        f"Total offline: {_fmt(s.get('total_offline_bpd', 0), 'bpd')} + {_fmt(s.get('total_offline_mcfd', 0), 'mcfd')}",
+        f"Active disruptions: {s.get('active_disruption_count', 0)} (high-confidence: {s.get('high_confidence_count', 0)})",
+        "",
+    ]
+    if s.get("by_region"):
+        lines.append("*By region:*")
+        for region, vol in sorted(s["by_region"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  `{region:<16}` {_fmt(vol, 'bpd')}")
+        lines.append("")
+    if s.get("by_facility_type"):
+        lines.append("*By type:*")
+        for ft, vol in sorted(s["by_facility_type"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  `{ft:<16}` {_fmt(vol, 'bpd')}")
+        lines.append("")
+    if s.get("active_chokepoints"):
+        lines.append(f"Active chokepoints: {', '.join(s['active_chokepoints'])}")
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1667,6 +1716,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "\n📰 *News & Catalysts*\n"
         "`/news` — shows recent catalysts surfaced by the news ingest iterator\n"
         "`/catalysts` — shows upcoming scheduled catalysts from news ingest + iCal sources\n"
+        "`/supply` — aggregated view of physical oil supply offline right now\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3098,6 +3148,7 @@ HANDLERS = {
     "/thesis": cmd_thesis,
     "/news": cmd_news,
     "/catalysts": cmd_catalysts,
+    "/supply": cmd_supply,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3144,6 +3195,7 @@ HANDLERS = {
     "thesis": cmd_thesis,
     "news": cmd_news,
     "catalysts": cmd_catalysts,
+    "supply": cmd_supply,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3199,6 +3251,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "briefai", "description": "AI brief PDF — adds thesis + catalysts"},
         {"command": "news", "description": "Show last 10 catalysts by severity"},
         {"command": "catalysts", "description": "Show upcoming catalysts in next 7 days"},
+        {"command": "supply", "description": "Show current supply disruption state"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
