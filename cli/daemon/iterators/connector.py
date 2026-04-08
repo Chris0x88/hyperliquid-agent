@@ -57,6 +57,21 @@ class ConnectorIterator:
                     # Fall back to raw HL clearinghouseState shape
                     equity = account_state.get("marginSummary", {}).get("accountValue", "0")
                 ctx.balances["USDC"] = Decimal(str(equity))
+
+                # BUG-FIX 2026-04-08 (equity-reporting): seed ctx.total_equity
+                # with the native portion here. The xyz branch below will add
+                # xyz margin, and spot USDC is read from the same account_state
+                # blob. Consumers (TelegramIterator, JournalIterator) read
+                # ctx.total_equity when they need to report the same total
+                # number that ``/status`` shows to the operator. We keep
+                # ctx.balances["USDC"] unchanged (native-only) so execution
+                # engine sizing math is not disturbed by this fix.
+                try:
+                    native_eq = float(equity or 0)
+                    spot_usdc = float(account_state.get("spot_usdc", 0) or 0)
+                    ctx.total_equity = native_eq + spot_usdc
+                except (TypeError, ValueError):
+                    ctx.total_equity = 0.0
         except Exception as e:
             log.warning("Failed to fetch account state: %s", e)
 
@@ -117,6 +132,19 @@ class ConnectorIterator:
             if hasattr(self._adapter, 'get_xyz_state'):
                 xyz = self._adapter.get_xyz_state()
                 if xyz:
+                    # BUG-FIX 2026-04-08 (equity-reporting): pull xyz margin
+                    # equity from the same get_xyz_state() blob and add it to
+                    # ctx.total_equity, which was seeded with native + spot in
+                    # the account_state block above. After this the field
+                    # matches what ``/status`` reports: native + xyz + spot.
+                    try:
+                        xyz_margin = float(
+                            (xyz.get("marginSummary") or {}).get("accountValue", 0) or 0
+                        )
+                        ctx.total_equity = ctx.total_equity + xyz_margin
+                    except (TypeError, ValueError):
+                        pass
+
                     from parent.position_tracker import Position
                     from decimal import Decimal as _D
                     for ap in xyz.get("assetPositions", []):

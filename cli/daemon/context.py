@@ -127,6 +127,27 @@ class TickContext:
     account_drawdown_pct: float = 0.0   # current drawdown from high water mark
     high_water_mark: float = 0.0        # peak account equity observed
 
+    # Total equity snapshot (BUG-FIX 2026-04-08, additive).
+    #
+    # ``ctx.balances["USDC"]`` has always been native-perps-only because
+    # connector.py reads from the native HL ``get_account_state()`` endpoint
+    # and never sums xyz margin or spot USDC. Consumers that report "equity"
+    # to the operator (TelegramIterator periodic alerts, JournalIterator
+    # trade records, account_collector drawdown alerts) need the SAME total
+    # the ``/status`` Telegram command reports — which is
+    # native + xyz + spot USDC (see cli/daemon/CLAUDE.md).
+    #
+    # Rather than change the semantics of ``ctx.balances["USDC"]`` and risk
+    # disturbing ``execution_engine`` sizing math mid-session, we add this
+    # parallel field. ConnectorIterator populates it on every tick by summing
+    # the three sources; any alerting iterator should prefer this over
+    # ``ctx.balances["USDC"]`` when reporting equity numbers to the user.
+    #
+    # Value of 0.0 means the connector has not yet populated it (tick 0 or
+    # adapter unavailable) — callers should fall back to ``ctx.balances``
+    # in that case.
+    total_equity: float = 0.0
+
     # Latest signal outputs (populated by pulse + radar iterators on each scan).
     # Consumed by apex_advisor (C3 — dry-run advisor) so APEX can run on the
     # same in-memory tick rather than re-reading data/research/signals.jsonl.

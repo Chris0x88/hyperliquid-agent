@@ -290,6 +290,128 @@ class TestConnectorBalancesUSDC:
         assert ctx.balances["USDC"] == Decimal("0")
 
 
+class TestConnectorTotalEquity:
+    """Regression tests for BUG-FIX 2026-04-08 (equity-reporting).
+
+    ``ctx.balances["USDC"]`` has always been native-perps-only because
+    ``connector.tick`` only reads from the native HL ``get_account_state()``
+    endpoint. Telegram alerts and the journal trade record were treating that
+    value as "total equity" and reporting numbers that did not match
+    ``/status``, which has always summed native + xyz + spot. The fix adds a
+    parallel ``ctx.total_equity`` field that the connector populates with
+    the same three-source sum so alerts can report the same number.
+
+    These tests lock in:
+    - native + spot is computed even when xyz is empty
+    - xyz margin is added to total when get_xyz_state() returns it
+    - the existing ``ctx.balances["USDC"]`` semantic is unchanged (still
+      native-only) so execution_engine sizing math is not disturbed
+    """
+
+    def test_total_equity_native_only(self):
+        """No xyz, no spot — total_equity equals native account_value."""
+        adapter = _FakeDirectAdapter(native_positions=[])
+        # _FakeDirectAdapter returns account_value=500.0, no spot
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        assert ctx.total_equity == 500.0
+        # ctx.balances["USDC"] semantic UNCHANGED — still native-only
+        assert ctx.balances["USDC"] == Decimal("500.0")
+
+    def test_total_equity_native_plus_spot(self):
+        """spot_usdc field on the account_state is added to total."""
+
+        class _NativeAndSpotAdapter:
+            def get_account_state(self):
+                return {
+                    "account_value": 500.0,
+                    "spot_usdc": 75.25,
+                    "positions": [],
+                }
+            def get_snapshot(self, instrument):
+                class _S:
+                    mid_price = 100.0
+                return _S()
+            def get_all_markets(self):
+                return []
+
+        it = ConnectorIterator(adapter=_NativeAndSpotAdapter())
+        ctx = TickContext()
+        it.tick(ctx)
+
+        assert ctx.total_equity == 575.25
+        # The legacy native-only field is preserved
+        assert ctx.balances["USDC"] == Decimal("500.0")
+
+    def test_total_equity_native_plus_xyz_plus_spot(self):
+        """All three sources sum into total_equity. This is the prod scenario."""
+
+        class _FullAdapter:
+            def get_account_state(self):
+                return {
+                    "account_value": 500.0,
+                    "spot_usdc": 25.0,
+                    "positions": [],
+                }
+            def get_xyz_state(self):
+                return {
+                    "marginSummary": {"accountValue": "120.50"},
+                    "assetPositions": [],
+                }
+            def get_snapshot(self, instrument):
+                class _S:
+                    mid_price = 100.0
+                return _S()
+            def get_all_markets(self):
+                return []
+
+        it = ConnectorIterator(adapter=_FullAdapter())
+        ctx = TickContext()
+        it.tick(ctx)
+
+        # 500 (native) + 120.50 (xyz) + 25 (spot) = 645.50 — must match
+        # what /status would report
+        assert ctx.total_equity == 645.50
+        # Legacy field still native-only — execution_engine sizing untouched
+        assert ctx.balances["USDC"] == Decimal("500.0")
+
+    def test_total_equity_xyz_missing_margin_summary_is_safe(self):
+        """xyz state present but marginSummary absent — total = native only."""
+        adapter = _FakeDirectAdapter(
+            native_positions=[],
+            xyz_state={"assetPositions": []},  # no marginSummary
+        )
+        it = ConnectorIterator(adapter=adapter)
+        ctx = TickContext()
+        it.tick(ctx)
+
+        # Should not crash; xyz contribution is 0
+        assert ctx.total_equity == 500.0
+
+    def test_total_equity_starts_at_zero_when_account_state_unavailable(self):
+        """Adapter without get_account_state — total_equity stays at 0.
+
+        Consumers (TelegramIterator etc.) treat 0 as 'not yet populated' and
+        fall back to ``ctx.balances["USDC"]``.
+        """
+
+        class _NoAccountStateAdapter:
+            def get_snapshot(self, instrument):
+                class _S:
+                    mid_price = 100.0
+                return _S()
+            def get_all_markets(self):
+                return []
+
+        it = ConnectorIterator(adapter=_NoAccountStateAdapter())
+        ctx = TickContext()
+        it.tick(ctx)
+
+        assert ctx.total_equity == 0.0
+
+
 class TestConnectorPositionPrices:
     """Regression tests for BUG-FIX 2026-04-08 — position-instrument price gap.
 

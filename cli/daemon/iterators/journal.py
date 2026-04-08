@@ -261,7 +261,14 @@ class JournalIterator:
             "take_profit": tp_price,
             "thesis_summary": thesis_summary,
             "conviction_at_close": conviction,
-            "account_equity": float(ctx.balances.get("USDC", ZERO)),
+            # BUG-FIX 2026-04-08 (equity-reporting): use ctx.total_equity
+            # (native + xyz + spot) when populated. Falls back to the legacy
+            # native-only ``ctx.balances["USDC"]`` if the connector hasn't
+            # filled total_equity yet (tick 0 / mock mode).
+            "account_equity": (
+                float(ctx.total_equity) if ctx.total_equity > 0
+                else float(ctx.balances.get("USDC", ZERO))
+            ),
         }
 
         # Write individual trade file
