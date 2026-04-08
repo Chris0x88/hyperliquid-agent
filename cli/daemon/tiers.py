@@ -21,6 +21,7 @@ TIER_ITERATORS = {
         "autoresearch",        # learning loop
         "memory_consolidation", # compress old events hourly
         "journal",
+        "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
         "telegram",
     ],
     "rebalance": [
@@ -45,6 +46,7 @@ TIER_ITERATORS = {
         "autoresearch",
         "memory_consolidation",
         "journal",
+        "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
         "telegram",
     ],
     "opportunistic": [
@@ -71,6 +73,7 @@ TIER_ITERATORS = {
         "autoresearch",
         "memory_consolidation",
         "journal",
+        "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
         "telegram",
     ],
 }

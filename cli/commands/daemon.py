@@ -200,6 +200,11 @@ def daemon_start(
         pass
 
     clock.register(JournalIterator(data_dir=data_dir))
+    try:
+        from cli.daemon.iterators.lesson_author import LessonAuthorIterator
+        clock.register(LessonAuthorIterator())
+    except ImportError:
+        pass
     clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")
