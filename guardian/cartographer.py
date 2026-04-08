@@ -228,6 +228,8 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
         "menu_commands": [],
         "help_mentions": [],
         "guide_mentions": [],
+        "hidden_handlers": [],
+        "menu_exempt_handlers": [],
     }
     if not telegram_bot_path.exists():
         return empty
@@ -271,6 +273,9 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
     help_mentions = _extract_help_mentions(source, "cmd_help")
     guide_mentions = _extract_help_mentions(source, "cmd_guide")
 
+    hidden_handlers = _extract_module_constant(source, "_GUARDIAN_HIDDEN_HANDLERS")
+    menu_exempt_handlers = _extract_module_constant(source, "_GUARDIAN_MENU_EXEMPT")
+
     return {
         "handlers": handlers,
         "handlers_dict_keys": handlers_dict_keys,
@@ -278,7 +283,58 @@ def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
         "menu_commands": menu_commands,
         "help_mentions": help_mentions,
         "guide_mentions": guide_mentions,
+        "hidden_handlers": hidden_handlers,
+        "menu_exempt_handlers": menu_exempt_handlers,
     }
+
+
+def _extract_module_constant(source: str, const_name: str) -> list[str]:
+    """Extract a module-level frozenset/set/list/tuple constant of strings.
+
+    Used for `_GUARDIAN_HIDDEN_HANDLERS` (handlers excluded from every
+    user-facing surface) and `_GUARDIAN_MENU_EXEMPT` (handlers kept out
+    of the native Telegram menu but still documented in help/guide).
+    Missing constant → []. Non-literal values in the collection are skipped.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == const_name:
+                    return _literal_string_elements(node.value)
+    return []
+
+
+def _literal_string_elements(node: ast.AST) -> list[str]:
+    """Pull string constants out of a frozenset/set/list/tuple literal AST.
+
+    Handles:
+        frozenset({"a", "b"})    → ["a", "b"]
+        set({"a", "b"})          → ["a", "b"]
+        {"a", "b"}               → ["a", "b"]
+        ["a", "b"]               → ["a", "b"]
+        ("a", "b")               → ["a", "b"]
+    """
+    # Unwrap frozenset(...) or set(...) calls
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id in ("frozenset", "set"):
+            if node.args:
+                return _literal_string_elements(node.args[0])
+            return []
+    elts: list[ast.AST] = []
+    if isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        elts = list(node.elts)
+    elif isinstance(node, ast.Dict):
+        elts = list(node.keys)
+    results: list[str] = []
+    for el in elts:
+        if isinstance(el, ast.Constant) and isinstance(el.value, str):
+            results.append(el.value)
+    return results
 
 
 def _extract_help_mentions(source: str, func_name: str) -> list[str]:

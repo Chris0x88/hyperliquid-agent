@@ -314,7 +314,22 @@ def detect_telegram_gaps(telegram: dict[str, Any]) -> list[dict[str, Any]]:
     """
     gaps: list[dict[str, Any]] = []
 
-    handler_names = {h["name"].replace("cmd_", "") for h in telegram.get("handlers", [])}
+    # Hidden-by-design handlers (admin, power-user metas) — listed in
+    # _GUARDIAN_HIDDEN_HANDLERS inside telegram_bot.py itself. These are
+    # intentionally excluded from menu/help/guide and must not be flagged.
+    hidden = {h.replace("cmd_", "") for h in telegram.get("hidden_handlers", [])}
+
+    # Menu-exempt handlers — listed in _GUARDIAN_MENU_EXEMPT. These are
+    # intentionally kept out of the native Telegram menu (to keep the menu
+    # short) but are still documented in help/guide. Skip the menu check
+    # for them but keep all other checks.
+    menu_exempt = {h.replace("cmd_", "") for h in telegram.get("menu_exempt_handlers", [])}
+
+    handler_names = {
+        h["name"].replace("cmd_", "")
+        for h in telegram.get("handlers", [])
+        if h["name"] not in telegram.get("hidden_handlers", [])
+    }
     # Authoritative routing check: is cmd_X referenced as a VALUE in HANDLERS?
     # User-facing keys like "addmarket!" or "disrupt-update" legitimately
     # differ from the handler name, so matching keys to names produces false
@@ -325,6 +340,8 @@ def detect_telegram_gaps(telegram: dict[str, Any]) -> list[dict[str, Any]]:
     guide_set = {h.lstrip("/") for h in telegram.get("guide_mentions", [])}
 
     for name in sorted(handler_names):
+        if name in hidden:
+            continue
         is_internal = _is_internal_continuation(name, handler_names)
 
         missing = []
@@ -335,7 +352,9 @@ def detect_telegram_gaps(telegram: dict[str, Any]) -> list[dict[str, Any]]:
         # Internal continuations only need HANDLERS routing — they don't
         # appear in the menu/help/guide at all.
         if not is_internal:
-            if name not in menu:
+            # Menu-exempt handlers are intentionally kept out of the native
+            # menu (help-only commands like addmarket/removemarket).
+            if name not in menu and name not in menu_exempt:
                 missing.append("_set_telegram_commands() menu")
             # Skip self-references in help/guide.
             if name not in _TELEGRAM_SELF_EXEMPT or name != "help":

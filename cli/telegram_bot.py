@@ -1093,7 +1093,18 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /pnl — profit & loss breakdown\n"
         "  /price — quick prices + 24h change\n"
         "  /orders — open orders\n"
+        "  /close — close a position (with approval)\n"
+        "  /sl — set/view stop-loss (with approval)\n"
+        "  /tp — set/view take-profit (with approval)\n"
+        "  /menu — interactive button terminal\n"
+        "\n*Conviction & Intelligence*\n"
+        "  /thesis — show all thesis states (conviction, age, direction)\n"
+        "  /signals — recent Pulse + Radar signals\n"
+        "\n*Watchlist*\n"
+        "  /addmarket crude — search + add a new market\n"
+        "  /removemarket xyz:CL — remove a market\n"
         "\n*Charts*\n"
+        "  /chart SYM [hours] — generic chart dispatcher\n"
         "  /chartoil 72 — oil chart (hours)\n"
         "  /chartbtc 168 — BTC chart\n"
         "  /chartgold — gold chart\n"
@@ -2385,8 +2396,23 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/market oil` — deep technicals on a market\n"
         "`/watchlist` — all tracked markets + prices\n"
         "`/price btc` — quick price check\n"
+        "`/pnl` — profit & loss breakdown by market\n"
+        "`/orders` — open orders snapshot\n"
+        "`/menu` — interactive button terminal (no typing)\n"
+        "\n🎯 *Trade Actions (with approval)*\n"
+        "`/close BRENTOIL` — close a position. Buttons confirm.\n"
+        "`/sl BRENTOIL 65.40` — set stop-loss. Buttons confirm.\n"
+        "`/tp BRENTOIL 72.00` — set take-profit. Buttons confirm.\n"
+        "No trade executes without your tap.\n"
+        "\n🧠 *Conviction & Intelligence*\n"
+        "`/thesis` — every thesis file with age + conviction + direction. "
+        "Red icon = clamped (>72h stale). Yellow = warning. Green = fresh.\n"
+        "`/signals` — Pulse (capital inflow) + Radar (multi-timeframe setups). "
+        "Pulse scans every 2 min, Radar every 5 min.\n"
+        "`/powerlaw` — BTC power law model state (used by vault rebalancer).\n"
         "\n📈 *Charts*\n"
-        "`/chartoil 72` — 72h oil chart\n"
+        "`/chart BRENTOIL 72` — generic dispatcher: any market, any hours\n"
+        "`/chartoil 72` — 72h oil shortcut\n"
         "Shortcuts: `/chartbtc`, `/chartgold`, `/chartwti`\n"
         "\n📄 *Brief PDFs*\n"
         "`/brief` — mechanical 1-page PDF (fixed code, no AI). Portfolio, "
@@ -2426,6 +2452,9 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/reclaim BRENTOIL` — take it back to manual\n"
         "\n🤖 Agent = bot makes all decisions (you approve trades)\n"
         "👤 Manual = you trade, bot ensures SL/TP exist\n"
+        "\n🏦 *Vault (BTC power-law rebalancer)*\n"
+        "`/rebalancer` — status, start, stop the 1h rebalance daemon\n"
+        "`/rebalance` — force an immediate rebalance (ignores threshold)\n"
         "\n🔧 *System*\n"
         "`/restart` — restart all services (daemon, bot, heartbeat)\n"
         "`/models` — switch AI model (10 free, 8 paid)\n"
@@ -3797,6 +3826,26 @@ RENDERER_COMMANDS = {
     cmd_status, cmd_price, cmd_orders, cmd_health, cmd_menu,
 }
 
+# Handlers intentionally excluded from the Telegram menu/help/guide.
+# Guardian's cartographer reads this constant and drift.detect_telegram_gaps
+# skips every handler listed here, preventing them from surfacing as P1s.
+# Add a handler here when it's an admin/meta/power-user command that should
+# NOT appear in user-facing surfaces but must still be routable via HANDLERS.
+_GUARDIAN_HIDDEN_HANDLERS = frozenset({
+    "cmd_feedback_resolve",  # admin-only: mark feedback items resolved
+    "cmd_commands",          # power-user meta: category-based command dump
+})
+
+# Handlers intentionally excluded from the native Telegram command menu
+# (setMyCommands) but still documented in cmd_help / cmd_guide. Use this
+# for rarely-invoked operations that would clutter the menu without being
+# worth a top-level slot. Guardian treats "missing from menu" as OK for
+# these handlers; other registration checks still apply.
+_GUARDIAN_MENU_EXEMPT = frozenset({
+    "cmd_addmarket",     # watchlist mgmt — help-only, typed rarely
+    "cmd_removemarket",  # watchlist mgmt — help-only, typed rarely
+})
+
 HANDLERS = {
     "/status": cmd_status,
     "/price": cmd_price,
@@ -3955,7 +4004,11 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "close", "description": "Close a position"},
         {"command": "sl", "description": "Set stop-loss"},
         {"command": "tp", "description": "Set take-profit"},
+        # Conviction & Intelligence
+        {"command": "thesis", "description": "Show all thesis states with conviction + age"},
+        {"command": "signals", "description": "Recent Pulse + Radar signals"},
         # Charts
+        {"command": "chart", "description": "Generic chart dispatcher — /chart <market> [hours]"},
         {"command": "chartoil", "description": "Oil price chart (add hours)"},
         {"command": "chartbtc", "description": "BTC price chart"},
         {"command": "chartgold", "description": "Gold price chart"},

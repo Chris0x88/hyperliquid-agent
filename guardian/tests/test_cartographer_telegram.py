@@ -44,3 +44,45 @@ def test_scan_detects_unregistered_handler():
         if h.replace("cmd_", "") not in dict_keys
     }
     assert "orphan" in unregistered
+
+
+def test_scan_extracts_guardian_hidden_handlers(tmp_path):
+    """Handlers listed in _GUARDIAN_HIDDEN_HANDLERS are intentionally
+    excluded from the menu/help/guide. Cartographer surfaces the list so
+    drift.detect_telegram_gaps can skip them.
+    """
+    fake_bot = tmp_path / "telegram_bot.py"
+    fake_bot.write_text('''
+def cmd_public(token, chat_id, args):
+    return "public"
+
+def cmd_admin_hidden(token, chat_id, args):
+    return "secret"
+
+_GUARDIAN_HIDDEN_HANDLERS = frozenset({
+    "cmd_admin_hidden",
+})
+
+HANDLERS = {
+    "public": cmd_public,
+    "admin_hidden": cmd_admin_hidden,
+}
+''')
+    result = scan_telegram_commands(fake_bot)
+    assert "hidden_handlers" in result
+    assert "cmd_admin_hidden" in result["hidden_handlers"]
+    assert "cmd_public" not in result["hidden_handlers"]
+
+
+def test_scan_hidden_handlers_empty_when_no_constant(tmp_path):
+    """When no _GUARDIAN_HIDDEN_HANDLERS constant is defined, the field
+    is an empty list — not an error."""
+    fake_bot = tmp_path / "telegram_bot.py"
+    fake_bot.write_text('''
+def cmd_foo(token, chat_id, args):
+    return "foo"
+
+HANDLERS = {"foo": cmd_foo}
+''')
+    result = scan_telegram_commands(fake_bot)
+    assert result.get("hidden_handlers", []) == []
