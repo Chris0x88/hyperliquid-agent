@@ -69,6 +69,8 @@ class CatalystDeleverageIterator:
         self._adapter = adapter
         self._check_interval = check_interval
         self._state_path = Path(data_dir) / "catalyst_events.json"
+        self._external_catalyst_path = Path(data_dir) / "external_catalyst_events.json"
+        self._external_mtime: float = 0.0
         self._last_check: int = 0
         self._warned_6h: Set[str] = set()
         self._warned_1h: Set[str] = set()
@@ -98,6 +100,7 @@ class CatalystDeleverageIterator:
     # ------------------------------------------------------------------
 
     def tick(self, ctx: TickContext) -> None:
+        self._load_external_catalysts_from_file()  # PROLOGUE: sub-system 1 news bridge
         now_s = ctx.timestamp // 1000 if ctx.timestamp > 1e12 else ctx.timestamp
         if now_s - self._last_check < self._check_interval:
             return
@@ -255,6 +258,44 @@ class CatalystDeleverageIterator:
             log.info("CatalystDeleverage: merged %d external catalysts", added)
             self._save_state()
         return added
+
+    def _load_external_catalysts_from_file(self) -> None:
+        """Mtime-watch data/daemon/external_catalyst_events.json and merge new entries."""
+        path = self._external_catalyst_path
+        if not path.exists():
+            return
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return
+        if mtime <= self._external_mtime:
+            return  # unchanged since last check
+
+        try:
+            raw = json.loads(path.read_text())
+        except json.JSONDecodeError as e:
+            log.warning("external catalyst file %s corrupt: %s", path, e)
+            return
+
+        events: list[CatalystEvent] = []
+        for ev in raw.get("events", []):
+            try:
+                events.append(CatalystEvent(
+                    name=ev["name"],
+                    instrument=ev["instrument"],
+                    event_date=ev["event_date"],
+                    pre_event_hours=int(ev.get("pre_event_hours", 24)),
+                    reduce_leverage_to=ev.get("reduce_leverage_to"),
+                    reduce_size_pct=ev.get("reduce_size_pct"),
+                    post_event_hours=int(ev.get("post_event_hours", 12)),
+                    executed=bool(ev.get("executed", False)),
+                ))
+            except (KeyError, TypeError, ValueError) as e:
+                log.warning("skipping malformed external catalyst: %s (%s)", ev, e)
+
+        if events:
+            self.add_external_catalysts(events)
+        self._external_mtime = mtime
 
     def _maybe_warn(
         self,
