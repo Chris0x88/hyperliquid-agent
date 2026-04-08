@@ -1,7 +1,16 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from modules.news_engine import Headline, Catalyst, parse_feed, dedupe_headlines
+import tempfile
+
+from modules.news_engine import (
+    Headline,
+    Catalyst,
+    Rule,
+    parse_feed,
+    dedupe_headlines,
+    load_rules,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "news"
 
@@ -80,3 +89,34 @@ def test_dedupe_different_sources_kept_separate():
     b = parse_feed(xml_b, source="oilprice_main")
     deduped = dedupe_headlines(a + b)
     assert len(deduped) == len(a) + len(b)  # different sources → different IDs
+
+
+SAMPLE_RULES_YAML = """
+rules:
+  - name: trump_oil_announcement
+    severity: 4
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: ["trump"]
+    keywords_any: ["iran", "saudi", "opec", "sanctions", "deadline"]
+  - name: physical_damage_facility
+    severity: 5
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: "bull"
+    keywords_all: []
+    keywords_any: ["drone", "strike", "missile"]
+    keywords_require_any: ["refinery", "pipeline", "terminal", "oilfield"]
+"""
+
+
+def test_load_rules_from_yaml():
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(SAMPLE_RULES_YAML)
+        path = f.name
+    rules = load_rules(path)
+    assert len(rules) == 2
+    assert rules[0].name == "trump_oil_announcement"
+    assert rules[0].severity == 4
+    assert rules[0].direction is None
+    assert rules[1].direction == "bull"
+    assert "refinery" in rules[1].keywords_require_any

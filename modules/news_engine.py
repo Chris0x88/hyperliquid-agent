@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import feedparser
+import yaml
 
 log = logging.getLogger("news_engine")
 
@@ -95,3 +96,36 @@ def dedupe_headlines(headlines: list[Headline]) -> list[Headline]:
         seen.add(h.id)
         out.append(h)
     return out
+
+
+@dataclass(frozen=True)
+class Rule:
+    name: str
+    severity: int
+    instruments: list[str]
+    direction: str | None        # None | "bull" | "bear"
+    keywords_all: list[str]      # ALL must match
+    keywords_any: list[str]      # ANY must match
+    keywords_require_any: list[str] = None  # optional secondary requirement
+
+    def __post_init__(self):
+        # frozen dataclass requires object.__setattr__ for mutation in __post_init__
+        if self.keywords_require_any is None:
+            object.__setattr__(self, "keywords_require_any", [])
+
+
+def load_rules(yaml_path: str) -> list[Rule]:
+    with open(yaml_path, "r") as f:
+        doc = yaml.safe_load(f)
+    rules: list[Rule] = []
+    for rd in doc.get("rules", []):
+        rules.append(Rule(
+            name=rd["name"],
+            severity=int(rd["severity"]),
+            instruments=list(rd.get("instruments", [])),
+            direction=rd.get("direction"),
+            keywords_all=[k.lower() for k in rd.get("keywords_all", [])],
+            keywords_any=[k.lower() for k in rd.get("keywords_any", [])],
+            keywords_require_any=[k.lower() for k in rd.get("keywords_require_any", [])],
+        ))
+    return rules
