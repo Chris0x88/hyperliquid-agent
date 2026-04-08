@@ -17,10 +17,48 @@ A dev-side meta-system that watches the HyperLiquid_Bot repo while Claude Code i
 
 ## When does it run?
 
-- **SessionStart:** reads the current report, injects a compact summary into Claude's context.
-- **PreToolUse (Phase 3+):** runs gate checks on Edit/Write/Bash calls.
-- **Mid-session sub-agent dispatch (Phase 5+):** when the conversation suggests deeper analysis would help.
+- **SessionStart:** reads the current report, injects a compact summary into Claude's context. If the report is missing or older than 24h, runs a lazy tier-1 sweep (cartographer → drift → friction) synchronously first. Typically <1s on the current repo.
+- **PreToolUse:** runs gate checks on every Edit, Write, and Bash tool call. Blocks the call with an error message if a P0 rule fires.
+- **PostToolUse (Read):** auto-marks every Read call so the `stale-adr-guard` rule knows which files have been consulted this session.
+- **Mid-session sub-agent dispatch:** when the conversation suggests deeper analysis would help, Claude dispatches a background sub-agent via the Agent tool (general-purpose, `run_in_background=true`) that runs the sweep and writes a natural-language synthesis to `guardian/state/current_report.md`.
 - **Never otherwise.** When you close Claude Code, Guardian sleeps.
+
+## How do I make sure it's actually running?
+
+Claude Code reads hook wiring from `.claude/settings.json`. That file is gitignored at the project level (it's per-machine), so a fresh checkout won't have it.
+
+**First-time setup on a new machine:**
+
+```bash
+cp agent-cli/guardian/hooks/settings.example.json agent-cli/.claude/settings.json
+```
+
+That single copy wires all three hooks (SessionStart, PreToolUse, PostToolUse) to the Python scripts under `guardian/hooks/`. No other setup is required.
+
+**Verifying it's running:**
+
+When you start a Claude Code session, the SessionStart hook injects a `## Guardian` block into Claude's context. If the block is there, the hook fired. Ask Claude "what does Guardian see?" and it'll read `guardian/state/current_report.md` for you.
+
+You can also run the sweep manually at any time:
+
+```bash
+cd agent-cli && .venv/bin/python -m guardian.sweep
+```
+
+That runs the tier-1 pipeline end-to-end and prints a JSON summary with module count, P0/P1 drift counts, friction counts, and duration. If duration is under 2s and module count is in the high hundreds (not thousands), Guardian is healthy.
+
+**Quick smoke test of each hook:**
+
+```bash
+# SessionStart
+echo '' | python3 agent-cli/guardian/hooks/session_start.py
+
+# PreToolUse (should allow, exit 0)
+echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 agent-cli/guardian/hooks/pre_tool_use.py; echo "exit=$?"
+
+# PostToolUse Read (marks the file in /tmp/guardian_session_reads.txt)
+echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/fake.md"}}' | python3 agent-cli/guardian/hooks/post_tool_use.py; echo "exit=$?"
+```
 
 ## How do I read a report?
 

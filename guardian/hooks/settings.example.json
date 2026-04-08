@@ -1,0 +1,37 @@
+{
+  "_comment": "Guardian Angel hook wiring for Claude Code. Copy to .claude/settings.json on this machine. The .claude/ directory is gitignored at the project level, so this example lives under guardian/hooks/ to stay committable. See guardian/guide.md for details.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/guardian/hooks/session_start.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/guardian/hooks/pre_tool_use.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/guardian/hooks/post_tool_use.py"
+          }
+        ]
+      }
+    ]
+  }
+}
