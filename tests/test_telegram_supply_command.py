@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_supply, cmd_disruptions
+from cli.telegram_bot import cmd_supply, cmd_disruptions, cmd_disrupt
 
 
 def _write_state(d, payload):
@@ -78,3 +78,26 @@ def test_cmd_disruptions_lists_active(tmp_path):
             body = send.call_args[0][2]
             assert "Volgograd refinery" in body
             assert "Test restored" not in body
+
+
+# ── /disrupt ─────────────────────────────────────────────────────
+
+def test_cmd_disrupt_appends_row(tmp_path):
+    path = Path(tmp_path) / "d.jsonl"
+    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("cli.telegram_bot.tg_send"):
+            cmd_disrupt("tok", "chat", 'refinery Volgograd 200000 bpd active 2026-04-08 "drone strike"')
+            assert path.exists()
+            rows = [json.loads(l) for l in path.read_text().strip().split("\n")]
+            assert len(rows) == 1
+            assert rows[0]["facility_type"] == "refinery"
+            assert rows[0]["location"] == "Volgograd"
+            assert rows[0]["volume_offline"] == 200000.0
+            assert rows[0]["status"] == "active"
+
+
+def test_cmd_disrupt_rejects_empty():
+    with patch("cli.telegram_bot.tg_send") as send:
+        cmd_disrupt("tok", "chat", "")
+        body = send.call_args[0][2]
+        assert "usage" in body.lower() or "format" in body.lower()

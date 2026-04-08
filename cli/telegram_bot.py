@@ -1102,6 +1102,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /catalysts — upcoming catalysts in next 7 days\n"
         "  /supply — show current supply disruption state\n"
         "  /disruptions — list top 10 active supply disruptions\n"
+        "  /disrupt — manually log a supply disruption\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1749,6 +1750,111 @@ def cmd_disruptions(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines), markdown=True)
 
 
+def cmd_disrupt(token: str, chat_id: str, args: str) -> None:
+    """Manually append a supply disruption.
+
+    Usage: /disrupt <type> <location> [volume] [unit] [status] [date] ["notes"]
+    Example: /disrupt refinery Volgograd 200000 bpd active 2026-04-08 "drone strike"
+    Sub-system 2 (supply ledger).
+    """
+    import hashlib
+    import json
+    import shlex
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    if not args.strip():
+        tg_send(token, chat_id,
+                "🛢️ *Usage:* `/disrupt <type> <location> [volume] [unit] [status] [date] \"notes\"`\n\n"
+                "Types: refinery, oilfield, gas_plant, terminal, pipeline, ship, chokepoint\n"
+                "Units: bpd, mcfd\n"
+                "Status: active, partial, restored\n\n"
+                "Example:\n`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"`",
+                markdown=True)
+        return
+
+    try:
+        parts = shlex.split(args)
+    except ValueError as e:
+        tg_send(token, chat_id, f"🛢️ Parse error: {e}", markdown=True)
+        return
+
+    if len(parts) < 2:
+        tg_send(token, chat_id, "🛢️ Need at least `<type> <location>`. Send `/disrupt` for full usage.", markdown=True)
+        return
+
+    facility_type = parts[0]
+    location = parts[1]
+    volume = None
+    unit = None
+    status = "active"
+    incident_iso = datetime.now(timezone.utc).date().isoformat()
+    notes = ""
+
+    i = 2
+    if i < len(parts):
+        try:
+            volume = float(parts[i])
+            i += 1
+        except ValueError:
+            pass
+    if i < len(parts) and parts[i] in ("bpd", "mcfd"):
+        unit = parts[i]
+        i += 1
+    if i < len(parts) and parts[i] in ("active", "partial", "restored", "unknown"):
+        status = parts[i]
+        i += 1
+    if i < len(parts):
+        try:
+            datetime.fromisoformat(parts[i])
+            incident_iso = parts[i]
+            i += 1
+        except ValueError:
+            pass
+    if i < len(parts):
+        notes = " ".join(parts[i:])
+
+    incident_dt = datetime.fromisoformat(incident_iso)
+    if incident_dt.tzinfo is None:
+        incident_dt = incident_dt.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+
+    from modules.supply_ledger import classify_region
+    region = classify_region(f"{location} {notes}")
+
+    did = hashlib.sha256(f"{location}|{incident_dt.isoformat()}".encode("utf-8")).hexdigest()[:16]
+
+    row = {
+        "id": did,
+        "source": "manual",
+        "source_ref": str(chat_id),
+        "facility_name": f"{location} {facility_type}",
+        "facility_type": facility_type,
+        "location": location,
+        "region": region,
+        "volume_offline": volume,
+        "volume_unit": unit,
+        "incident_date": incident_dt.isoformat(),
+        "expected_recovery": None,
+        "confidence": 4,
+        "status": status,
+        "instruments": ["xyz:BRENTOIL", "CL"],
+        "notes": notes,
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+
+    path = Path(SUPPLY_DISRUPTIONS_JSONL)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(row) + "\n")
+
+    tg_send(token, chat_id,
+            f"🛢️ Logged disruption `{did}`\n{facility_type} / {location} / {region} / {status}\n"
+            f"{'volume: ' + str(volume) + ' ' + (unit or '') if volume else '(volume unknown)'}",
+            markdown=True)
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1774,6 +1880,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/catalysts` — shows upcoming scheduled catalysts from news ingest + iCal sources\n"
         "`/supply` — aggregated view of physical oil supply offline right now\n"
         "`/disruptions` — list top 10 active supply disruptions by confidence*volume\n"
+        "`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"` — manual entry\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3207,6 +3314,7 @@ HANDLERS = {
     "/catalysts": cmd_catalysts,
     "/supply": cmd_supply,
     "/disruptions": cmd_disruptions,
+    "/disrupt": cmd_disrupt,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3255,6 +3363,7 @@ HANDLERS = {
     "catalysts": cmd_catalysts,
     "supply": cmd_supply,
     "disruptions": cmd_disruptions,
+    "disrupt": cmd_disrupt,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3312,6 +3421,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "catalysts", "description": "Show upcoming catalysts in next 7 days"},
         {"command": "supply", "description": "Show current supply disruption state"},
         {"command": "disruptions", "description": "List top 10 active supply disruptions"},
+        {"command": "disrupt", "description": "Manually log a supply disruption"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
