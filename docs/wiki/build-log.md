@@ -4,6 +4,176 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-08 -- Alert Numbers + Format Postmortem (4 commits, 45 new tests)
+
+**Production incident: trade closed alerts on the morning of 2026-04-08 reported
+``exit=$0.00 PnL=+$2840.95 (+100.0%)`` for closed positions on a sub-$1000
+account. The bogus PnL was simultaneously written to
+``data/research/journal.jsonl`` which feeds the AI agent's reflection loop —
+so the agent has been learning from hallucinated wins/losses since the
+journal iterator went into production. Chris flagged it after a morning trading
+session: "all the alerts are showing wrong numbers" and "alerts as they come
+to me are not in a human friendly readable format". Four distinct bugs found
+during root-cause investigation, all fixed in one session with zero
+regressions across the suite (1924 → 1969 tests).**
+
+### What shipped
+
+| ID | Bug | Commit | Files | Tests |
+|---|---|---|---|---|
+| **A** | `journal` exit_price=$0 → garbage PnL — `ctx.prices` empty for closed positions, lookup returned 0, PnL = (entry - 0) × size produced fake numbers | `988aea0` | `iterators/journal.py` | 6 in `test_journal_iterator_exit_price.py` |
+| **B** | `ctx.balances["USDC"]` was native-perps-only — alerts reported a different equity than `/status` | `5839b23` | `daemon/context.py`, `iterators/connector.py`, `iterators/journal.py` | 5 in `test_connector_native_positions.py::TestConnectorTotalEquity` |
+| **C** | TelegramIterator sent with `parse_mode="HTML"` while alerts contained markdown — backticks and asterisks rendered as literal characters | `f014188` | `iterators/telegram.py` | 7 in `test_telegram_iterator_format.py` |
+| **D** | Cryptic key=value alert strings (`mark=89500.0000 liq=82150.0000`) — no `$`, no thousands separator, 4-decimal precision regardless of scale | `1d3cec1` | `iterators/_format.py` (new), `liquidation_monitor.py`, `protection_audit.py`, `account_collector.py`, `risk.py` | 27 in `test_iterator_format_helpers.py` |
+
+### Root cause: Bug A — exit price resolution
+
+The journal iterator's close-detection path:
+
+```python
+exit_price = float(ctx.prices.get(prev.instrument, ZERO))
+# ... PnL computed against this value
+```
+
+But `connector.py:167-177` only fetches mark prices for instruments in
+`ctx.positions` on the current tick. When a position closes between tick N
+and tick N+1, the connector skips it (no longer in the list), so
+`ctx.prices` has no entry for that instrument and the lookup returns 0.
+
+Real production logs from this morning:
+
+```
+05:47:18 journal: Trade closed: LONG xyz:CL  entry=$116.33  exit=$0.00  PnL=-$4489.21 (-100.0%)
+10:21:41 journal: Trade closed: SHORT xyz:CL entry=$94.54   exit=$0.00  PnL=+$2840.95 (+100.0%)
+10:40:12 journal: Trade closed: LONG xyz:CL  entry=$96.25   exit=$0.00  PnL=-$1829.58 (-100.0%)
+```
+
+None of those PnLs are real — equity moved $597 → $607 → $560 → $505 → $193
+in that window. The bogus PnL was being written to `journal.jsonl` and
+ingested by the AI agent for reflection.
+
+**Fix:** four-step resolution cascade in `_detect_position_changes`:
+
+1. `ctx.prices[prev.instrument]` (zero-latency happy path)
+2. `ctx.prices` stripped-coin match (xyz: compat)
+3. `prev.current_price` (cached from previous tick — closest approximation)
+4. `_fetch_mark_price_fallback()` — direct HL `allMids` API call
+5. If all four sources return 0 → log error and **skip the record** (better
+   to lose the entry than corrupt the journal)
+
+### Root cause: Bug B — equity reporting
+
+`cli/daemon/CLAUDE.md` already documented `total_equity = perps (native + xyz)
++ spot USDC`, and `telegram_bot._get_account_values()` (the working `/status`
+helper) summed all three. But `connector.py:52-59` only read native HL
+`account_value` from `get_account_state()` and stored it in
+`ctx.balances["USDC"]`. Every iterator that read that field thought it was
+total equity but was actually getting native-only.
+
+Two surfaces to fix this safely:
+- **Alerts** (telegram periodic block, journal trade record) — must match
+  `/status`, so they get the new total
+- **Sizing** (`execution_engine`, `profit_lock`, `autoresearch`) — currently
+  use native-only and were not flagged in the user complaint, so leaving them
+  on the legacy field until a separate review confirms migration is safe
+
+**Fix:** added `ctx.total_equity: float` (additive, defaults to 0). Connector
+sums native + xyz + spot from the same `get_account_state()` and
+`get_xyz_state()` calls it already makes — no extra API round-trip.
+`ctx.balances["USDC"]` semantic is unchanged. See ADR-013 for the rationale
+on the parallel-field approach.
+
+### Root cause: Bug C — parse_mode mismatch
+
+`iterators/telegram.py:186` was sending with `"parse_mode": "HTML"`. But
+`account_collector.py` and `risk.py` had been emitting messages with
+markdown backticks (`` `${equity:,.0f}` ``). Under HTML those rendered as
+literal backtick characters in the user's chat. `telegram_bot.py:121` (the
+working `/status` command path) has always used `"parse_mode": "Markdown"` —
+the two surfaces had drifted.
+
+**Fix:** flipped TelegramIterator to Markdown by default with a plain-text
+fallback on parse error. Reformatted the periodic alert block + per-alert
+output as labelled markdown sections.
+
+### Root cause: Bug D — number formatting
+
+`liquidation_monitor.py`, `protection_audit.py`, and journal trade-closed
+alerts were all using `:.4f` format strings without `$` or thousands
+separators. For BTC at $89,500 the operator received ``mark=89500.0000`` —
+unreadable noise. For SP500 contract unit at 0.2746 the same `:.4f` was OK
+but inconsistent across coins.
+
+**Fix:** new `cli/daemon/iterators/_format.py` with:
+- `fmt_price(x)` — adaptive `$X,XXX.XX` precision by magnitude
+- `fmt_pnl(x)` — explicit `+$1,234.56` / `-$78.90` sign
+- `fmt_pct(x)` — configurable percentage precision
+- `dir_dot(x)` — 🟢 / 🔴 from net_qty or direction string
+
+All four iterators now produce labelled markdown blocks the operator can
+read at a glance.
+
+### Pattern: separate alert from sizing semantics
+
+Bug B's resolution illustrates a recurring tension: ``ctx.balances["USDC"]``
+had two consumer classes — alerts (which need total equity) and sizing
+(which had been operating fine on native-only). Changing the semantic in
+place would have forced both consumer classes to migrate simultaneously,
+risking a sizing change as a side effect of an alert fix. Adding a parallel
+field decouples the two and lets each migrate on its own timeline. This is
+the same pattern ADR-007 (Renderer ABC) used for separating presentation
+from data.
+
+### Pattern: refuse to write garbage records
+
+Bug A's resolution introduces a small but important rule: **if you cannot
+determine a value, do not write a record with a placeholder default**.
+Better to log an error and skip the record (the operator can reconstruct it
+from exchange fill history) than to write `exit=$0` and pollute the file
+that feeds the AI agent's reflection. The same rule applies to any future
+journaling code.
+
+### Postmortem note: the daemon log was telling us all along
+
+The full evidence of this bug was sitting in `data/daemon/daemon.log` —
+six different ``exit=$0.00`` lines on 2026-04-08 between 05:47 and 10:40.
+The morning chat shows the user noticing equity numbers that didn't match
+what the daemon was reporting, but no one ran the daemon log against
+`/status` until Chris explicitly demanded it. Lesson: when the user reports
+"the numbers are wrong", grep the daemon log first — the answer is usually
+already there in plain text.
+
+### Verification
+
+- ``cd agent-cli && .venv/bin/python -m pytest tests/ -x -q`` → 1969 passed,
+  0 regressions, 12 pre-existing warnings (renderer return-vs-assert)
+- 45 new tests across 4 new test files / 1 extended test file
+- All 4 commits land on `public-release` branch in sequence: 988aea0,
+  5839b23, f014188, 1d3cec1
+
+### Files touched
+
+```
+cli/daemon/context.py                                 (+22 lines)
+cli/daemon/iterators/connector.py                     (+24 lines)
+cli/daemon/iterators/journal.py                       (+105 lines)
+cli/daemon/iterators/telegram.py                      (+45 lines)
+cli/daemon/iterators/liquidation_monitor.py           (+8 lines)
+cli/daemon/iterators/protection_audit.py              (+45 lines)
+cli/daemon/iterators/account_collector.py             (+18 lines)
+cli/daemon/iterators/risk.py                          (+13 lines)
+cli/daemon/iterators/_format.py                       (+92 lines, new)
+tests/test_journal_iterator_exit_price.py             (+220 lines, new)
+tests/test_telegram_iterator_format.py                (+170 lines, new)
+tests/test_iterator_format_helpers.py                 (+115 lines, new)
+tests/test_connector_native_positions.py              (+115 lines)
+tests/test_protection_audit.py                        (+5 lines)
+docs/wiki/decisions/013-parallel-equity-field.md      (+85 lines, new)
+docs/wiki/build-log.md                                (this entry)
+```
+
+---
+
 ## 2026-04-07 -- H1-H8 Production Hardening (8 commits, 53 new tests)
 
 **Eight production hardening items from ADR-012's roadmap shipped in one session.
