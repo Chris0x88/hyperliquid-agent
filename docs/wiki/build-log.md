@@ -4,6 +4,26 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 — Oil Bot-Pattern Sub-System 1 shipped
+
+- **What:** First sub-system of the Oil Bot-Pattern Strategy ships — news & catalyst ingestion.
+- **Why:** Chris identified that bot-driven mispricing around scheduled catalysts (e.g. Trump's 8 PM Iran deadline) leaves systematic arbitrage on the table for a petroleum-engineer operator. Sub-system 1 is the foundation: scraped headlines → structured catalysts → existing deleverage pipeline.
+- **Shape:** New `modules/news_engine.py` (pure logic), `modules/catalyst_bridge.py` (Catalyst → CatalystEvent conversion), `cli/daemon/iterators/news_ingest.py` (WATCH/REBALANCE/OPPORTUNISTIC tiers). Additive-only edits to `cli/daemon/iterators/catalyst_deleverage.py` (new `add_external_catalysts()` method + `tick()` file-watcher prologue). Two new Telegram commands: `/news`, `/catalysts` (both deterministic, not AI).
+- **Deps added:** `feedparser>=6.0.10`, `icalendar>=7.0.3`. User-approved in spec §13. (Plan called for `icalendar>=5.0.0`; shipped with v7 — API verified compatible.)
+- **Kill switch:** `data/config/news_ingest.json` → `enabled: false`.
+- **Tests:** ~15 new tests across `tests/test_news_engine.py`, `tests/test_catalyst_bridge.py`, `tests/test_catalyst_deleverage_external.py`, `tests/test_news_ingest_iterator.py`, and `tests/test_telegram_news_command.py`. Full suite: **2084 passing** (excluding `tests/test_agent_tools_lessons.py` — parallel-session WIP).
+- **Dry-run:** 24h live-mode dry-run at `severity_floor: 5` is still **pending** — operational gate, not a code task. Promotion to `severity_floor: 3` happens only after dry-run passes.
+- **Plan deviations:**
+  - Task 1.9 — regex fix applied to rule tagger during implementation.
+  - Task 3.2 — test import paths adjusted to match `modules/` layout.
+  - Task 5.1 — iterator entry point wiring tweaked vs. plan.
+  - `_send_message` → `tg_send` (Telegram helper renamed in-flight to match existing surface).
+  - `icalendar` v7 API verified directly — `vDDDTypes`/component walk unchanged from v5 for our use.
+- **Next:** Run the 24h dry-run. Then sub-system 2 — Supply Disruption Ledger (separate brainstorm).
+- **Plan:** `docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION_PLAN.md`
+
+---
+
 ## 2026-04-09 — Trade Lesson Layer Ships (parallel session) + Test Coverage + NameError Fix
 
 **Two Claude sessions converged on the same design.** In the morning, Chris asked
