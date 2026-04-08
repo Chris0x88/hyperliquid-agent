@@ -1103,6 +1103,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /supply — show current supply disruption state\n"
         "  /disruptions — list top 10 active supply disruptions\n"
         "  /disrupt — manually log a supply disruption\n"
+        "  /disrupt-update — update an existing supply disruption\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1855,6 +1856,87 @@ def cmd_disrupt(token: str, chat_id: str, args: str) -> None:
             markdown=True)
 
 
+def cmd_disrupt_update(token: str, chat_id: str, args: str) -> None:
+    """Update an existing disruption by id-prefix. Appends a new row (history preserved).
+
+    Usage: /disrupt-update <id_prefix> key=value [key=value ...]
+    Sub-system 2 (supply ledger).
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    parts = args.strip().split(None, 1)
+    if len(parts) < 2:
+        tg_send(token, chat_id,
+                "🛢️ *Usage:* `/disrupt-update <id_prefix> key=value [key=value ...]`\n\n"
+                "Keys: status, volume_offline, volume_unit, expected_recovery, confidence, notes\n\n"
+                "Example: `/disrupt-update abc12345 status=restored expected_recovery=2026-04-15`",
+                markdown=True)
+        return
+
+    id_prefix = parts[0]
+    updates_raw = parts[1]
+
+    updates: dict = {}
+    for token_pair in updates_raw.split():
+        if "=" not in token_pair:
+            continue
+        k, v = token_pair.split("=", 1)
+        updates[k] = v
+
+    path = Path(SUPPLY_DISRUPTIONS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No disruptions file yet.", markdown=True)
+        return
+
+    latest: dict = {}
+    with path.open("r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("id", "").startswith(id_prefix):
+                prev = latest.get(row["id"])
+                if prev is None or row.get("updated_at", "") > prev.get("updated_at", ""):
+                    latest[row["id"]] = row
+
+    if not latest:
+        tg_send(token, chat_id, f"🛢️ No disruption matching id prefix `{id_prefix}`.", markdown=True)
+        return
+    if len(latest) > 1:
+        tg_send(token, chat_id, f"🛢️ Ambiguous prefix `{id_prefix}` matches {len(latest)} ids. Use a longer prefix.", markdown=True)
+        return
+
+    base = list(latest.values())[0]
+    new_row = dict(base)
+    for k, v in updates.items():
+        if k in ("volume_offline", "confidence"):
+            try:
+                new_row[k] = float(v) if k == "volume_offline" else int(v)
+            except ValueError:
+                pass
+        elif k == "expected_recovery":
+            try:
+                new_row[k] = datetime.fromisoformat(v).isoformat()
+            except ValueError:
+                pass
+        else:
+            new_row[k] = v
+    new_row["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    with path.open("a") as f:
+        f.write(json.dumps(new_row) + "\n")
+
+    tg_send(token, chat_id,
+            f"🛢️ Updated disruption `{new_row['id']}`: " + ", ".join(f"{k}={v}" for k, v in updates.items()),
+            markdown=True)
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1881,6 +1963,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/supply` — aggregated view of physical oil supply offline right now\n"
         "`/disruptions` — list top 10 active supply disruptions by confidence*volume\n"
         "`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"` — manual entry\n"
+        "`/disrupt-update abc12345 status=restored` — update an existing entry (history preserved)\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3315,6 +3398,7 @@ HANDLERS = {
     "/supply": cmd_supply,
     "/disruptions": cmd_disruptions,
     "/disrupt": cmd_disrupt,
+    "/disrupt-update": cmd_disrupt_update,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3364,6 +3448,7 @@ HANDLERS = {
     "supply": cmd_supply,
     "disruptions": cmd_disruptions,
     "disrupt": cmd_disrupt,
+    "disrupt-update": cmd_disrupt_update,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3422,6 +3507,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "supply", "description": "Show current supply disruption state"},
         {"command": "disruptions", "description": "List top 10 active supply disruptions"},
         {"command": "disrupt", "description": "Manually log a supply disruption"},
+        {"command": "disrupt-update", "description": "Update an existing supply disruption"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},

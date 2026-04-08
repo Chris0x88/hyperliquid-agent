@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_supply, cmd_disruptions, cmd_disrupt
+from cli.telegram_bot import cmd_supply, cmd_disruptions, cmd_disrupt, cmd_disrupt_update
 
 
 def _write_state(d, payload):
@@ -101,3 +101,33 @@ def test_cmd_disrupt_rejects_empty():
         cmd_disrupt("tok", "chat", "")
         body = send.call_args[0][2]
         assert "usage" in body.lower() or "format" in body.lower()
+
+
+# ── /disrupt-update ──────────────────────────────────────────────
+
+def test_cmd_disrupt_update_appends_new_row(tmp_path):
+    path = Path(tmp_path) / "d.jsonl"
+    original = {
+        "id": "abc12345",
+        "source": "manual", "source_ref": "u",
+        "facility_name": "Volgograd refinery", "facility_type": "refinery",
+        "location": "Volgograd", "region": "russia",
+        "volume_offline": 200000.0, "volume_unit": "bpd",
+        "incident_date": "2026-04-08T00:00:00+00:00",
+        "expected_recovery": None,
+        "confidence": 4, "status": "active",
+        "instruments": ["CL"], "notes": "drone strike",
+        "created_at": "2026-04-09T00:00:00+00:00",
+        "updated_at": "2026-04-09T00:00:00+00:00",
+    }
+    with path.open("w") as f:
+        f.write(json.dumps(original) + "\n")
+
+    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("cli.telegram_bot.tg_send"):
+            cmd_disrupt_update("tok", "chat", "abc12345 status=restored")
+
+    rows = [json.loads(l) for l in path.read_text().strip().split("\n")]
+    assert len(rows) == 2
+    assert rows[-1]["id"] == "abc12345"
+    assert rows[-1]["status"] == "restored"
