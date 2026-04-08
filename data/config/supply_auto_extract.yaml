@@ -1,0 +1,13 @@
+mappings:
+  - catalyst_category: physical_damage_facility
+    facility_type: refinery
+    confidence: 2
+    status: active
+  - catalyst_category: shipping_attack
+    facility_type: ship
+    confidence: 2
+    status: active
+  - catalyst_category: chokepoint_blockade
+    facility_type: chokepoint
+    confidence: 3
+    status: active

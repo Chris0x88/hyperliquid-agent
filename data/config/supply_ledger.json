@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "auto_extract": true,
+  "recompute_interval_s": 300,
+  "disruptions_jsonl": "data/supply/disruptions.jsonl",
+  "state_json": "data/supply/state.json",
+  "auto_extract_rules": "data/config/supply_auto_extract.yaml"
+}
