@@ -1101,6 +1101,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /news — last 10 catalysts by severity\n"
         "  /catalysts — upcoming catalysts in next 7 days\n"
         "  /supply — show current supply disruption state\n"
+        "  /disruptions — list top 10 active supply disruptions\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1693,6 +1694,61 @@ def cmd_supply(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines), markdown=True)
 
 
+def cmd_disruptions(token: str, chat_id: str, args: str) -> None:
+    """List top 10 active supply disruptions by confidence*volume.
+
+    Sub-system 2 (supply ledger). Deterministic — reads disruptions.jsonl directly.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(SUPPLY_DISRUPTIONS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No disruptions logged yet.", markdown=True)
+        return
+
+    latest: dict = {}
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                rid = row.get("id")
+                if not rid:
+                    continue
+                prev = latest.get(rid)
+                if prev is None or row.get("updated_at", "") > prev.get("updated_at", ""):
+                    latest[rid] = row
+    except OSError as e:
+        tg_send(token, chat_id, f"🛢️ Error reading disruptions: {e}", markdown=True)
+        return
+
+    active = [r for r in latest.values() if r.get("status") in ("active", "partial")]
+    active.sort(key=lambda r: (r.get("confidence", 0) * (r.get("volume_offline") or 0)), reverse=True)
+    top = active[:10]
+
+    if not top:
+        tg_send(token, chat_id, "🛢️ No active disruptions.", markdown=True)
+        return
+
+    lines = ["🛢️ *Active disruptions (top 10)*", ""]
+    for r in top:
+        vol = r.get("volume_offline")
+        unit = r.get("volume_unit") or ""
+        vol_str = f"{int(vol):,} {unit}" if vol else "? volume"
+        lines.append(f"`conf={r.get('confidence', 0)}` {r.get('facility_type', '?')} — {r.get('facility_name', '?')}")
+        lines.append(f"  → {r.get('region', '?')} | {vol_str} | {r.get('status', '?')}")
+        if r.get("notes"):
+            lines.append(f"  _{r['notes'][:80]}_")
+        lines.append("")
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1717,6 +1773,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/news` — shows recent catalysts surfaced by the news ingest iterator\n"
         "`/catalysts` — shows upcoming scheduled catalysts from news ingest + iCal sources\n"
         "`/supply` — aggregated view of physical oil supply offline right now\n"
+        "`/disruptions` — list top 10 active supply disruptions by confidence*volume\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3149,6 +3206,7 @@ HANDLERS = {
     "/news": cmd_news,
     "/catalysts": cmd_catalysts,
     "/supply": cmd_supply,
+    "/disruptions": cmd_disruptions,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3196,6 +3254,7 @@ HANDLERS = {
     "news": cmd_news,
     "catalysts": cmd_catalysts,
     "supply": cmd_supply,
+    "disruptions": cmd_disruptions,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3252,6 +3311,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "news", "description": "Show last 10 catalysts by severity"},
         {"command": "catalysts", "description": "Show upcoming catalysts in next 7 days"},
         {"command": "supply", "description": "Show current supply disruption state"},
+        {"command": "disruptions", "description": "List top 10 active supply disruptions"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},

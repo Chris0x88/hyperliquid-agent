@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_supply
+from cli.telegram_bot import cmd_supply, cmd_disruptions
 
 
 def _write_state(d, payload):
@@ -41,3 +41,40 @@ def test_cmd_supply_missing_state(tmp_path):
             cmd_supply("tok", "chat", "")
             body = send.call_args[0][2]
             assert "no supply state" in body.lower() or "not yet" in body.lower()
+
+
+# ── /disruptions ─────────────────────────────────────────────────
+
+def test_cmd_disruptions_lists_active(tmp_path):
+    path = Path(tmp_path) / "d.jsonl"
+    with path.open("w") as f:
+        f.write(json.dumps({
+            "id": "d1", "source": "manual", "source_ref": "u",
+            "facility_name": "Volgograd refinery", "facility_type": "refinery",
+            "location": "russia", "region": "russia",
+            "volume_offline": 200000.0, "volume_unit": "bpd",
+            "incident_date": "2026-04-08T00:00:00+00:00",
+            "expected_recovery": None,
+            "confidence": 4, "status": "active",
+            "instruments": ["CL"], "notes": "drone strike",
+            "created_at": "2026-04-09T00:00:00+00:00",
+            "updated_at": "2026-04-09T00:00:00+00:00",
+        }) + "\n")
+        f.write(json.dumps({
+            "id": "d2", "source": "manual", "source_ref": "u",
+            "facility_name": "Test restored", "facility_type": "refinery",
+            "location": "russia", "region": "russia",
+            "volume_offline": 50000.0, "volume_unit": "bpd",
+            "incident_date": "2026-04-08T00:00:00+00:00",
+            "expected_recovery": None,
+            "confidence": 3, "status": "restored",
+            "instruments": ["CL"], "notes": "",
+            "created_at": "2026-04-09T00:00:00+00:00",
+            "updated_at": "2026-04-09T00:00:00+00:00",
+        }) + "\n")
+    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("cli.telegram_bot.tg_send") as send:
+            cmd_disruptions("tok", "chat", "")
+            body = send.call_args[0][2]
+            assert "Volgograd refinery" in body
+            assert "Test restored" not in body
