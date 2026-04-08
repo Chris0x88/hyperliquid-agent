@@ -241,3 +241,49 @@ def latest_per_id(rows: list[Disruption]) -> list[Disruption]:
         if prev is None or r.updated_at > prev.updated_at:
             by_id[r.id] = r
     return list(by_id.values())
+
+
+def compute_state(rows: list[Disruption]) -> SupplyState:
+    """Compute aggregated SupplyState from a list of Disruption rows.
+
+    Applies latest-per-id semantics, filters to active/partial, partial halves volume.
+    """
+    now = datetime.now(tz=rows[0].incident_date.tzinfo) if rows and rows[0].incident_date.tzinfo else datetime.utcnow()
+
+    latest = latest_per_id(rows)
+    active = [r for r in latest if r.status in ("active", "partial")]
+
+    total_bpd = 0.0
+    total_mcfd = 0.0
+    by_region: dict[str, float] = {}
+    by_facility_type: dict[str, float] = {}
+    chokepoints: list[str] = []
+    high_conf = 0
+
+    for r in active:
+        if r.confidence >= 4:
+            high_conf += 1
+        if r.facility_type == "chokepoint":
+            chokepoints.append(r.region)
+
+        vol = r.volume_offline or 0.0
+        if r.status == "partial":
+            vol *= 0.5
+
+        if r.volume_unit == "bpd":
+            total_bpd += vol
+            by_region[r.region] = by_region.get(r.region, 0.0) + vol
+            by_facility_type[r.facility_type] = by_facility_type.get(r.facility_type, 0.0) + vol
+        elif r.volume_unit == "mcfd":
+            total_mcfd += vol
+
+    return SupplyState(
+        computed_at=now,
+        total_offline_bpd=total_bpd,
+        total_offline_mcfd=total_mcfd,
+        by_region=by_region,
+        by_facility_type=by_facility_type,
+        active_chokepoints=sorted(set(chokepoints)),
+        active_disruption_count=len(active),
+        high_confidence_count=high_conf,
+    )

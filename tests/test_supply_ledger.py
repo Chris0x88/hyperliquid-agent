@@ -220,3 +220,54 @@ def test_latest_per_id_keeps_newest(tmp_path):
     latest = latest_per_id(rows)
     assert len(latest) == 1
     assert latest[0].status == "restored"
+
+
+from modules.supply_ledger import compute_state
+
+
+def test_compute_state_empty():
+    state = compute_state([])
+    assert state.total_offline_bpd == 0.0
+    assert state.active_disruption_count == 0
+    assert state.active_chokepoints == []
+
+
+def test_compute_state_sums_active_only():
+    now = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    rows = [
+        _make_disruption("a", status="active", updated=now),
+        _make_disruption("b", status="restored", updated=now),
+    ]
+    state = compute_state(rows)
+    assert state.total_offline_bpd == 100000.0
+    assert state.active_disruption_count == 1
+
+
+def test_compute_state_partial_halves_volume():
+    now = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    rows = [_make_disruption("a", status="partial", updated=now)]
+    state = compute_state(rows)
+    assert state.total_offline_bpd == 50000.0
+
+
+def test_compute_state_active_chokepoints():
+    now = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    choke = Disruption(
+        id="c1", source="manual", source_ref="user",
+        facility_name="Hormuz Strait closure", facility_type="chokepoint",
+        location="hormuz_strait", region="hormuz_strait",
+        volume_offline=None, volume_unit=None,
+        incident_date=now, expected_recovery=None,
+        confidence=4, status="active",
+        instruments=["CL", "xyz:BRENTOIL"], notes="",
+        created_at=now, updated_at=now,
+    )
+    state = compute_state([choke])
+    assert state.active_chokepoints == ["hormuz_strait"]
+
+
+def test_compute_state_latest_per_id_semantics():
+    early = _make_disruption("a", status="active", updated=datetime(2026, 4, 9, 10, tzinfo=timezone.utc))
+    late = _make_disruption("a", status="restored", updated=datetime(2026, 4, 9, 18, tzinfo=timezone.utc))
+    state = compute_state([early, late])
+    assert state.active_disruption_count == 0
