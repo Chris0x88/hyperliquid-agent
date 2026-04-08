@@ -13,6 +13,7 @@ TIER_ITERATORS = {
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
         "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in WATCH)
+        "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in WATCH)
         "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
@@ -37,6 +38,7 @@ TIER_ITERATORS = {
         "guard",
         "rebalancer",
         "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in REBALANCE)
+        "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in REBALANCE)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -61,6 +63,7 @@ TIER_ITERATORS = {
         "rebalancer",
         "radar",
         "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in OPPORTUNISTIC)
+        "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in OPPORTUNISTIC)
         "pulse",
         "profit_lock",
         "funding_tracker",

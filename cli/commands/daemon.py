@@ -143,6 +143,7 @@ def daemon_start(
     from cli.daemon.iterators.rebalancer import RebalancerIterator
     from cli.daemon.iterators.radar import RadarIterator
     from cli.daemon.iterators.news_ingest import NewsIngestIterator
+    from cli.daemon.iterators.supply_ledger import SupplyLedgerIterator
     from cli.daemon.iterators.pulse import PulseIterator
     from cli.daemon.iterators.profit_lock import ProfitLockIterator
     from cli.daemon.iterators.journal import JournalIterator
@@ -179,6 +180,7 @@ def daemon_start(
     clock.register(RebalancerIterator())
     clock.register(RadarIterator())
     clock.register(NewsIngestIterator())   # sub-system 1: RSS → catalysts
+    clock.register(SupplyLedgerIterator())  # sub-system 2: supply disruption ledger
     clock.register(PulseIterator())
     clock.register(ProfitLockIterator(data_dir=data_dir))
     if _has_funding:
