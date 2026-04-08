@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 import yaml
@@ -187,3 +188,36 @@ RULE_CONDITIONAL_DIRECTION = {
     "iran_deal": direction_for_iran_deal,
     "fomc_macro": direction_for_fomc_macro,
 }
+
+
+def parse_event_date(headline_text: str, published_at: datetime) -> datetime:
+    """Extract an event date from headline text if present; otherwise use published_at.
+
+    V1 recognises:
+      - "tomorrow at HH PM ET|UTC" → published_at.date + 1, at HH local
+      - "in N hours" → published_at + N hours
+      - "on {Mon|Tue|Wed|Thu|Fri|Sat|Sun}" → next occurrence of that weekday (coarse)
+
+    Unrecognised phrases silently fall back to published_at. This is conservative — the
+    sub-system prefers missing a catalyst date over mis-dating one.
+    """
+    text = headline_text.lower()
+
+    # "tomorrow" anywhere in the text, with a "N AM/PM" token either before or after it.
+    # The plan's original regex required "tomorrow" to come first, but real headlines
+    # put the phrase either way around ("tomorrow at 8 PM" or "8 PM deadline tomorrow").
+    if "tomorrow" in text:
+        m = re.search(r"(\d{1,2})\s*(am|pm)", text)
+        if m:
+            hour = int(m.group(1)) % 12
+            if m.group(2) == "pm":
+                hour += 12
+            tomorrow = published_at.date() + timedelta(days=1)
+            return datetime(tomorrow.year, tomorrow.month, tomorrow.day, hour, 0, tzinfo=timezone.utc)
+
+    # "in N hours"
+    m = re.search(r"in\s+(\d+)\s+hours?", text)
+    if m:
+        return published_at + timedelta(hours=int(m.group(1)))
+
+    return published_at

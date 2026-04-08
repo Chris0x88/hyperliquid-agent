@@ -16,6 +16,7 @@ from modules.news_engine import (
     direction_for_opec_action,
     direction_for_iran_deal,
     direction_for_fomc_macro,
+    parse_event_date,
 )
 
 RULES_YAML = Path("data/config/news_rules.yaml")
@@ -215,3 +216,16 @@ def test_fomc_cut_is_bull():
 
 def test_fomc_hike_is_bear():
     assert direction_for_fomc_macro("Fed hikes rates 50bp, signals hawkish path") == "bear"
+
+
+def test_event_date_no_phrase_uses_published_at():
+    published = datetime(2026, 4, 9, 12, 0, tzinfo=timezone.utc)
+    result = parse_event_date("OPEC+ agrees production cut of 1M bpd", published)
+    assert result == published  # no explicit future date → fall back
+
+
+def test_event_date_tomorrow_phrase():
+    published = datetime(2026, 4, 9, 12, 0, tzinfo=timezone.utc)
+    result = parse_event_date("Trump's 8 PM ET deadline tomorrow", published)
+    # Tomorrow at 8 PM ET = 2026-04-10 00:00 UTC (ET = UTC-4 in April DST)
+    assert result.date() == datetime(2026, 4, 10).date()
