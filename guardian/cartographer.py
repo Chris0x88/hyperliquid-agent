@@ -72,21 +72,27 @@ def scan_python_imports(root: Path) -> dict[str, Any]:
 
     Skips common vendored/generated directories (see EXCLUDED_DIRS).
 
+    Module names are the full dotted path from `root` (e.g. `cli.commands.account`
+    for `cli/commands/account.py`) so that imports resolve unambiguously against
+    nested packages. Edges are resolved in a second pass: for each raw import
+    target, we try the full dotted path first and then progressively shorter
+    prefixes until one matches a known module. Unresolved targets (external
+    packages like `os`, `json`) are dropped — they add no signal to drift.
+
     Returns a dict with two keys:
     - modules: list of {name, path, size, docstring}
     - edges: list of {from, to, kind} where kind in {"import", "from-import"}
     """
     modules: list[dict[str, Any]] = []
-    edges: list[dict[str, Any]] = []
+    raw_imports: list[dict[str, str]] = []
+
+    # ---- Pass 1: collect modules and raw imports ----
 
     for py_file in _iter_py_files(root):
         rel = py_file.relative_to(root)
+        # Full dotted path from repo root. `cli/commands/account.py` → `cli.commands.account`.
+        # For a flat fixture repo this stays a single-component name like `a`.
         module_name = rel.with_suffix("").as_posix().replace("/", ".")
-        # For flat fixture repos, strip to the stem
-        if "." not in module_name:
-            pass
-        else:
-            module_name = module_name.split(".")[-1]
 
         try:
             source = py_file.read_text(encoding="utf-8")
@@ -109,20 +115,84 @@ def scan_python_imports(root: Path) -> dict[str, Any]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    edges.append({
-                        "from": module_name,
-                        "to": alias.name.split(".")[0],
+                    raw_imports.append({
+                        "from_module": module_name,
+                        "target": alias.name,
                         "kind": "import",
                     })
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
-                    edges.append({
-                        "from": module_name,
-                        "to": node.module.split(".")[0],
+                    raw_imports.append({
+                        "from_module": module_name,
+                        "target": node.module,
                         "kind": "from-import",
                     })
 
+    # ---- Pass 2: resolve imports against known modules ----
+
+    known_modules: set[str] = {m["name"] for m in modules}
+    # Index by last component so we can also resolve tail-only matches
+    # (e.g. `from foo.bar.account import X` matching a module named `account`
+    # when the full path isn't present). This is needed for flat fixture repos
+    # and for cases where the cartographer missed a module name.
+    by_tail: dict[str, list[str]] = {}
+    for name in known_modules:
+        tail = name.rsplit(".", 1)[-1]
+        by_tail.setdefault(tail, []).append(name)
+
+    edges: list[dict[str, Any]] = []
+    for imp in raw_imports:
+        target = imp["target"]
+        resolved = _resolve_import(target, known_modules, by_tail)
+        if resolved is None:
+            # External package (os, json, requests, etc.) — skip, no signal.
+            continue
+        edges.append({
+            "from": imp["from_module"],
+            "to": resolved,
+            "kind": imp["kind"],
+        })
+
     return {"modules": modules, "edges": edges}
+
+
+def _resolve_import(
+    target: str,
+    known_modules: set[str],
+    by_tail: dict[str, list[str]],
+) -> str | None:
+    """Resolve a raw import target to a known module name, or None if external.
+
+    Strategy (most specific first):
+    1. Exact full-path match (e.g. `cli.commands.account` matches a module of
+       the same name).
+    2. Prefix match — progressively drop tail components (e.g. for
+       `from cli.commands.account import X`, if only `cli.commands.account`
+       exists as a module, that's matched at step 1; if only `cli.commands`
+       exists, that's matched here).
+    3. Tail match — if no prefix matches but the last component is a unique
+       module stem in the repo (e.g. `from b import foo` in a flat repo with
+       a module named `b`), use that. Only matches when there's exactly one
+       candidate to avoid false positives on common names like `__init__`.
+    """
+    if target in known_modules:
+        return target
+
+    parts = target.split(".")
+    while len(parts) > 1:
+        parts.pop()
+        candidate = ".".join(parts)
+        if candidate in known_modules:
+            return candidate
+
+    # Tail-match fallback (single-component targets or when the full path
+    # wasn't found). Only trust this when exactly one module has this tail.
+    tail = target.rsplit(".", 1)[-1]
+    candidates = by_tail.get(tail, [])
+    if len(candidates) == 1:
+        return candidates[0]
+
+    return None
 
 
 # ---------- Telegram command scanner ----------
