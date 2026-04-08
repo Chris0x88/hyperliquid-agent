@@ -50,13 +50,13 @@ class TestClassify:
         assert _classify(INFO_THRESHOLD) == "safe"
 
     def test_warning_band(self):
-        assert _classify(Decimal("0.15")) == "warning"
+        assert _classify(Decimal("0.04")) == "warning"
         assert _classify(WARN_THRESHOLD) == "warning"
         # Just below info threshold
         assert _classify(INFO_THRESHOLD - Decimal("0.001")) == "warning"
 
     def test_critical(self):
-        assert _classify(Decimal("0.05")) == "critical"
+        assert _classify(Decimal("0.01")) == "critical"
         assert _classify(WARN_THRESHOLD - Decimal("0.001")) == "critical"
         assert _classify(Decimal("0")) == "critical"
 
@@ -71,8 +71,8 @@ class TestLongPosition:
 
     def test_warning_alert_on_transition(self):
         it = LiquidationMonitorIterator()
-        # mark=100, liq=85, cushion=15% → warning
-        ctx = _ctx(positions=[_long("BTC", 1, 100, 85)], prices={"BTC": 100})
+        # mark=100, liq=96, cushion=4% → warning
+        ctx = _ctx(positions=[_long("BTC", 1, 100, 96)], prices={"BTC": 100})
         it.tick(ctx)
         assert len(ctx.alerts) == 1
         a = ctx.alerts[0]
@@ -81,12 +81,12 @@ class TestLongPosition:
         assert "BTC" in a.message
         assert "LONG" in a.message
         assert a.data["tier"] == "warning"
-        assert 14.5 < a.data["cushion_pct"] < 15.5
+        assert 3.5 < a.data["cushion_pct"] < 4.5
 
     def test_critical_alert_on_transition(self):
         it = LiquidationMonitorIterator()
-        # mark=100, liq=95, cushion=5% → critical
-        ctx = _ctx(positions=[_long("BTC", 1, 100, 95)], prices={"BTC": 100})
+        # mark=100, liq=99, cushion=1% → critical
+        ctx = _ctx(positions=[_long("BTC", 1, 100, 99)], prices={"BTC": 100})
         it.tick(ctx)
         assert len(ctx.alerts) == 1
         a = ctx.alerts[0]
@@ -96,7 +96,7 @@ class TestLongPosition:
 
     def test_no_repeat_alert_within_warning_tier(self):
         it = LiquidationMonitorIterator()
-        positions = [_long("BTC", 1, 100, 85)]
+        positions = [_long("BTC", 1, 100, 96)]
         prices = {"BTC": 100}
         # First tick → alert
         ctx1 = _ctx(positions=positions, prices=prices, tick=1)
@@ -109,7 +109,7 @@ class TestLongPosition:
 
     def test_critical_repeats_after_n_ticks(self):
         it = LiquidationMonitorIterator()
-        positions = [_long("BTC", 1, 100, 95)]
+        positions = [_long("BTC", 1, 100, 99)]
         prices = {"BTC": 100}
         # First tick → critical alert
         ctx1 = _ctx(positions=positions, prices=prices, tick=1)
@@ -136,8 +136,8 @@ class TestShortPosition:
 
     def test_warning(self):
         it = LiquidationMonitorIterator()
-        # short: mark=100, liq=115, cushion=15% → warning
-        ctx = _ctx(positions=[_short("BTC", 1, 100, 115)], prices={"BTC": 100})
+        # short: mark=100, liq=103, cushion=3% → warning
+        ctx = _ctx(positions=[_short("BTC", 1, 100, 103)], prices={"BTC": 100})
         it.tick(ctx)
         assert len(ctx.alerts) == 1
         assert ctx.alerts[0].severity == "warning"
@@ -145,8 +145,8 @@ class TestShortPosition:
 
     def test_critical(self):
         it = LiquidationMonitorIterator()
-        # short: mark=100, liq=104, cushion=4% → critical
-        ctx = _ctx(positions=[_short("BTC", 1, 100, 104)], prices={"BTC": 100})
+        # short: mark=100, liq=101, cushion=1% → critical
+        ctx = _ctx(positions=[_short("BTC", 1, 100, 101)], prices={"BTC": 100})
         it.tick(ctx)
         assert len(ctx.alerts) == 1
         assert ctx.alerts[0].severity == "critical"
@@ -155,13 +155,13 @@ class TestShortPosition:
 class TestRecovery:
     def test_recovery_alert_warning_to_safe(self):
         it = LiquidationMonitorIterator()
-        pos = [_long("BTC", 1, 100, 85)]
-        # tick 1: warning
+        pos = [_long("BTC", 1, 100, 96)]
+        # tick 1: warning (cushion=4%)
         ctx1 = _ctx(positions=pos, prices={"BTC": 100}, tick=1)
         it.tick(ctx1)
         assert ctx1.alerts[0].severity == "warning"
-        # tick 2: price moved up, cushion now 30% → safe
-        ctx2 = _ctx(positions=pos, prices={"BTC": 121}, tick=2)
+        # tick 2: price moved up, cushion now ~13% → safe
+        ctx2 = _ctx(positions=pos, prices={"BTC": 110}, tick=2)
         it.tick(ctx2)
         assert len(ctx2.alerts) == 1
         assert ctx2.alerts[0].severity == "info"
@@ -169,7 +169,7 @@ class TestRecovery:
 
     def test_recovery_critical_to_safe(self):
         it = LiquidationMonitorIterator()
-        pos = [_long("BTC", 1, 100, 95)]
+        pos = [_long("BTC", 1, 100, 99)]
         ctx1 = _ctx(positions=pos, prices={"BTC": 100}, tick=1)
         it.tick(ctx1)
         assert ctx1.alerts[0].severity == "critical"
@@ -213,7 +213,7 @@ class TestStateCleanup:
         it = LiquidationMonitorIterator()
         # Tick 1: open warning position
         ctx1 = _ctx(
-            positions=[_long("BTC", 1, 100, 85)],
+            positions=[_long("BTC", 1, 100, 96)],
             prices={"BTC": 100},
             tick=1,
         )
@@ -226,7 +226,7 @@ class TestStateCleanup:
 
     def test_reopened_position_alerts_again(self):
         it = LiquidationMonitorIterator()
-        pos = [_long("BTC", 1, 100, 85)]
+        pos = [_long("BTC", 1, 100, 96)]
         # Tick 1
         ctx1 = _ctx(positions=pos, prices={"BTC": 100}, tick=1)
         it.tick(ctx1)
@@ -245,9 +245,9 @@ class TestMultiplePositions:
     def test_independent_alerts_per_instrument(self):
         it = LiquidationMonitorIterator()
         positions = [
-            _long("BTC", 1, 100, 70),    # safe
-            _long("ETH", 10, 50, 47),    # cushion=6% → critical
-            _short("SOL", 5, 200, 230),  # cushion=15% → warning
+            _long("BTC", 1, 100, 70),    # cushion=30% → safe
+            _long("ETH", 10, 50, 49.5),  # cushion=1% → critical
+            _short("SOL", 5, 200, 206),  # cushion=3% → warning
         ]
         prices = {"BTC": 100, "ETH": 50, "SOL": 200}
         ctx = _ctx(positions=positions, prices=prices)

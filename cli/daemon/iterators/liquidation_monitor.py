@@ -7,9 +7,12 @@ is to give the user early warning before things get bad enough that the
 ruin SL even has to fire.
 
 Tiers (cushion % = distance from current mark to liquidation price):
-  >= 20%      — safe (no alert except recovery from a worse state)
-  10% to 20%  — warning (alert on transition INTO this tier)
-  < 10%       — critical (alert on transition + repeat every CRITICAL_REPEAT_TICKS)
+  >= 6%       — safe (no alert except recovery from a worse state)
+  2% to 6%    — warning (alert on transition INTO this tier)
+  < 2%        — critical (alert on transition + repeat every CRITICAL_REPEAT_TICKS)
+
+Thresholds calibrated to ~20x leverage style (avg 19.8x observed): entry cushions
+of 2-3% are normal operating range; 6%+ is comfortable; <2% is genuinely imminent.
 
 Pure alert layer. Does NOT close positions, place orders, or modify state.
 This is the "F6" early-warning piece referenced in docs/plans/AUDIT_FIX_PLAN.md.
@@ -26,9 +29,10 @@ log = logging.getLogger("daemon.liquidation_monitor")
 
 ZERO = Decimal("0")
 
-# Cushion thresholds (positive fraction = farther from liq = safer)
-INFO_THRESHOLD = Decimal("0.20")   # >= 20% = safe
-WARN_THRESHOLD = Decimal("0.10")   # 10-20% = warning, < 10% = critical
+# Cushion thresholds (positive fraction = farther from liq = safer).
+# Calibrated to ~20x leverage style: typical entry cushion is 2-3%, 6%+ is safe.
+INFO_THRESHOLD = Decimal("0.06")   # >= 6% = safe
+WARN_THRESHOLD = Decimal("0.02")   # 2-6% = warning, < 2% = critical
 
 # Re-alert critical positions every N ticks so they stay visible
 CRITICAL_REPEAT_TICKS = 10
