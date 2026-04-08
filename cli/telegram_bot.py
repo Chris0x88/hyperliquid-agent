@@ -53,6 +53,7 @@ POLL_INTERVAL = 2.0  # seconds
 COMMAND_QUEUE = Path("data/daemon/telegram_commands.jsonl")
 PID_FILE = Path("data/daemon/telegram_bot.pid")
 LAST_UPDATE_FILE = Path("data/daemon/telegram_last_update_id.txt")
+CATALYSTS_JSONL = "data/news/catalysts.jsonl"  # sub-system 1: news ingest catalysts
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1095,6 +1096,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /powerlaw — BTC power law model\n"
         "  /brief — mechanical PDF (fixed code, no AI)\n"
         "  /briefai — brief + thesis & catalysts (AI)\n"
+        "  /news — last 10 catalysts by severity\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1537,6 +1539,54 @@ def cmd_feedback_resolve(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, f"*Resolved {count} feedback item(s)*")
 
 
+def cmd_news(token: str, chat_id: str, args: str) -> None:
+    """Show the last 10 catalysts ranked by severity DESC, created_at DESC.
+
+    Deterministic — reads data/news/catalysts.jsonl directly, no AI.
+    Sub-system 1 (news ingest). See docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION_PLAN.md.
+    """
+    path = Path(CATALYSTS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No catalysts yet. News ingestion may be disabled or still booting.")
+        return
+
+    entries: list[dict] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError as e:
+        tg_send(token, chat_id, f"🛢️ Error reading catalysts: {e}")
+        return
+
+    # Sort: severity DESC, then created_at DESC
+    entries.sort(key=lambda c: (-int(c.get("severity", 0)), c.get("created_at", "")), reverse=False)
+    top = entries[:10]
+
+    if not top:
+        tg_send(token, chat_id, "🛢️ No catalysts yet.")
+        return
+
+    lines = ["🛢️ *Latest catalysts (last 10 by severity)*", ""]
+    for c in top:
+        sev = int(c.get("severity", 0))
+        cat = c.get("category", "?")
+        when = c.get("event_date", "")[:16].replace("T", " ") + " UTC"
+        direction = c.get("expected_direction") or "?"
+        instruments = ", ".join(c.get("instruments", []))
+        lines.append(f"`sev={sev}` {cat} — {when}")
+        lines.append(f"  → {instruments} ({direction})")
+        lines.append("")
+
+    tg_send(token, chat_id, "\n".join(lines))
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1557,6 +1607,8 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "positions, technicals, funding, chart.\n"
         "`/briefai` — same brief plus the thesis line and catalyst calendar "
         "(those are AI/research-seeded, hence the `ai` suffix).\n"
+        "\n📰 *News & Catalysts*\n"
+        "`/news` — shows recent catalysts surfaced by the news ingest iterator\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -2986,6 +3038,7 @@ HANDLERS = {
     "/health": cmd_health,
     "/h": cmd_health,
     "/thesis": cmd_thesis,
+    "/news": cmd_news,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3030,6 +3083,7 @@ HANDLERS = {
     "health": cmd_health,
     "h": cmd_health,
     "thesis": cmd_thesis,
+    "news": cmd_news,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3083,6 +3137,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "watchlist", "description": "All markets + prices"},
         {"command": "brief", "description": "Mechanical brief PDF (no AI content)"},
         {"command": "briefai", "description": "AI brief PDF — adds thesis + catalysts"},
+        {"command": "news", "description": "Show last 10 catalysts by severity"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
