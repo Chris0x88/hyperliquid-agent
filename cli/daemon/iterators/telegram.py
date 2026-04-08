@@ -99,7 +99,7 @@ class TelegramIterator:
             escalated = (last_sent > 0 and now - last_sent >= cooldown)
             if alert.severity == "critical":
                 icon = "🚨" if escalated else "❌"
-                prefix = "ACTION REQUIRED — " if escalated else ""
+                prefix = "*ACTION REQUIRED* — " if escalated else ""
             elif alert.severity == "warning":
                 icon = "⚠️"
                 prefix = ""
@@ -107,7 +107,13 @@ class TelegramIterator:
                 icon = "ℹ️"
                 prefix = ""
 
-            self._queue(f"{icon} {prefix}{alert.source}: {alert.message}")
+            # BUG-FIX 2026-04-08 (alert-format): emit a labelled section
+            # block instead of ``source: message`` so the operator can read
+            # alerts at a glance. Markdown formatting (parse_mode set in
+            # _send below) makes the source bold and the message body
+            # clean. Multi-line alerts (e.g. journal trade close) keep
+            # their newline structure.
+            self._queue(f"{icon} {prefix}*{alert.source}*\n{alert.message}")
 
         # Prune old dedup entries (keep last 24h)
         self._sent_alerts = {k: v for k, v in self._sent_alerts.items() if now - v < 86400}
@@ -116,7 +122,7 @@ class TelegramIterator:
         gate_val = ctx.risk_gate.value
         if self._last_gate is not None and gate_val != self._last_gate:
             icons = {"OPEN": "\u2705", "COOLDOWN": "\u26a0\ufe0f", "CLOSED": "\ud83d\uded1"}
-            self._queue(f"{icons.get(gate_val, '')} Risk gate: {self._last_gate} -> {gate_val}")
+            self._queue(f"{icons.get(gate_val, '')} *Risk gate*: {self._last_gate} → {gate_val}")
         self._last_gate = gate_val
 
         # Notify on order execution
@@ -124,22 +130,32 @@ class TelegramIterator:
             if intent.action == "noop":
                 continue
             icons = {"buy": "\ud83d\udfe2", "sell": "\ud83d\udd34", "close": "\ud83d\udfe1"}
+            price_str = f" @ `${float(intent.price):,.2f}`" if intent.price else " (market)"
             self._queue(
-                f"{icons.get(intent.action, '\u26aa')} {intent.action.upper()} "
-                f"{intent.size} {intent.instrument}"
-                f"{f' @ {intent.price}' if intent.price else ' (market)'}"
-                f" [{intent.strategy_name}]"
+                f"{icons.get(intent.action, '\u26aa')} *{intent.action.upper()}* "
+                f"`{intent.size}` `{intent.instrument}`"
+                f"{price_str}"
+                f" — _{intent.strategy_name}_"
             )
 
-        # Periodic status every 30 ticks (less noisy)
+        # Periodic status every 30 ticks (less noisy).
+        #
+        # BUG-FIX 2026-04-08 (equity-reporting): use ctx.total_equity
+        # (native + xyz + spot) so this number matches what /status shows.
+        # Falls back to ctx.balances["USDC"] (native-only) if connector
+        # has not yet populated total_equity (tick 0 / mock mode).
         if ctx.tick_number > 0 and ctx.tick_number % 30 == 0:
             tier = "WATCH" if not ctx.active_strategies else "REBALANCE"
-            equity = ctx.balances.get("USDC", ctx.balances.get("USD", 0))
+            if ctx.total_equity > 0:
+                equity_val = ctx.total_equity
+            else:
+                equity_val = float(ctx.balances.get("USDC", ctx.balances.get("USD", 0)) or 0)
             n_pos = len(ctx.positions)
+            equity_str = f"`${equity_val:,.2f}`" if equity_val else "`--`"
             lines = [
-                f"Daemon alive — {tier} mode (read-only, no trades)",
-                f"Equity: ${float(equity):,.2f}" if equity else "Equity: --",
-                f"Tracking {n_pos} position{'s' if n_pos != 1 else ''}",
+                f"💓 *Daemon alive* — _{tier}_",
+                f"  Equity: {equity_str}",
+                f"  Tracking `{n_pos}` position{'s' if n_pos != 1 else ''}",
             ]
             self._queue("\n".join(lines))
 
@@ -174,24 +190,51 @@ class TelegramIterator:
         self._msg_queue.clear()
 
     def _send(self, text: str) -> None:
-        """Send message via Telegram Bot API."""
+        """Send message via Telegram Bot API.
+
+        BUG-FIX 2026-04-08 (alert-format): switched parse_mode from "HTML"
+        to "Markdown" to match telegram_bot.py (the working /status path).
+        Iterators emit alerts with markdown formatting (backticks for code,
+        asterisks for bold) — under HTML those rendered as literal
+        characters in the user's chat. With Markdown enabled the alerts
+        match the look of /status, /position, /pnl etc.
+        """
         now = time.time()
         if now - self._last_send < MIN_MSG_INTERVAL_S:
             time.sleep(MIN_MSG_INTERVAL_S - (now - self._last_send))
 
         url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
-        payload = json.dumps({
-            "chat_id": self._chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }).encode("utf-8")
 
-        req = urllib.request.Request(url, data=payload,
-                                     headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                resp.read()
+        def _post(parse_mode: str | None) -> bool:
+            payload_dict = {
+                "chat_id": self._chat_id,
+                "text": text,
+                "disable_web_page_preview": True,
+            }
+            if parse_mode:
+                payload_dict["parse_mode"] = parse_mode
+            payload = json.dumps(payload_dict).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    body = resp.read()
+                # Telegram returns 200 even on parse errors but with ok=False
+                try:
+                    return json.loads(body).get("ok", False)
+                except Exception:
+                    return True
+            except (urllib.error.URLError, OSError) as e:
+                log.warning("Telegram send failed: %s", e)
+                return False
+
+        # Try Markdown first; fall back to plain text if Telegram rejects it
+        # (e.g. unbalanced markdown characters in an alert message body).
+        if _post("Markdown"):
             self._last_send = time.time()
-        except (urllib.error.URLError, OSError) as e:
-            log.warning("Telegram send failed: %s", e)
+            return
+        log.warning("Markdown parse failed — retrying as plain text")
+        if _post(None):
+            self._last_send = time.time()
