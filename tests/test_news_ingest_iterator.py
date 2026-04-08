@@ -111,3 +111,49 @@ def test_iterator_throttles_per_feed(tmp_path):
         it.tick(ctx)
         it.tick(ctx)  # second tick within throttle window
         assert m.call_count == 1  # throttled to one poll
+
+
+def test_e2e_fixture_feed_to_catalyst_deleverage(tmp_path):
+    """Full pipeline: fixture feed → iterator tick → catalyst_bridge → external file."""
+    cfg = _write_config(str(tmp_path), severity_floor=3)  # lower for test
+    feeds, fixture = _write_single_feed(str(tmp_path), "reuters_atom_sample.xml")
+    xml = fixture.read_text()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = xml
+
+    it = NewsIngestIterator(
+        config_path=str(cfg),
+        feeds_path=str(feeds),
+        rules_path="data/config/news_rules.yaml",
+    )
+    ctx = MagicMock()
+    ctx.timestamp = int(time.time())
+    ctx.alerts = []
+    it.on_start(ctx)
+
+    with patch("cli.daemon.iterators.news_ingest.requests.get", return_value=mock_response):
+        it.tick(ctx)
+
+    # headlines.jsonl has entries
+    headlines_path = Path(f"{tmp_path}/headlines.jsonl")
+    assert headlines_path.exists()
+    lines = headlines_path.read_text().strip().split("\n")
+    assert len(lines) >= 2
+
+    # catalysts.jsonl has entries
+    catalysts_path = Path(f"{tmp_path}/catalysts.jsonl")
+    assert catalysts_path.exists()
+
+    # external_catalyst_events.json has fan-outs
+    ext_path = Path(f"{tmp_path}/external_catalyst_events.json")
+    assert ext_path.exists()
+    external = json.loads(ext_path.read_text())
+    names = [e["name"] for e in external["events"]]
+    # Volgograd refinery strike should have fanned out to BRENTOIL + CL
+    assert any("xyz:BRENTOIL" in n for n in names)
+    assert any("CL" in n for n in names)
+
+    # Severity-5 catalyst should have produced an Alert
+    assert any(a.severity == "critical" for a in ctx.alerts)
