@@ -171,3 +171,73 @@ def auto_extract_from_catalyst(
         created_at=now,
         updated_at=now,
     )
+
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+
+def _disruption_to_dict(d: Disruption) -> dict:
+    out = asdict(d)
+    out["incident_date"] = d.incident_date.isoformat()
+    out["expected_recovery"] = d.expected_recovery.isoformat() if d.expected_recovery else None
+    out["created_at"] = d.created_at.isoformat()
+    out["updated_at"] = d.updated_at.isoformat()
+    return out
+
+
+def _disruption_from_dict(raw: dict) -> Disruption:
+    return Disruption(
+        id=raw["id"],
+        source=raw["source"],
+        source_ref=raw["source_ref"],
+        facility_name=raw["facility_name"],
+        facility_type=raw["facility_type"],
+        location=raw["location"],
+        region=raw["region"],
+        volume_offline=raw.get("volume_offline"),
+        volume_unit=raw.get("volume_unit"),
+        incident_date=datetime.fromisoformat(raw["incident_date"]),
+        expected_recovery=datetime.fromisoformat(raw["expected_recovery"]) if raw.get("expected_recovery") else None,
+        confidence=int(raw["confidence"]),
+        status=raw["status"],
+        instruments=list(raw.get("instruments", [])),
+        notes=raw.get("notes", ""),
+        created_at=datetime.fromisoformat(raw["created_at"]),
+        updated_at=datetime.fromisoformat(raw["updated_at"]),
+    )
+
+
+def append_disruption(jsonl_path: str, d: Disruption) -> None:
+    p = Path(jsonl_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a") as f:
+        f.write(json.dumps(_disruption_to_dict(d)) + "\n")
+
+
+def read_disruptions(jsonl_path: str) -> list[Disruption]:
+    p = Path(jsonl_path)
+    if not p.exists():
+        return []
+    out: list[Disruption] = []
+    with p.open("r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(_disruption_from_dict(json.loads(line)))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
+    return out
+
+
+def latest_per_id(rows: list[Disruption]) -> list[Disruption]:
+    """Keep only the latest row per id (by updated_at)."""
+    by_id: dict[str, Disruption] = {}
+    for r in rows:
+        prev = by_id.get(r.id)
+        if prev is None or r.updated_at > prev.updated_at:
+            by_id[r.id] = r
+    return list(by_id.values())

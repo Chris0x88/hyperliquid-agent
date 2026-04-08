@@ -172,3 +172,51 @@ def test_auto_extract_chokepoint():
 def test_auto_extract_unknown_category_returns_none():
     unrelated = dict(CATALYST_PHYSICAL, category="eia_weekly")
     assert auto_extract_from_catalyst(unrelated, _rules()) is None
+
+
+from pathlib import Path
+from modules.supply_ledger import append_disruption, read_disruptions, latest_per_id
+
+
+def _make_disruption(did, status="active", updated=None):
+    now = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    return Disruption(
+        id=did,
+        source="news_auto",
+        source_ref="cat",
+        facility_name="Test",
+        facility_type="refinery",
+        location="russia",
+        region="russia",
+        volume_offline=100000.0,
+        volume_unit="bpd",
+        incident_date=now,
+        expected_recovery=None,
+        confidence=2,
+        status=status,
+        instruments=["CL"],
+        notes="",
+        created_at=now,
+        updated_at=updated or now,
+    )
+
+
+def test_append_and_read_roundtrip(tmp_path):
+    path = tmp_path / "d.jsonl"
+    append_disruption(str(path), _make_disruption("a"))
+    append_disruption(str(path), _make_disruption("b"))
+    rows = read_disruptions(str(path))
+    assert len(rows) == 2
+    assert {r.id for r in rows} == {"a", "b"}
+
+
+def test_latest_per_id_keeps_newest(tmp_path):
+    path = tmp_path / "d.jsonl"
+    early = _make_disruption("a", status="active", updated=datetime(2026, 4, 9, 10, tzinfo=timezone.utc))
+    late = _make_disruption("a", status="restored", updated=datetime(2026, 4, 9, 18, tzinfo=timezone.utc))
+    append_disruption(str(path), early)
+    append_disruption(str(path), late)
+    rows = read_disruptions(str(path))
+    latest = latest_per_id(rows)
+    assert len(latest) == 1
+    assert latest[0].status == "restored"
