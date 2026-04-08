@@ -42,13 +42,16 @@ class SupplyState:
 
 
 REGION_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "russia": ("russia", "russian", "volgograd", "moscow", "ryazan", "samara", "ust-luga", "novorossiysk"),
-    "iran": ("iran", "iranian", "tehran", "abadan", "bandar abbas", "kharg"),
-    "saudi": ("saudi", "arabia", "ras tanura", "abqaiq", "jeddah", "yanbu"),
+    # Chokepoints / narrow maritime regions first, so headlines like
+    # "Hormuz strait closed after Iranian navy seizure" classify as
+    # hormuz_strait rather than iran. (Inline fix: plan had country regions first.)
     "hormuz_strait": ("hormuz",),
     "red_sea": ("red sea", "bab-el-mandeb", "bab el mandeb", "houthi", "yemen"),
     "suez": ("suez",),
     "malacca_strait": ("malacca",),
+    "russia": ("russia", "russian", "volgograd", "moscow", "ryazan", "samara", "ust-luga", "novorossiysk"),
+    "iran": ("iran", "iranian", "tehran", "abadan", "bandar abbas", "kharg"),
+    "saudi": ("saudi", "arabia", "ras tanura", "abqaiq", "jeddah", "yanbu"),
     "us_gulf": ("cushing", "permian", "eagle ford", "gulf of mexico", "us gulf", "houston"),
     "nigeria": ("nigeria", "nigerian", "niger delta"),
     "venezuela": ("venezuela", "venezuelan", "pdvsa"),
