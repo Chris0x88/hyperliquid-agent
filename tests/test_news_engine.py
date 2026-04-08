@@ -1,5 +1,9 @@
 from datetime import datetime, timezone
-from modules.news_engine import Headline, Catalyst
+from pathlib import Path
+
+from modules.news_engine import Headline, Catalyst, parse_feed
+
+FIXTURES = Path(__file__).parent / "fixtures" / "news"
 
 
 def test_headline_dataclass_constructs():
@@ -30,3 +34,17 @@ def test_catalyst_dataclass_constructs():
     )
     assert c.severity == 5
     assert "CL" in c.instruments
+
+
+def test_parse_atom_feed_well_formed():
+    xml = (FIXTURES / "reuters_atom_sample.xml").read_text()
+    entries = parse_feed(xml, source="reuters_energy")
+    assert len(entries) == 2
+    titles = [e.title for e in entries]
+    assert "Drone strike hits Volgograd refinery, 200kbpd offline" in titles
+    assert "Trump sets 8 PM deadline for Iran nuclear deal" in titles
+    # All entries should have timezone-aware published_at
+    for e in entries:
+        assert e.published_at.tzinfo is not None
+        assert e.source == "reuters_energy"
+        assert e.id  # sha256 non-empty
