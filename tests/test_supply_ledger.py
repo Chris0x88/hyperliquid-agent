@@ -104,3 +104,71 @@ mappings:
     assert rules[0].catalyst_category == "physical_damage_facility"
     assert rules[0].facility_type == "refinery"
     assert rules[1].catalyst_category == "shipping_attack"
+
+
+from modules.supply_ledger import auto_extract_from_catalyst
+
+CATALYST_PHYSICAL = {
+    "id": "cat-001",
+    "category": "physical_damage_facility",
+    "headline_id": "h-001",
+    "instruments": ["xyz:BRENTOIL", "CL"],
+    "event_date": datetime(2026, 4, 8, 22, 14, tzinfo=timezone.utc),
+    "severity": 5,
+    "rationale": "rule: physical_damage_facility",
+    "_headline_title": "Drone strike hits Volgograd refinery, 200kbpd offline",
+}
+
+CATALYST_SHIPPING = {
+    "id": "cat-002",
+    "category": "shipping_attack",
+    "headline_id": "h-002",
+    "instruments": ["xyz:BRENTOIL", "CL"],
+    "event_date": datetime(2026, 4, 9, 14, 22, tzinfo=timezone.utc),
+    "severity": 5,
+    "rationale": "rule: shipping_attack",
+    "_headline_title": "Houthi missiles strike VLCC in Red Sea, vessel ablaze",
+}
+
+CATALYST_CHOKE = {
+    "id": "cat-003",
+    "category": "chokepoint_blockade",
+    "headline_id": "h-003",
+    "instruments": ["xyz:BRENTOIL", "CL"],
+    "event_date": datetime(2026, 4, 9, tzinfo=timezone.utc),
+    "severity": 5,
+    "rationale": "rule: chokepoint_blockade",
+    "_headline_title": "Hormuz strait closed after Iranian navy seizure",
+}
+
+
+def _rules():
+    return load_auto_extract_rules("data/config/supply_auto_extract.yaml")
+
+
+def test_auto_extract_physical_damage_refinery():
+    d = auto_extract_from_catalyst(CATALYST_PHYSICAL, _rules())
+    assert d is not None
+    assert d.facility_type == "refinery"
+    assert d.region == "russia"
+    assert d.confidence == 2
+    assert d.status == "active"
+    assert d.source == "news_auto"
+    assert d.source_ref == "cat-001"
+
+
+def test_auto_extract_shipping_ship():
+    d = auto_extract_from_catalyst(CATALYST_SHIPPING, _rules())
+    assert d.facility_type == "ship"
+    assert d.region == "red_sea"
+
+
+def test_auto_extract_chokepoint():
+    d = auto_extract_from_catalyst(CATALYST_CHOKE, _rules())
+    assert d.facility_type == "chokepoint"
+    assert d.region == "hormuz_strait"
+
+
+def test_auto_extract_unknown_category_returns_none():
+    unrelated = dict(CATALYST_PHYSICAL, category="eia_weekly")
+    assert auto_extract_from_catalyst(unrelated, _rules()) is None

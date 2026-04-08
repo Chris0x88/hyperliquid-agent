@@ -106,3 +106,65 @@ def load_auto_extract_rules(yaml_path: str) -> list[AutoExtractRule]:
             status=m["status"],
         ))
     return out
+
+
+import hashlib
+
+
+def _hash_disruption(facility_name: str, incident_date: datetime) -> str:
+    key = f"{facility_name}|{incident_date.isoformat()}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def auto_extract_from_catalyst(
+    catalyst: dict,
+    rules: list[AutoExtractRule],
+) -> Disruption | None:
+    """Turn a Catalyst record (dict or dataclass) into a Disruption.
+
+    Returns None if no matching rule, or the category is not in the auto-extract set.
+    """
+    category = catalyst["category"] if isinstance(catalyst, dict) else catalyst.category
+    rule = next((r for r in rules if r.catalyst_category == category), None)
+    if rule is None:
+        return None
+
+    if isinstance(catalyst, dict):
+        title = catalyst.get("_headline_title") or catalyst.get("rationale", "")
+        cat_id = catalyst["id"]
+        headline_id = catalyst.get("headline_id", "")
+        instruments = list(catalyst.get("instruments", []))
+        event_date = catalyst["event_date"]
+        if isinstance(event_date, str):
+            event_date = datetime.fromisoformat(event_date)
+    else:
+        title = getattr(catalyst, "_headline_title", "") or catalyst.rationale
+        cat_id = catalyst.id
+        headline_id = catalyst.headline_id
+        instruments = list(catalyst.instruments)
+        event_date = catalyst.event_date
+
+    facility_type = refine_facility_type(title, default=rule.facility_type)
+    region = classify_region(title)
+    facility_name = title[:60].strip() or "unknown"
+
+    now = datetime.now(tz=event_date.tzinfo) if event_date.tzinfo else datetime.utcnow()
+    return Disruption(
+        id=_hash_disruption(facility_name, event_date),
+        source="news_auto",
+        source_ref=cat_id,
+        facility_name=facility_name,
+        facility_type=facility_type,
+        location=region,
+        region=region,
+        volume_offline=None,
+        volume_unit=None,
+        incident_date=event_date,
+        expected_recovery=None,
+        confidence=rule.confidence,
+        status=rule.status,
+        instruments=instruments,
+        notes=f"auto-extracted from catalyst {cat_id} (headline {headline_id})",
+        created_at=now,
+        updated_at=now,
+    )
