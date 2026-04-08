@@ -39,3 +39,27 @@ class SupplyState:
     active_chokepoints: list[str]
     active_disruption_count: int
     high_confidence_count: int
+
+
+REGION_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "russia": ("russia", "russian", "volgograd", "moscow", "ryazan", "samara", "ust-luga", "novorossiysk"),
+    "iran": ("iran", "iranian", "tehran", "abadan", "bandar abbas", "kharg"),
+    "saudi": ("saudi", "arabia", "ras tanura", "abqaiq", "jeddah", "yanbu"),
+    "hormuz_strait": ("hormuz",),
+    "red_sea": ("red sea", "bab-el-mandeb", "bab el mandeb", "houthi", "yemen"),
+    "suez": ("suez",),
+    "malacca_strait": ("malacca",),
+    "us_gulf": ("cushing", "permian", "eagle ford", "gulf of mexico", "us gulf", "houston"),
+    "nigeria": ("nigeria", "nigerian", "niger delta"),
+    "venezuela": ("venezuela", "venezuelan", "pdvsa"),
+    "libya": ("libya", "libyan"),
+}
+
+
+def classify_region(text: str) -> str:
+    """Map free-text headline/location to a canonical region key."""
+    t = text.lower()
+    for region, keywords in REGION_KEYWORDS.items():
+        if any(k in t for k in keywords):
+            return region
+    return "unknown"

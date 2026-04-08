@@ -38,3 +38,24 @@ def test_supply_state_dataclass_constructs():
         high_confidence_count=6,
     )
     assert s.total_offline_bpd == 2_400_000.0
+
+
+from modules.supply_ledger import classify_region
+
+
+def test_classify_region_russia():
+    assert classify_region("Volgograd refinery strike") == "russia"
+    assert classify_region("moscow pipeline") == "russia"
+
+
+def test_classify_region_red_sea():
+    assert classify_region("Houthi missile hits tanker in Red Sea") == "red_sea"
+    assert classify_region("bab-el-mandeb blockade") == "red_sea"
+
+
+def test_classify_region_hormuz():
+    assert classify_region("Hormuz strait navy seizure") == "hormuz_strait"
+
+
+def test_classify_region_unknown():
+    assert classify_region("unrelated headline") == "unknown"
