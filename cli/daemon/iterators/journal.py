@@ -147,16 +147,57 @@ class JournalIterator:
             )
 
         # Check for positions that were open last tick but gone now (CLOSED)
+        #
+        # BUG-FIX 2026-04-08 (journal-exit-zero): the original lookup was
+        # ``exit_price = float(ctx.prices.get(prev.instrument, ZERO))`` which
+        # returned 0 whenever a position closed between ticks, because
+        # ``connector.py`` only fetches mark prices for instruments that are
+        # still in ``ctx.positions`` on the current tick. The journal then
+        # computed PnL = (entry - 0) × size and wrote giant fake numbers —
+        # e.g. ``SHORT xyz:CL entry=$94.54 exit=$0.00 PnL=+$2840.95 (+100.0%)``
+        # for a sub-$1000 account. The wrong PnL also ended up in
+        # ``data/research/journal.jsonl`` which feeds the AI agent's
+        # reflection loop.
+        #
+        # Fix: use a 4-step resolution cascade. Prefer ctx.prices (still
+        # checked first for the zero-latency case), fall back to the last
+        # known mark captured on the previous tick (``prev.current_price``),
+        # then do a direct HL API fetch as a last resort, and finally REFUSE
+        # to write a trade record if all four sources yield 0 — better to
+        # lose the record than corrupt the journal.
         for key, prev in self._prev_positions.items():
             if key not in current:
-                # Position closed — log it
                 exit_price = float(ctx.prices.get(prev.instrument, ZERO))
                 if exit_price <= 0:
-                    # Try without prefix
+                    # Try without prefix (xyz: strip-compare)
                     for k, v in ctx.prices.items():
                         if k.replace("xyz:", "").upper() == key:
                             exit_price = float(v)
                             break
+                if exit_price <= 0 and prev.current_price > 0:
+                    # Fall back to last known mark from the previous tick.
+                    # This is the closest approximation we have to the real
+                    # exit price — the actual fill happened somewhere between
+                    # tick N and tick N+1, and the tick-N mark is a reasonable
+                    # lower bound on how far off we can be.
+                    exit_price = prev.current_price
+                if exit_price <= 0:
+                    # Last resort: fetch a fresh mark from the HL API.
+                    exit_price = self._fetch_mark_price_fallback(prev.instrument)
+                if exit_price <= 0:
+                    # All resolution sources failed — DO NOT write a garbage
+                    # record with exit=$0. Log an error and drop the close
+                    # event; the operator can reconstruct it from the exchange
+                    # fill history if needed.
+                    log.error(
+                        "Journal: cannot resolve exit price for closed %s — "
+                        "skipping trade record to avoid bogus PnL "
+                        "(entry=$%.4f size=%.4f)",
+                        prev.instrument,
+                        prev.avg_entry_price,
+                        abs(prev.net_qty),
+                    )
+                    continue
 
                 self._log_closed_trade(prev, exit_price, ctx)
 
@@ -238,22 +279,27 @@ class JournalIterator:
         except Exception as e:
             log.error("Failed to append journal JSONL: %s", e)
 
-        pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+        pnl_str = f"+${pnl:,.2f}" if pnl >= 0 else f"-${abs(pnl):,.2f}"
         log.info(
             "TRADE CLOSED: %s %s %.4f @ $%.2f → $%.2f  PnL=%s (%.1f%%)  SL=$%s TP=$%s",
             direction, prev.instrument, size, entry_price, exit_price,
             pnl_str, roe_pct, sl_price or "none", tp_price or "none",
         )
 
-        # Alert for Telegram
+        # Alert for Telegram — human-friendly format (markdown).
+        # Uses $X,XXX.XX formatting, direction dot, and labelled fields so
+        # the operator can read it at a glance instead of parsing key=value
+        # key=value noise.
         from cli.daemon.context import Alert
+        dir_dot = "🟢" if direction == "LONG" else "🔴"
+        pnl_dot = "✅" if pnl >= 0 else "🔻"
         ctx.alerts.append(Alert(
             severity="info",
             source=self.name,
             message=(
-                f"Trade closed: {direction} {prev.instrument} "
-                f"entry=${entry_price:.2f} exit=${exit_price:.2f} "
-                f"PnL={pnl_str} ({roe_pct:+.1f}%)"
+                f"{pnl_dot} *Trade closed* — {dir_dot} {direction} `{prev.instrument}`\n"
+                f"  Entry `${entry_price:,.2f}` → Exit `${exit_price:,.2f}`\n"
+                f"  Size `{size:.4f}` | PnL `{pnl_str}` ({roe_pct:+.1f}%)"
             ),
             data=record,
         ))
@@ -267,6 +313,54 @@ class JournalIterator:
         # For now, return None — this will be populated from exchange data
         # when we have it in the context
         return sl_price, tp_price
+
+    @staticmethod
+    def _fetch_mark_price_fallback(instrument: str) -> float:
+        """Direct HL mark-price fetch as a last-resort exit-price source.
+
+        Used only by ``_detect_position_changes`` when ``ctx.prices`` and the
+        previously cached mark are both empty — i.e. a position closed between
+        ticks and the connector hasn't refreshed. Returns 0.0 on any failure so
+        the caller can fall through to the skip-record branch.
+
+        Handles both native (e.g. ``BTC``) and xyz (e.g. ``xyz:BRENTOIL``)
+        instruments by probing allMids on both clearinghouses.
+        """
+        try:
+            import requests  # local import — keeps the iterator import-safe
+            HL_API = "https://api.hyperliquid.xyz/info"
+            bare = instrument.replace("xyz:", "")
+            # Native clearinghouse
+            try:
+                r = requests.post(HL_API, json={"type": "allMids"}, timeout=3)
+                if r.status_code == 200:
+                    mids = r.json() or {}
+                    if instrument in mids:
+                        return float(mids[instrument])
+                    if bare in mids:
+                        return float(mids[bare])
+            except Exception:
+                pass
+            # xyz clearinghouse
+            try:
+                r = requests.post(
+                    HL_API, json={"type": "allMids", "dex": "xyz"}, timeout=3,
+                )
+                if r.status_code == 200:
+                    mids = r.json() or {}
+                    if instrument in mids:
+                        return float(mids[instrument])
+                    for k, v in mids.items():
+                        if k.replace("xyz:", "") == bare:
+                            return float(v)
+            except Exception:
+                pass
+        except Exception as e:
+            log.warning(
+                "Journal fallback mark-price fetch failed for %s: %s",
+                instrument, e,
+            )
+        return 0.0
 
 
 class _TrackedPosition:
