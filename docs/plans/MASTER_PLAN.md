@@ -10,11 +10,11 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention
 
-## Current Phase: Oil Bot Pattern System (Sub-Systems 1 + 2 + 3 SHIPPED; dry-run pending on #1)
+## Current Phase: Oil Bot Pattern System (Sub-Systems 1 + 2 + 3 + 4 SHIPPED; dry-run pending on #1)
 
 Hardening is complete. All F-items and H-items from `docs/plans/AUDIT_FIX_PLAN.md`
 shipped (see build-log 2026-04-07/08). The Oil Bot Pattern system is the active
-workstream. Three sub-systems have shipped in parallel with the Trade Lesson Layer
+workstream. Four sub-systems have shipped in parallel with the Trade Lesson Layer
 (separate workstream owned by the Lessons session — see build-log 2026-04-09).
 
 **Active plan:** `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` — 6-sub-system plan approved 2026-04-09.
@@ -36,12 +36,22 @@ workstream. Three sub-systems have shipped in parallel with the Trade Lesson Lay
   - Pure HL info API. Read-only. No external deps. Polls L2 + OI + funding,
     writes `data/heatmap/{zones,cascades}.jsonl`. Telegram surface: `/heatmap`.
     Kill switch: `data/config/heatmap.json`.
+- ✅ Sub-system 4 — Bot-Pattern Classifier
+  - Spec: `docs/plans/OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md`
+  - First sub-system that consumes multiple streams: combines #1 catalysts,
+    #2 supply state, #3 cascades, and candle cache to classify recent moves
+    as bot-driven, informed, mixed, or unclear. Heuristic only — NO ML, NO LLM
+    (L5 deferred). Writes `data/research/bot_patterns.jsonl`. Telegram
+    surface: `/botpatterns`. Kill switch: `data/config/bot_classifier.json`.
 
 **Next to build:**
-- Sub-system 4 — Bot-pattern classifier (consumes #1 catalysts + #2 supply state +
-  #3 zones/cascades + candles + OI; writes `data/research/bot_patterns.jsonl`)
-- Then: sub-system 5 (strategy engine with scoped oil-short relaxation),
-  6 (self-tune harness — partially pre-built by the Trade Lesson Layer work)
+- Sub-system 5 — Strategy engine (the only piece that places trades). Reads
+  bot_patterns.jsonl + supply state + heatmap zones + thesis files; emits
+  OrderIntents tagged `strategy_id="oil_botpattern"`. This is where the
+  scoped short-leg relaxation in `OIL_BOT_PATTERN_SYSTEM.md` §4 lives.
+  Promotes CL to a thesis-eligible market.
+- Then: sub-system 6 (self-tune harness — partially pre-built by the
+  Trade Lesson Layer work)
 
 For the deferred research-app build (parked), see
 `docs/wiki/decisions/011-two-app-architecture-research-sibling.md` —

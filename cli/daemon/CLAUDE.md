@@ -45,6 +45,13 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
   from OI/funding deltas (`data/heatmap/cascades.jsonl`). Read-only, no external
   deps. Kill switch: `data/config/heatmap.json`. Spec:
   `agent-cli/docs/plans/OIL_BOT_PATTERN_03_LIQUIDITY_HEATMAP.md`.
+- `bot_classifier` — sub-system 4 of the Oil Bot-Pattern Strategy. First sub-system
+  that consumes multiple input streams: combines #1 catalysts, #2 supply state,
+  #3 cascades, and the candle cache to classify recent moves as bot-driven,
+  informed, mixed, or unclear. Heuristic only — NO ML, NO LLM (L5 deferred per
+  SYSTEM doc §6). Writes `data/research/bot_patterns.jsonl`. Read-only. Kill switch:
+  `data/config/bot_classifier.json`. Spec:
+  `agent-cli/docs/plans/OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md`.
 - `lesson_author` — Trade Lesson Layer (wedge 5). Detects closed positions and
   writes lesson candidate files for agent-authored post-mortems. Output feeds
   the FTS5 lessons table in `common/memory.py`. See build-log 2026-04-09 for context.

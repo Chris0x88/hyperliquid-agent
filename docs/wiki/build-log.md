@@ -4,6 +4,75 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (PM, late) — Sub-system 4 shipped: Bot-Pattern Classifier
+
+The fourth sub-system of the Oil Bot-Pattern Strategy is live. First
+sub-system that consumes multiple input streams: combines #1 catalysts,
+#2 supply state, #3 cascades, and the existing candle cache to score
+recent moves on configured oil instruments as bot-driven, informed,
+mixed, or unclear. Heuristic-only — **no ML, no LLM** (L5 explicitly
+deferred per SYSTEM doc §6). Read-only.
+
+### Wedges shipped this session
+
+| # | What |
+|---|---|
+| 1 | Plan doc `OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md` written first per the 2026-04-07 lesson about avoiding stale-context ADRs. Spec covers inputs, outputs, heuristic, configuration, telegram surface, and explicit out-of-scope list. |
+| 2 | `data/config/bot_classifier.json` kill switch + `modules/bot_classifier.py` with `BotPattern` dataclass, JSONL append/read, and the pure `classify_pattern()` function. Score-based heuristic: bot-side (cascade match, no catalyst, no fresh supply, ATR-exceeding move) vs informed-side (high-sev catalyst, fresh supply, active chokepoint). Resolution rule with `mixed` cap at 0.65 and `unclear` floor for noise. |
+| 3 | `BotPatternIterator` mirrors the heatmap iterator shape: monotonic poll throttle, in-tick loaders for catalysts/supply/cascades, injectable `candles_provider` for tests, default provider hits the `CandleCache` SQLite. Per-instrument classification with coin-name normalization. Alert emission for fresh `bot_driven_overextension` at confidence ≥ 0.75. Registered in all 3 tiers. |
+| 4 | `/botpatterns [SYMBOL] [N]` Telegram command. Five-surface checklist: handler, HANDLERS dict (×2), `_set_telegram_commands()`, `cmd_help()`, `cmd_guide()`. Deterministic, no AI, no `ai` suffix. Renders most-recent-first with classification emoji, confidence, direction, and top 3 signals per record. |
+| 5 | Wiki page `docs/wiki/components/bot_classifier.md`, build-log entry, daemon CLAUDE.md known-iterators routing, MASTER_PLAN status flipped to "1+2+3+4 SHIPPED", alignment commit. |
+
+### Test coverage
+
+28 new tests across 3 files, all green. Full suite:
+**2323 passed, 0 failed** (was 2295 after sub-system 3).
+
+- `tests/test_bot_classifier.py` — 13 tests for pure logic (dataclass round-trip, classification floor, clean bot-driven case, clean informed case, mixed/unclear edges, cascade direction must match move, old-cascade outside window, low-sev catalyst rejected, stale supply, ID determinism)
+- `tests/test_bot_classifier_iterator.py` — 8 tests for iterator wiring (kill switch, classify+append, no-candles skip, cascade input affects output, catalyst input affects output, tier registration, ATR helper, alert emission)
+- `tests/test_telegram_botpatterns_command.py` — 7 tests for the Telegram surface (no-data, render, sort order, instrument filter, unknown instrument, limit arg, HANDLERS registration)
+
+### Test-fixture lesson worth noting
+
+First version of the iterator tests used a hardcoded `_now()` constant
+for fixture timestamps but the iterator's loaders use real
+`datetime.now()`. The mismatch caused catalysts to be dropped by the
+24-hour cutoff filter (their published_at landed in the future
+relative to real now). Fix was a one-line change to use real wall-clock
+in the test fixtures. Worth remembering: when the production code
+takes its time reading from `datetime.now()`, fixtures must agree.
+
+### What this delivers
+
+Sub-system #5 (strategy engine) now has a structured, append-only
+stream of bot-pattern classifications to consume when deciding whether
+the scoped short-leg relaxation in `OIL_BOT_PATTERN_SYSTEM.md` §4 is
+allowed. The relaxation rule names this exact signal:
+
+> `bot_pattern_classifier` tags the current move as
+> `bot_driven_overextension` with confidence ≥ 0.7
+
+That's now a real on-disk record with a deterministic ID, contributing
+signals as plain-text evidence, and a confidence score that the
+strategy engine can gate on. Sub-system 5 is the next ship.
+
+### What's next
+
+Sub-system 5 — strategy engine. The only sub-system that places
+trades. Reads bot_patterns.jsonl + supply state + heatmap zones +
+existing thesis files; emits `OrderIntent`s tagged
+`strategy_id="oil_botpattern"`. This is where the scoped short-leg
+relaxation lives, behind hard guardrails (catalyst-clean window,
+supply-clean window, position-size cap, time-in-trade cap, daily-loss
+cap). Also where CL gets promoted to a thesis-eligible market.
+
+Sub-system 5 will need its own plan doc before any code, per the same
+2026-04-07 lesson. It's the first sub-system that touches
+`exchange_protection`, `execution_engine`, and the SL/TP enforcement
+chain — so the plan needs to be tight on what it adds vs what it reuses.
+
+---
+
 ## 2026-04-09 (PM) — Sub-system 3 shipped: Stop / Liquidity Heatmap
 
 The third sub-system of the Oil Bot-Pattern Strategy is live. Pure

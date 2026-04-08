@@ -58,6 +58,7 @@ SUPPLY_STATE_JSON = "data/supply/state.json"  # sub-system 2: supply ledger aggr
 SUPPLY_DISRUPTIONS_JSONL = "data/supply/disruptions.jsonl"  # sub-system 2: append-only disruption log
 HEATMAP_ZONES_JSONL = "data/heatmap/zones.jsonl"  # sub-system 3: liquidity zones snapshots
 HEATMAP_CASCADES_JSONL = "data/heatmap/cascades.jsonl"  # sub-system 3: liquidation cascade events
+BOT_PATTERNS_JSONL = "data/research/bot_patterns.jsonl"  # sub-system 4: bot-pattern classifications
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1107,6 +1108,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /disrupt — manually log a supply disruption\n"
         "  /disrupt-update — update an existing supply disruption\n"
         "  /heatmap [SYMBOL] — stop/liquidity heatmap (sub-system 3)\n"
+        "  /botpatterns [SYMBOL N] — recent bot-pattern classifications (sub-system 4)\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2056,6 +2058,88 @@ def cmd_heatmap(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines), markdown=True)
 
 
+def cmd_botpatterns(token: str, chat_id: str, args: str) -> None:
+    """Show recent bot-pattern classifications.
+
+    Sub-system 4 (bot-pattern classifier). Deterministic — reads
+    data/research/bot_patterns.jsonl directly. NOT AI-driven.
+
+    Args: optional SYMBOL and/or N (default BRENTOIL, last 10).
+    """
+    import json
+    from pathlib import Path
+
+    instrument = "BRENTOIL"
+    limit = 10
+    for tok in (args or "").split():
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok.isdigit():
+            limit = max(1, min(50, int(tok)))
+        else:
+            instrument = tok.upper()
+
+    path = Path(BOT_PATTERNS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id,
+                "🤖 No bot-pattern classifications yet — bot_classifier may be disabled or still booting.",
+                markdown=True)
+        return
+
+    rows: list[dict] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("instrument") == instrument:
+                    rows.append(row)
+    except OSError as e:
+        tg_send(token, chat_id, f"🤖 Error reading bot_patterns: {e}", markdown=True)
+        return
+
+    if not rows:
+        tg_send(token, chat_id,
+                f"🤖 No classifications logged for {instrument} yet.",
+                markdown=True)
+        return
+
+    rows.sort(key=lambda r: r.get("detected_at", ""), reverse=True)
+    rows = rows[:limit]
+
+    lines = [
+        f"🤖 *Bot patterns — {instrument}* (last {len(rows)})",
+        "",
+    ]
+    for r in rows:
+        ts = (r.get("detected_at", "")[:19].replace("T", " "))
+        cls = r.get("classification", "?")
+        conf = float(r.get("confidence", 0))
+        direction = r.get("direction", "?")
+        move = float(r.get("price_change_pct", 0))
+        emoji = {
+            "bot_driven_overextension": "🔥",
+            "informed_move": "📊",
+            "mixed": "⚖️",
+            "unclear": "·",
+        }.get(cls, "·")
+        lines.append(
+            f"{emoji} `{ts}` *{cls}* conf={conf:.2f} {direction} {move:+.2f}%"
+        )
+        signals = r.get("signals", [])
+        if signals:
+            for s in signals[:3]:
+                lines.append(f"     · {s}")
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
 def cmd_lessons(token: str, chat_id: str, args: str) -> None:
     """Show the most recent lessons from the trade lesson corpus.
 
@@ -2317,6 +2401,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/disrupt refinery Volgograd 200000 bpd active 2026-04-08 \"drone strike\"` — manual entry\n"
         "`/disrupt-update abc12345 status=restored` — update an existing entry (history preserved)\n"
         "`/heatmap [BRENTOIL]` — stop/liquidity heatmap (sub-system 3): top bid/ask walls + recent cascades\n"
+        "`/botpatterns [BRENTOIL] [10]` — recent classifications from sub-system 4 (bot-driven vs informed)\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -3763,6 +3848,7 @@ HANDLERS = {
     "/disrupt": cmd_disrupt,
     "/disrupt-update": cmd_disrupt_update,
     "/heatmap": cmd_heatmap,
+    "/botpatterns": cmd_botpatterns,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -3817,6 +3903,7 @@ HANDLERS = {
     "disruptions": cmd_disruptions,
     "disrupt": cmd_disrupt,
     "heatmap": cmd_heatmap,
+    "botpatterns": cmd_botpatterns,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -3882,6 +3969,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "disrupt", "description": "Manually log a supply disruption"},
         {"command": "disrupt-update", "description": "Update an existing supply disruption"},
         {"command": "heatmap", "description": "Show stop/liquidity heatmap (sub-system 3)"},
+        {"command": "botpatterns", "description": "Show recent bot-pattern classifications (sub-system 4)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
