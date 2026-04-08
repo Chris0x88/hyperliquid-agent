@@ -4,6 +4,10 @@ Spec: docs/plans/OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md
 
 Sub-system 4 of the Oil Bot-Pattern Strategy. Read-only, heuristic-only.
 NO ML, NO LLM. Layer L5 (ML overlay) is deferred per SYSTEM doc §6.
+
+🔮 DEFERRED: ML overlay + LLM assistance — see the "DEFERRED ENHANCEMENT"
+section at the bottom of OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md for the
+plan to revisit this once ≥100 closed trades exist in the journal.
 """
 from __future__ import annotations
 

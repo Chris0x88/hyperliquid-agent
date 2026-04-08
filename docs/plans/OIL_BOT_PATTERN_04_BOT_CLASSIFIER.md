@@ -151,6 +151,58 @@ with their signals and confidence.
 - Pattern library growth (L3) — sub-system 6
 - New external HTTP fetches (catalysts/zones already on disk via #1/#3)
 
+## 🔮 DEFERRED ENHANCEMENT — ML + LLM assistance (revisit)
+
+**Status:** parked. Comeback target: after ≥100 closed trades exist in
+the journal so there's real ground-truth labelling material.
+
+The v1 classifier here is intentionally a hand-coded heuristic so we
+ship something deterministic, testable, and explainable. The path
+forward, when we come back to this, has two layers:
+
+1. **ML overlay (Layer L5 in SYSTEM doc §6)** — a small model trained
+   on `bot_patterns.jsonl` joined with `journal.jsonl` outcomes. Goal:
+   replace the score-summing rule in `_resolve()` with a learned
+   probability calibrated against actual P&L outcomes. Constraint per
+   §6: ONLY after ≥100 closed trades, gated behind a Chris-tap promote.
+   Until then we collect labelled data via L4 shadow trading.
+
+2. **LLM assistance** — at the *signal contribution* layer, not the
+   classification layer. Two concrete uses:
+   - Catalyst direction inference: today the catalyst's `direction`
+     field is whatever sub-system 1 wrote. An LLM pass over the headline
+     body could fill in or correct ambiguous direction tags before they
+     reach the classifier. This is a pre-processing improvement on
+     sub-system 1, surfaced here because it changes what the classifier
+     sees.
+   - Plain-language signal explanation: today `signals` is a list of
+     short tags. An LLM could write a one-sentence narrative for each
+     classification ("BTC ripped through the ask wall while OPEC was
+     silent and OI dropped 4%—classic shake"). Lives BESIDE the
+     classification, never inside it. Read-only narrative for `/botpatterns`
+     and lessons-corpus consumption.
+
+**Both layers must respect the existing rules:**
+- Slash commands stay deterministic. Any LLM-touched output gets
+  routed through the `ai` suffix path or lives in a separate
+  `/botpatternsai` command. The pure `/botpatterns` command must stay
+  AI-free.
+- Classification confidence is still the ground truth that sub-system 5
+  gates on. ML can replace the rule that produces it, but the contract
+  (a `BotPattern` record with `confidence` 0..1 and `classification` ∈
+  CLASSIFICATIONS) is fixed.
+- Kill switches per layer: if the ML model goes rogue, flip a config
+  flag and fall back to the heuristic. If the LLM narrative goes
+  rogue, drop the narrative field — classification keeps working.
+
+**Why we're not doing it now:** zero labelled data, no model would be
+better than the heuristic, and shipping the rule-based version
+unblocks sub-system 5 (which only needs the `confidence ≥ 0.7` signal,
+not the mechanism that produced it).
+
+When we come back: write a fresh plan doc, don't edit this one.
+
+
 ## Spec links
 
 - `OIL_BOT_PATTERN_SYSTEM.md` — overall architecture
