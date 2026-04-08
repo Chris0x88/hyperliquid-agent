@@ -85,6 +85,7 @@ def workdir(tmp_path):
     thesis_backup = tmp_path / "data" / "thesis_backup"
     learnings = tmp_path / "data" / "research" / "learnings.md"
     config = tmp_path / "data" / "config" / "lesson_author.json"
+    catalysts = tmp_path / "data" / "news" / "catalysts.jsonl"
 
     def make(**overrides) -> LessonAuthorIterator:
         return LessonAuthorIterator(
@@ -94,10 +95,17 @@ def workdir(tmp_path):
             candidate_dir=str(overrides.get("candidates", candidates)),
             thesis_backup_dir=str(overrides.get("thesis_backup", thesis_backup)),
             learnings_path=str(overrides.get("learnings", learnings)),
+            catalysts_path=str(overrides.get("catalysts", catalysts)),
         )
 
     def append(*rows):
         with journal.open("a") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+
+    def write_catalysts(*rows):
+        catalysts.parent.mkdir(parents=True, exist_ok=True)
+        with catalysts.open("w") as f:
             for r in rows:
                 f.write(json.dumps(r) + "\n")
 
@@ -109,8 +117,10 @@ def workdir(tmp_path):
         "thesis_backup": thesis_backup,
         "learnings": learnings,
         "config": config,
+        "catalysts": catalysts,
         "make": make,
         "append": append,
+        "write_catalysts": write_catalysts,
     }
 
 
@@ -420,3 +430,173 @@ class TestRegistration:
             assert "lesson_author" in TIER_ITERATORS[tier], (
                 f"lesson_author missing from {tier} tier"
             )
+
+
+# ---------------------------------------------------------------------------
+# News context enrichment from catalysts.jsonl
+# ---------------------------------------------------------------------------
+
+def _catalyst(
+    instruments=("xyz:BRENTOIL",),
+    event_date="2026-04-08T18:30:00+00:00",
+    severity=4,
+    category="geopolitical_strike",
+    direction="bull",
+    rationale="rule fired",
+):
+    return {
+        "id": f"id-{event_date}",
+        "headline_id": "h",
+        "instruments": list(instruments),
+        "event_date": event_date,
+        "category": category,
+        "severity": severity,
+        "expected_direction": direction,
+        "rationale": rationale,
+        "created_at": event_date,
+    }
+
+
+class TestNewsContextWindow:
+    def test_missing_file_returns_empty(self, workdir):
+        it = workdir["make"]()
+        out = it._read_catalysts_window(
+            market="xyz:BRENTOIL",
+            entry_ts_ms=1000,
+            close_ts_ms=2000,
+        )
+        assert out == ""
+
+    def test_no_catalysts_in_window(self, workdir):
+        # Catalyst BEFORE the trade window
+        workdir["write_catalysts"](
+            _catalyst(event_date="2026-04-01T00:00:00+00:00")
+        )
+        it = workdir["make"]()
+        # Trade window is in 2026-04-08
+        entry_ms = int(__import__("datetime").datetime(2026, 4, 8, tzinfo=__import__("datetime").timezone.utc).timestamp() * 1000)
+        close_ms = entry_ms + 3_600_000
+        assert it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms) == ""
+
+    def test_returns_in_window_catalysts(self, workdir):
+        from datetime import datetime, timezone
+        workdir["write_catalysts"](
+            _catalyst(event_date="2026-04-08T18:30:00+00:00", severity=5, category="geopolitical_strike"),
+            _catalyst(event_date="2026-04-08T19:00:00+00:00", severity=3, category="trump_oil_announcement"),
+            _catalyst(event_date="2026-04-09T01:00:00+00:00", severity=4, category="opec_meeting"),  # outside window
+        )
+        it = workdir["make"]()
+        entry_ms = int(datetime(2026, 4, 8, 18, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ms = int(datetime(2026, 4, 8, 22, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        out = it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms)
+        assert "Catalysts touching xyz:BRENTOIL" in out
+        assert "2 matching" in out
+        assert "geopolitical_strike" in out
+        assert "trump_oil_announcement" in out
+        assert "opec_meeting" not in out
+        # Severity-DESC ordering
+        assert out.index("sev=5") < out.index("sev=3")
+
+    def test_filters_by_market(self, workdir):
+        from datetime import datetime, timezone
+        workdir["write_catalysts"](
+            _catalyst(instruments=["xyz:BRENTOIL"], category="brent_only"),
+            _catalyst(instruments=["xyz:GOLD"], category="gold_only"),
+        )
+        it = workdir["make"]()
+        entry_ms = int(datetime(2026, 4, 8, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ms = int(datetime(2026, 4, 9, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        out = it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms)
+        assert "brent_only" in out
+        assert "gold_only" not in out
+
+    def test_xyz_prefix_normalisation(self, workdir):
+        """Catalysts may store either 'xyz:BRENTOIL' or 'BRENTOIL' — match both."""
+        from datetime import datetime, timezone
+        workdir["write_catalysts"](
+            _catalyst(instruments=["BRENTOIL"], category="bare_form"),
+            _catalyst(instruments=["xyz:BRENTOIL"], category="prefixed_form"),
+        )
+        it = workdir["make"]()
+        entry_ms = int(datetime(2026, 4, 8, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ms = int(datetime(2026, 4, 9, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        # Querying with the prefixed form should still match the bare form
+        out = it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms)
+        assert "bare_form" in out
+        assert "prefixed_form" in out
+
+    def test_invalid_timestamps_returns_empty(self, workdir):
+        workdir["write_catalysts"](_catalyst())
+        it = workdir["make"]()
+        assert it._read_catalysts_window("xyz:BRENTOIL", None, None) == ""
+        assert it._read_catalysts_window("xyz:BRENTOIL", "not int", 100) == ""
+
+    def test_close_before_entry_returns_empty(self, workdir):
+        workdir["write_catalysts"](_catalyst())
+        it = workdir["make"]()
+        # close_ms < entry_ms is malformed
+        assert it._read_catalysts_window("xyz:BRENTOIL", 2000, 1000) == ""
+
+    def test_max_catalysts_cap(self, workdir):
+        from datetime import datetime, timezone
+        rows = []
+        for i in range(30):
+            rows.append(_catalyst(
+                event_date=f"2026-04-08T{18 + i // 60:02d}:{i % 60:02d}:00+00:00",
+                category=f"cat_{i}",
+            ))
+        workdir["write_catalysts"](*rows)
+        it = workdir["make"]()
+        entry_ms = int(datetime(2026, 4, 8, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ms = int(datetime(2026, 4, 10, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        out = it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms)
+        # Default cap is 20
+        assert out.count("- sev=") == 20
+        assert "20 matching" in out
+
+    def test_malformed_lines_skipped(self, workdir):
+        # Mix of bad JSON, valid catalyst, and valid catalyst with bad date
+        workdir["catalysts"].parent.mkdir(parents=True, exist_ok=True)
+        workdir["catalysts"].write_text(
+            "not json\n"
+            + json.dumps(_catalyst()) + "\n"
+            + json.dumps(_catalyst(event_date="not-a-date")) + "\n"
+        )
+        from datetime import datetime, timezone
+        it = workdir["make"]()
+        entry_ms = int(datetime(2026, 4, 8, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ms = int(datetime(2026, 4, 9, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        out = it._read_catalysts_window("xyz:BRENTOIL", entry_ms, close_ms)
+        # Only the one valid in-window catalyst survives
+        assert "1 matching" in out
+
+    def test_assemble_request_includes_news_context(self, workdir):
+        """End-to-end: a closed-position row produces a candidate file with
+        news_context_at_open populated from catalysts.jsonl."""
+        workdir["write_catalysts"](
+            _catalyst(
+                event_date="2026-04-08T18:30:00+00:00",
+                severity=5,
+                category="physical_damage_facility",
+            ),
+        )
+        # close row whose entry/close timestamps span the catalyst time
+        from datetime import datetime, timezone
+        entry_ts = int(datetime(2026, 4, 8, 18, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        close_ts = int(datetime(2026, 4, 8, 22, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        workdir["append"](_close_row(
+            entry_id="trade-with-news",
+            entry_ts=entry_ts,
+            close_ts=close_ts,
+            holding_ms=close_ts - entry_ts,
+        ))
+        it = workdir["make"]()
+        it.on_start(_ctx())
+        it.tick(_ctx())
+
+        files = list(workdir["candidates"].glob("*.json"))
+        assert len(files) == 1
+        cand = json.loads(files[0].read_text())
+        assert cand["news_context_at_open"]
+        assert "physical_damage_facility" in cand["news_context_at_open"]
+        assert "sev=5" in cand["news_context_at_open"]

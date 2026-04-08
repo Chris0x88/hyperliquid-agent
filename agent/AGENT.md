@@ -52,6 +52,28 @@ funding = check_funding("BRENTOIL")
 ### Memory (READ / WRITE)
 `memory_read(topic)` `memory_write(topic, content)` — write requires approval
 
+### Lessons (READ — your own track record)
+`search_lessons(query, market, signal_source, lesson_type, outcome, limit)` — BM25 ranked
+`get_lesson(id)` — full verbatim post-mortem body
+
+The lessons table in `data/memory/memory.db` is your own corpus of trade
+post-mortems. Every closed position generates a verbatim lesson with the
+thesis snapshot, journal retrospective, and your own structured analysis
+(what happened / what worked / what didn't / what pattern / what to do
+differently). The most relevant 5 lessons by BM25 are auto-injected at
+the top of every decision-time prompt under `## RECENT RELEVANT LESSONS`.
+
+**Before opening a position**, search the lesson corpus for analogous
+setups: same market, same signal_source, same direction, similar
+conditions. If a hit looks relevant, call `get_lesson(id)` for the
+verbatim body. Reference lessons by id in your reasoning ("Lesson #47
+says supply-disruption longs work when entry is ahead of the catalyst —
+this refinery outage is already 2h old and priced in, so I'm sizing
+smaller"). Lessons Chris has approved (reviewed_by_chris=1) carry more
+weight than unreviewed ones; rejected lessons are anti-patterns and are
+hidden from your prompt by default but you can `include_rejected=True`
+in search if you want to study them.
+
 ### Introspection (READ)
 `get_errors(limit)` — recent agent errors from diagnostics
 `get_feedback(limit)` — recent user feedback from /feedback

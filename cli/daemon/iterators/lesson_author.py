@@ -50,6 +50,7 @@ DEFAULT_STATE_PATH = "data/daemon/lesson_author_state.json"
 DEFAULT_CANDIDATE_DIR = "data/daemon/lesson_candidates"
 DEFAULT_THESIS_BACKUP_DIR = "data/thesis_backup"
 DEFAULT_LEARNINGS_PATH = "data/research/learnings.md"
+DEFAULT_CATALYSTS_PATH = "data/news/catalysts.jsonl"
 
 
 class LessonAuthorIterator:
@@ -63,6 +64,7 @@ class LessonAuthorIterator:
         candidate_dir: str = DEFAULT_CANDIDATE_DIR,
         thesis_backup_dir: str = DEFAULT_THESIS_BACKUP_DIR,
         learnings_path: str = DEFAULT_LEARNINGS_PATH,
+        catalysts_path: str = DEFAULT_CATALYSTS_PATH,
     ):
         self._config_path = Path(config_path)
         self._journal_path = Path(journal_path)
@@ -70,6 +72,7 @@ class LessonAuthorIterator:
         self._candidate_dir = Path(candidate_dir)
         self._thesis_backup_dir = Path(thesis_backup_dir)
         self._learnings_path = Path(learnings_path)
+        self._catalysts_path = Path(catalysts_path)
         self._enabled: bool = True
         self._last_offset: int = 0
         self._processed_ids: set[str] = set()
@@ -252,6 +255,11 @@ class LessonAuthorIterator:
         direction = str(entry.get("direction") or "")
         thesis_snapshot, thesis_snapshot_path = self._load_thesis_snapshot(market, direction)
         learnings_slice = self._read_learnings_tail(max_chars=2000)
+        news_context = self._read_catalysts_window(
+            market=market,
+            entry_ts_ms=entry.get("entry_ts"),
+            close_ts_ms=entry.get("close_ts"),
+        )
 
         return {
             "schema_version": 1,
@@ -261,8 +269,8 @@ class LessonAuthorIterator:
             "thesis_snapshot": thesis_snapshot,
             "thesis_snapshot_path": thesis_snapshot_path,
             "learnings_md_slice": learnings_slice,
-            "news_context_at_open": "",  # placeholder — wedge 6 may enrich this
-            "autoresearch_eval_window": "",  # placeholder
+            "news_context_at_open": news_context,
+            "autoresearch_eval_window": "",  # placeholder — future wedge
             # Pre-extracted fields the consumer will need to call log_lesson:
             "market": market,
             "direction": direction,
@@ -303,6 +311,99 @@ class LessonAuthorIterator:
             if data.get("market") == market and data.get("direction") in (direction, "long", "short"):
                 return data, str(path)
         return None, None
+
+    def _read_catalysts_window(
+        self,
+        market: str,
+        entry_ts_ms: Any,
+        close_ts_ms: Any,
+        max_catalysts: int = 20,
+    ) -> str:
+        """Return a markdown summary of catalysts from sub-system 1's
+        ``data/news/catalysts.jsonl`` whose ``event_date`` falls between
+        ``entry_ts`` and ``close_ts`` AND whose ``instruments`` list contains
+        the trade's market (or a stripped form of it).
+
+        Returns ``""`` on missing file, missing/invalid timestamps, or no
+        matching catalysts. Never raises — news enrichment is best-effort
+        and must not break the candidate write."""
+        if not self._catalysts_path.exists():
+            return ""
+        try:
+            entry_ms = int(entry_ts_ms) if entry_ts_ms is not None else None
+            close_ms = int(close_ts_ms) if close_ts_ms is not None else None
+        except (TypeError, ValueError):
+            return ""
+        if entry_ms is None or close_ms is None or close_ms < entry_ms:
+            return ""
+
+        # Build the set of acceptable instrument strings — handle the xyz:
+        # prefix mismatch (data store has 'xyz:BRENTOIL', CL/BRENTOIL etc).
+        market_set: set[str] = set()
+        if market:
+            market_set.add(market)
+            if market.startswith("xyz:"):
+                market_set.add(market[len("xyz:"):])
+            else:
+                market_set.add(f"xyz:{market}")
+
+        from datetime import datetime, timezone
+
+        try:
+            with self._catalysts_path.open("r") as f:
+                lines = f.readlines()
+        except OSError:
+            return ""
+
+        hits: list[dict] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                cat = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            instruments = cat.get("instruments") or []
+            if not isinstance(instruments, list):
+                continue
+            if market_set and not any(i in market_set for i in instruments):
+                continue
+
+            event_date = cat.get("event_date")
+            if not event_date:
+                continue
+            try:
+                ed = datetime.fromisoformat(event_date)
+                if ed.tzinfo is None:
+                    ed = ed.replace(tzinfo=timezone.utc)
+                ed_ms = int(ed.timestamp() * 1000)
+            except (ValueError, TypeError):
+                continue
+
+            if entry_ms <= ed_ms <= close_ms:
+                hits.append(cat)
+
+        if not hits:
+            return ""
+
+        # Sort by severity DESC then event_date ASC, cap at max_catalysts
+        hits.sort(key=lambda c: (-int(c.get("severity", 0)), c.get("event_date", "")))
+        hits = hits[:max_catalysts]
+
+        lines_out: list[str] = [
+            f"Catalysts touching {market} between trade open and close "
+            f"({len(hits)} matching):",
+        ]
+        for c in hits:
+            sev = int(c.get("severity", 0))
+            cat = c.get("category", "?")
+            ed = (c.get("event_date") or "")[:16].replace("T", " ")
+            direction = c.get("expected_direction") or "?"
+            rationale = c.get("rationale", "")
+            lines_out.append(f"- sev={sev} {cat} @ {ed}Z dir={direction} — {rationale}")
+        return "\n".join(lines_out)
 
     def _read_learnings_tail(self, max_chars: int = 2000) -> str:
         """Return the tail of learnings.md, capped at max_chars. Empty string

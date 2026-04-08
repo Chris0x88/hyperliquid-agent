@@ -4,6 +4,94 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 — Trade Lesson Layer fully closed (wedges 5 + 6)
+
+The lesson learning loop that started this morning with the mempalace
+question is now operational end-to-end. After every closed position the
+daemon writes a verbatim candidate file; the dream cycle (or
+`/lessonauthorai` on demand) hands the candidate to the agent, parses
+the structured post-mortem, and persists it as an FTS5-indexed row in
+`data/memory/memory.db`. The next decision-time prompt automatically
+injects the top 5 BM25-ranked lessons under `## RECENT RELEVANT LESSONS`,
+and Chris curates from Telegram via `/lesson approve|reject`.
+
+### Wedges shipped today (full lesson layer)
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `3027b00` | 77 tests for the data layer (parallel-shipped by Sonnet as `7ac7bea`) + one-line `import re` bug fix in `common/memory.py` that the tests caught — `_fts5_escape_query` was raising `NameError` on every non-empty search query |
+| — | `fbe6082` | Doc pass: build-log + CLAUDE.md routing + data-stores schema + ai-agent component + MASTER_PLAN status |
+| 2 | `dda624f` | Agent tools `search_lessons` + `get_lesson` (read-only, BM25, all filters), 34 tests, `agent/reference/tools.md` documented |
+| — | `5382a0b` | Root-cause fix for the parallel session's flake report: `common/memory.py` helpers now resolve `_DB_PATH` at call time instead of binding it as a frozen default. One regression test asserts monkeypatch flows through. |
+| 3 | `3723060` | `RECENT RELEVANT LESSONS` prompt injection: new `build_lessons_section()` helper, new `lessons_section` parameter on `build_system_prompt()`, hooked into `cli/telegram_agent.py:_build_system_prompt()`, kill-switchable via `_LESSON_INJECTION_ENABLED`. 17 new tests including BM25 ranking and DB-error swallowing. |
+| 4 | `488857f` | Telegram surface: `/lessons`, `/lesson <id>`, `/lesson approve\|reject\|unreview <id>`, `/lessonsearch <query>`. Five-surface registration checklist. 28 tests. Re-applied after a Supply Ledger Sub-System 2 session clobbered the first attempt's working tree. |
+| 5 | `9094b22` | `LessonAuthorIterator` daemon iterator. Watches `journal.jsonl` for closed positions, validates them (refuses garbage per the 2026-04-08 Bug A pattern), assembles a verbatim `LessonAuthorRequest`, writes it as a candidate file under `data/daemon/lesson_candidates/`. Pure I/O — no AI calls from the daemon, mirrors the `autoresearch.py` pattern. Cursor + dedup + truncation handling. Registered in all three tiers. 34 tests. |
+| 6 | `a65b1e5` | The candidate consumer that closes the loop. New `_author_pending_lessons()` helper in `cli/telegram_agent.py` calls `_call_anthropic` with Haiku to author each pending candidate, parses the structured response via `LessonEngine.parse_lesson_response`, idempotency-checks by `journal_entry_id`, persists via `log_lesson`, unlinks the candidate on success. Hooked into the dream cycle so lessons auto-author on the same 24h+3 trigger that drives memory consolidation. New `/lessonauthorai` Telegram command (the `ai` suffix is required because the output is model-authored) for on-demand authoring. 22 tests including idempotency and partial-batch behaviour. |
+
+### What this delivers
+
+Agent now sees its own prior post-mortems in every decision-time prompt
+under `## RECENT RELEVANT LESSONS` (top 5 BM25 hits, ~150 tokens, capped
+to keep the prompt budget tight). For deeper recall, the agent can call
+`search_lessons(query, market, signal_source, lesson_type, outcome)` and
+`get_lesson(id)` from its tool surface — `agent/AGENT.md` now instructs
+it to search the corpus before opening any position and to reference
+relevant lessons by id in its reasoning. Chris curates from Telegram
+with `/lesson approve|reject`; approved lessons get a flag in the prompt
+injection ranking, rejected lessons are hidden from injection but stay
+searchable as anti-patterns via `include_rejected=True`.
+
+Component page: `docs/wiki/components/lesson-corpus.md` covers the full
+end-to-end loop, schema, idempotency, kill switches, refusal patterns,
+and Telegram surfaces.
+
+### What this does NOT do
+
+- No new pip dependencies. SQLite FTS5 is in CPython 3.13's stdlib.
+- No MCP. Agent tools are plain Python functions registered in
+  `cli/agent_tools.py:TOOL_DEFS`.
+- No external party code. The "store verbatim, find by structure plus
+  search" principle came from the failed `mempalace` integration scoping
+  this morning, but the implementation is entirely in-tree.
+- No API keys. The consumer uses the same `_call_anthropic` path the
+  dream cycle uses — Claude Haiku via the existing session-token-aware
+  client. Per `feedback_session_token_only.md`.
+- No new daemon pid management or scheduling. The iterator runs on the
+  existing tick loop; the consumer runs on the existing dream-cycle
+  trigger. Zero new failure modes for the daemon supervisor.
+
+### Process notes (for the watching meta-bot)
+
+Three parallel-session collisions during the day, all involving
+uncommitted work in a shared working directory:
+
+1. **Wedge 1 itself was a near-collision**: a Sonnet session shipped the
+   data layer as `7ac7bea` while Opus was independently writing the same
+   thing from the same plan. The two `modules/lesson_engine.py` files
+   converged byte-identical. The Opus session's tests (the only actually-
+   new artefact) caught a real `NameError` bug in the parallel ship.
+2. **Wedge 3 was wiped** by another session's `git reset --hard HEAD` at
+   06:06:59 and 06:07:24 (reflog confirmed). The Guardian Angel cartographer
+   session was starting from a clean slate and discarded all uncommitted
+   changes across the repo as a side effect. Re-applied successfully after
+   the `_DB_PATH` runtime-lookup fix made the code simpler.
+3. **Wedge 4 was wiped** by the Supply Ledger Sub-System 2 session's
+   18-commit push that touched `cli/telegram_bot.py` extensively. The test
+   file (untracked) survived; only the `cli/telegram_bot.py` edits had to
+   be redone. Re-applied with adjusted insertion points.
+
+**Defence**: commit immediately after tests pass, re-run
+`git log --grep='alignment:' -1` immediately before commit (not just at
+session start). The protocol added in the earlier 2026-04-09 build-log
+entry was followed and repeatedly worked.
+
+**Open process recommendation for the meta-bot**: parallel Claude sessions
+sharing a single working directory is fundamentally unsafe for uncommitted
+work. The standard fix is `git worktree add` per session. Worth a separate
+ADR if the team wants to formalize it.
+
+---
+
 ## 2026-04-09 — Oil Bot-Pattern Sub-System 2 shipped
 
 - **What:** Supply Disruption Ledger. Auto-extracts structured disruption records from sub-system 1 catalysts, accepts manual entries via Telegram, aggregates into SupplyState consumed by later sub-systems.
