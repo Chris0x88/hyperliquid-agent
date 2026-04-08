@@ -4,6 +4,166 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 — Trade Lesson Layer Ships (parallel session) + Test Coverage + NameError Fix
+
+**Two Claude sessions converged on the same design.** In the morning, Chris asked
+an Opus session about integrating `github.com/milla-jovovich/mempalace` (a
+brand-new viral memory library). That session produced a tailored design
+(`.claude/plans/bubbly-juggling-fountain.md`) that rejected mempalace on three
+converging grounds (`feedback_no_mcp.md`, `CLAUDE.md` rule #3 "zero external
+deps", `feedback_no_external_parties.md`) and proposed instead a
+stdlib-only Trade Lesson Palace built on SQLite FTS5 over a new `lessons`
+table in the existing `data/memory/memory.db`. Independently and in parallel,
+a Sonnet 4.6 session worked through essentially the same approach and shipped
+the data layer as commit `7ac7bea`:
+
+- `common/memory.py` — new `lessons` table, FTS5 virtual table
+  (`lessons_fts`), three triggers (`lessons_ai` for insert-FTS-sync,
+  `lessons_append_only` blocking updates on 14 frozen content columns,
+  `lessons_tags_au` keeping FTS in sync when tags are curated), four b-tree
+  indexes, four module-level helpers (`log_lesson`, `get_lesson`,
+  `search_lessons`, `set_lesson_review`), and `_fts5_escape_query` to
+  neutralise FTS5 operators in user/agent input
+- `modules/lesson_engine.py` — pure-computation `Lesson` dataclass,
+  `LessonAuthorRequest` (verbatim context bundle), sentinel-wrapped
+  `build_lesson_prompt()`, strict `parse_lesson_response()` that raises
+  `ValueError` on missing/invalid sentinels (follows the 2026-04-08 Bug A
+  "refuse to write garbage records" pattern from the journal iterator)
+- `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` and
+  `docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md` — separate strategic
+  workstream, unrelated to the lesson layer
+
+**The Opus session's alignment check ran before the parallel commit landed.**
+`git log --grep='alignment:'` at session start showed `d66ac9f` as the most
+recent alignment commit. The Sonnet session committed `7ac7bea` a few hours
+later (2026-04-09 04:32:43 local). The Opus session had moved on to writing
+files and didn't re-run the alignment check. When it later called `Write` on
+`modules/lesson_engine.py`, the on-disk file from the Sonnet commit was
+already there. Because both sessions followed the same detailed plan, the
+Opus version converged byte-for-byte (same MD5) with the Sonnet version —
+not exact collaboration, but close enough that `Write` appeared to succeed
+without apparent conflict. Same story for `common/memory.py`: the Opus Edits
+found their target text already present in the committed version. This is
+the second manifestation of the 2026-04-07 postmortem pattern — assuming
+your plan is the active phase without re-checking when the wall-clock gap
+between alignment-check and commit is non-trivial. **The rule to add to the
+session protocol: re-run the alignment grep immediately before committing
+any non-trivial new work, not only at session start.**
+
+**The 77 tests authored by the Opus session caught a real latent bug.**
+`_fts5_escape_query` in `common/memory.py` (committed in `7ac7bea`) calls
+`re.split()` but the file never imports `re`. Any call to
+`search_lessons(query="non-empty")` raised `NameError: name 're' is not
+defined`. `tests/test_lesson_memory.py::TestSearchLessons::test_fts_query_ranks_relevant_first`
+(and every other `_fts_*` test) surfaced the bug on first run. Verified by
+stashing the one-line `+import re` fix and re-running the test — fails as
+expected. Re-applied and it passes. The fix and the test files shipped
+together as commit `3027b00`:
+
+- `common/memory.py` — one-line `import re` addition
+- `tests/test_lesson_engine.py` — 42 tests covering the pure-computation
+  layer: `Lesson` roundtrip incl. JSON-string tag coercion, outcome
+  classification boundaries (breakeven is |roe_pct|<0.5), `LessonAuthorRequest`
+  stable section ordering and empty-section skipping, prompt sentinel
+  presence, response-parsing happy paths, and all five failure modes
+  (missing sentinels, invalid lesson_type, invalid direction, empty summary,
+  malformed tags); tag dedup/cap/lowercasing; body_full sentinel stripping;
+  verbatim-context safety net
+- `tests/test_lesson_memory.py` — 35 tests covering schema migration (tables,
+  indexes, triggers, idempotency), insert/get roundtrip with nullable fields,
+  `CHECK` constraint enforcement, FTS5 BM25 ranking across a 4-lesson seed,
+  every filter dimension (market, direction, signal_source, lesson_type,
+  outcome), combined filters with query, limit, rejected-exclusion-by-default
+  and opt-in, FTS5 injection resistance (operator chars, quotes, parens,
+  wildcards, NOT/AND/OR), curation (approve/reject/unreview), append-only
+  trigger on 14 frozen columns, `reviewed_by_chris` and tags mutability
+  preserved, tags-update keeps FTS5 in sync
+
+### What's shipped vs what's still open on the lesson layer
+
+| Layer | Status |
+|---|---|
+| `lessons` table + FTS5 + triggers | Shipped (`7ac7bea`) |
+| `log_lesson` / `get_lesson` / `search_lessons` / `set_lesson_review` helpers | Shipped (`7ac7bea`) |
+| `modules/lesson_engine.py` (dataclass, prompt, parser) | Shipped (`7ac7bea`) |
+| Test coverage for the above | Shipped (`3027b00`) |
+| `import re` fix in `common/memory.py` | Shipped (`3027b00`) |
+| `cli/daemon/iterators/lesson_author.py` (lesson-writer iterator) | **Not built** |
+| `search_lessons` + `get_lesson` in `cli/agent_tools.py` | **Not built** |
+| `RECENT RELEVANT LESSONS` section in `cli/agent_runtime.py:build_system_prompt()` | **Not built** |
+| `/lessons` + `/lesson` + `/lessonsearch` in `cli/telegram_bot.py` | **Not built** |
+| `agent/reference/tools.md` + `agent/AGENT.md` updates | **Not built** |
+| `common/thesis.py:snapshot_to_disk()` helper (for `thesis_snapshot_path`) | **Not built** (verify H6 backup coverage first) |
+
+Until the iterator ships, the table is an empty shell — no lessons will be
+written without a catalyst. The agent tools and prompt injection are
+read-only against that empty table. Chris deferred the wiring work to a
+future session per `.claude/plans/bubbly-juggling-fountain.md`.
+
+### Pattern: re-run the alignment check immediately before committing
+
+The `d66ac9f`-based alignment check at the start of the Opus session was
+valid at the moment it ran, but lost accuracy the moment another session
+committed. This is the second time in three days the codebase has punished
+stale alignment-check state (see 2026-04-07 postmortem for the first). The
+cheap fix is a habit change: before any `git add` / `git commit` of
+non-trivial new files, re-run `git log --grep='alignment:' -1` and then
+`git log <hash>..HEAD` against the current HEAD. If the grep now returns a
+newer alignment commit than the session started with, STOP and re-audit
+before proceeding. The 20-second cost beats the N-hours cost of rediscovering
+the convergence later.
+
+### Verification
+
+- `pytest tests/test_lesson_engine.py tests/test_lesson_memory.py -x -q` —
+  passes
+- `pytest tests/ -x -q` — full suite passes, zero regressions
+- Bug reproduction: `git stash push common/memory.py && pytest
+  tests/test_lesson_memory.py::TestSearchLessons::test_fts_query_ranks_relevant_first`
+  → `NameError: name 're' is not defined`; `git stash pop` → passes
+- Byte-identity of `modules/lesson_engine.py` confirmed via `md5` against
+  `git show HEAD:modules/lesson_engine.py | md5` — identical
+
+### Files touched
+
+```
+common/memory.py                       (+1 line:  import re)
+tests/test_lesson_engine.py            (new)
+tests/test_lesson_memory.py            (new)
+docs/wiki/build-log.md                 (this entry)
+docs/wiki/architecture/data-stores.md  (lessons table row + memory.db schema)
+docs/wiki/architecture/current.md      (remove stale '6-table store' label)
+docs/wiki/components/ai-agent.md       ('built, not yet wired' note on lessons)
+modules/CLAUDE.md                      (lesson_engine row)
+common/CLAUDE.md                       (memory.py row added — was missing)
+docs/plans/MASTER_PLAN.md              (lesson layer in What Has Shipped)
+```
+
+### Retrospective
+
+**What worked:** Writing tests against a design instead of against a
+specific implementation meant the tests passed against the parallel
+session's work without modification. The sentinel-wrapped prompt format
+in `lesson_engine.py` is strict enough that the parser's failure modes are
+enumerable and testable. The append-only trigger is simple (`BEFORE UPDATE
+OF col1, col2, ...`) and lets the curation columns (`reviewed_by_chris`,
+`tags`) stay mutable without extra bookkeeping.
+
+**What went wrong:** The Opus session burned ~20 minutes writing code that
+already existed because the alignment check went stale. Would have been
+avoided by a 20-second re-grep immediately before committing.
+
+**What to do differently next time:** (1) Every Claude session that writes
+code must re-run the alignment grep right before staging changes, not just
+at the start. (2) When two sessions work from the same detailed plan,
+convergence is possible but not guaranteed — the test suite is the only
+reliable way to detect behavioural divergence between parallel
+implementations. Write tests against the *contract* (dataclass fields,
+function signatures, invariants), not against internal implementation
+details, so the tests transfer across convergent implementations.
+
+---
+
 ## 2026-04-09 — Calibration + /restart + Oil Bot Pattern System Approved
 
 ### Liquidation monitor threshold recalibration

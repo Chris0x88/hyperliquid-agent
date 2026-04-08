@@ -46,6 +46,32 @@ Persistent memory in `data/agent_memory/`:
 - Topic files (`{name}.md`) — created by agent via `memory_write` tool
 - Agent maintains its own index when writing new topics
 
+### Trade lesson corpus (built, not yet wired)
+
+A second, structured memory lives in `data/memory/memory.db` under the
+`lessons` table (plus `lessons_fts` FTS5 virtual table). Each row is a
+verbatim trade post-mortem with structured fields: `market`, `direction`,
+`signal_source`, `lesson_type`, `outcome`, `pnl_usd`, `roe_pct`,
+`holding_ms`, `conviction_at_open`, `journal_entry_id`,
+`thesis_snapshot_path`, agent-authored `summary`, verbatim `body_full`,
+`tags`, and `reviewed_by_chris` for curation. Append-only on content
+columns via a `BEFORE UPDATE` trigger; tags and `reviewed_by_chris` are
+mutable for curation.
+
+The pure-computation layer lives in `modules/lesson_engine.py` (`Lesson`
+dataclass, `LessonAuthorRequest`, sentinel-wrapped `build_lesson_prompt()`,
+strict `parse_lesson_response()`). The persistence layer is `common/memory.py`
+(`log_lesson`, `get_lesson`, `search_lessons` via BM25 over FTS5,
+`set_lesson_review`).
+
+**What's missing to make this agent-accessible**: the `lesson_author`
+daemon iterator that watches for closed journal entries and calls the
+agent to author each lesson, the `search_lessons` + `get_lesson` tool
+surfaces in `cli/agent_tools.py`, and the `RECENT RELEVANT LESSONS`
+section in `cli/agent_runtime.py:build_system_prompt()`. See build-log
+2026-04-09 entry for status. Until those ship, the table is an empty
+shell.
+
 ## Model Support
 
 - **Anthropic direct** (Opus 4.6, Sonnet 4.6, Haiku 4.5) — session tokens or API keys

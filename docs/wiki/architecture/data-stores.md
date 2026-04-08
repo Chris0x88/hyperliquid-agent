@@ -8,7 +8,7 @@ Complete inventory of every persistent data store in `agent-cli`, with writers, 
 |---|---|---|---|---|---|---|
 | `data/snapshots/*.json` | JSON (timestamped) | `account_collector.py:85` | `account_collector.py:282` (get_latest) | 7d full, 30d sampled | CRITICAL | Yes → memory.db |
 | `data/snapshots/hwm.json` | JSON | `account_collector.py:129` | `account_collector.py:48` | Never rotates | CRITICAL | No |
-| `data/memory/memory.db` | SQLite | `memory.py:162-231`, `heartbeat.py:1157-1182` | `memory.py` (queries), `heartbeat.py` | Summaries pruned >50/market | HIGH | account_snapshots table |
+| `data/memory/memory.db` | SQLite + FTS5 | `memory.py` (events, learnings, lessons, summaries), `heartbeat.py` (action_log, execution_traces), `account_collector.py` (account_snapshots) | `memory.py` (queries + FTS5 search), `heartbeat.py`, agent tools (future) | Summaries pruned >50/market; lessons append-only | HIGH | account_snapshots table |
 | `data/daemon/state.json` | JSON | `daemon/state.py:53` | `telegram_bot.py`, `cli/engine.py` | Never rotates | MEDIUM | No |
 | `data/thesis/*_state.json` | JSON (per-market) | `thesis.py:149` (save) | `thesis_engine`, `execution_engine` | Manual (user updates) | CRITICAL | No |
 | `data/daemon/chat_history.jsonl` | JSONL (append-only) | `telegram_agent.py:1273` (_log_chat) | `telegram_bot.py` (read for context) | Never rotates | HIGH | No |
@@ -88,29 +88,65 @@ Complete inventory of every persistent data store in `agent-cli`, with writers, 
 
 ### 2. Memory DB (`data/memory/memory.db`)
 
-SQLite (WAL). Tables: `events`, `learnings`, `observations`, `action_log`, `execution_traces`, `account_snapshots`, `summaries`. Full schema in module `common/memory.py`.
+SQLite (WAL). Tables: `events`, `learnings`, `observations`, `action_log`,
+`execution_traces`, `account_snapshots`, `summaries`, `lessons`. Plus one
+FTS5 virtual table `lessons_fts` indexing the lessons corpus. Full schema
+in module `common/memory.py:_init()`.
 
 **Writers**
-- `common/memory.py:164-168` — `log_event()`
-- `common/memory.py:271-275` — `log_learning()`
-- `cli/daemon/iterators/account_collector.py:98` — `log_account_snapshot()` (dual-write)
-- `common/heartbeat.py:1157-1163` — `action_log` insert
-- `common/heartbeat.py:1174-1182` — `execution_traces` insert
-- `common/memory_consolidator.py:93-107` — `summaries` upsert
-- `common/memory_consolidator.py:372-397` — `summaries` prune
+- `common/memory.py` — `log_event()`, `log_learning()`, `log_lesson()`,
+  `set_lesson_review()`
+- `cli/daemon/iterators/account_collector.py` — `log_account_snapshot()`
+  (dual-write)
+- `common/heartbeat.py` — `action_log` insert, `execution_traces` insert
+- `common/memory_consolidator.py` — `summaries` upsert, `summaries` prune
 
 **Readers**
-- `common/memory.py:283-304` — `get_timeline()`
-- `common/memory.py:306-326` — `get_learnings()`
-- `common/memory.py:328-357` — `search()`
+- `common/memory.py` — `get_timeline()`, `get_learnings()`, `search()`
+  (primitive LIKE), `get_lesson()`, `search_lessons()` (BM25 via FTS5)
 - `cli/telegram_bot.py` — memory commands
 - `common/memory_consolidator.py` — consolidation reads + compresses
+- Agent tools (future, not yet wired): `search_lessons` + `get_lesson` tool
+  surfaces in `cli/agent_tools.py` and the `RECENT RELEVANT LESSONS`
+  prompt-injection section in `cli/agent_runtime.py:build_system_prompt()`
+  are planned but not built as of 2026-04-09
 
 **Retention**
 - Events / learnings / action_log / traces: indefinite
 - Summaries: pruned to ≤50 per market
+- Lessons: append-only on content columns; `reviewed_by_chris` and `tags`
+  are mutable for curation but `body_full`, `summary`, `pnl_usd`, `roe_pct`,
+  `outcome`, `market`, `direction`, `signal_source`, `lesson_type`,
+  `holding_ms`, `trade_closed_at`, `created_at`, `journal_entry_id`,
+  `thesis_snapshot_path`, `conviction_at_open` are frozen at insert by the
+  `lessons_append_only` `BEFORE UPDATE` trigger
 
-**Dual-write:** Partial (account_snapshots only)
+**Lessons schema (additive to the base memory.db)**
+
+```sql
+CREATE TABLE lessons (
+  id, created_at, trade_closed_at,
+  market, direction CHECK (direction IN ('long','short','flat')),
+  signal_source, lesson_type,
+  outcome CHECK (outcome IN ('win','loss','breakeven','scratched')),
+  pnl_usd, roe_pct, holding_ms,
+  conviction_at_open, journal_entry_id, thesis_snapshot_path,
+  summary, body_full, tags, reviewed_by_chris
+);
+CREATE VIRTUAL TABLE lessons_fts USING fts5(summary, body_full, tags, ...);
+-- Indexes: market_dir, signal_source, lesson_type, trade_closed_at
+-- Triggers: lessons_ai (insert FTS sync), lessons_append_only (BEFORE UPDATE
+-- on 14 frozen content columns), lessons_tags_au (tags update FTS sync)
+```
+
+**Dual-write:** Partial (account_snapshots only). Lessons live solely in
+memory.db with no JSONL shadow — the append-only trigger is the primary
+integrity guarantee.
+
+**FTS5 query safety:** `search_lessons()` passes user/agent query strings
+through `_fts5_escape_query()` which wraps every word as a quoted phrase,
+neutralising FTS5 operator characters (`"`, `*`, `(`, `)`, `AND`, `OR`,
+`NOT`) so untrusted input can't alter ranking behaviour.
 
 ---
 

@@ -51,6 +51,23 @@ remains as the historical spec — its `Status: Planned` field is stale.
 - Alert format + equity reporting postmortem shipped 2026-04-08 (Bugs A-D, 45 tests).
 - Liquidation monitor thresholds recalibrated 2026-04-09 (19.8x avg leverage).
 
+### Trade lesson layer (2026-04-09) — data layer SHIPPED, wiring deferred
+- `modules/lesson_engine.py`: pure `Lesson` dataclass, sentinel-wrapped
+  prompt, strict response parser. Shipped in `7ac7bea`.
+- `common/memory.py`: `lessons` table + `lessons_fts` FTS5 virtual table +
+  append-only trigger + `log_lesson`/`get_lesson`/`search_lessons`/
+  `set_lesson_review` helpers. Shipped in `7ac7bea`.
+- Full test coverage + `import re` bug fix (caught by the tests) shipped in
+  `3027b00`. See build-log 2026-04-09 entry for the parallel-session
+  convergence story.
+- **Not yet wired:** `cli/daemon/iterators/lesson_author.py`, `search_lessons`
+  + `get_lesson` in `cli/agent_tools.py`, `RECENT RELEVANT LESSONS` section
+  in `cli/agent_runtime.py:build_system_prompt()`, `/lessons` + `/lesson`
+  + `/lessonsearch` in `cli/telegram_bot.py`, `agent/reference/tools.md`
+  + `agent/AGENT.md` updates. Design in
+  `.claude/plans/bubbly-juggling-fountain.md`. Deferred behind the current
+  active phase (Oil Bot Pattern System).
+
 ## Open Questions / Priorities
 
 - SILVER and GOLD thesis stale — conviction auto-clamped
@@ -58,6 +75,8 @@ remains as the historical spec — its `Status: Planned` field is stale.
 - Dream consolidation runs but doesn't yet use agent tools (marks complete only)
 - Vault BTC positions are not included in `_fetch_account_state_for_harness()`
   (vault rebalancer manages it independently — minor gap, not yet scoped)
+- Lesson layer table is an empty shell until the `lesson_author` iterator
+  ships — nothing writes to it in production (see "Trade lesson layer" above)
 
 ## Package Map
 

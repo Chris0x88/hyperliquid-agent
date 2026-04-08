@@ -48,7 +48,7 @@ graph TB
 
     subgraph DATA["📁 Shared State (filesystem)"]
         THESIS["data/thesis/*.json<br/>Conviction, direction, TP<br/>THE shared contract"]
-        MEMORY_DB["data/memory/memory.db<br/>SQLite 6-table store"]
+        MEMORY_DB["data/memory/memory.db<br/>SQLite — events, learnings,<br/>observations, action_log,<br/>execution_traces, snapshots,<br/>summaries, lessons (FTS5)"]
         HISTORY_F["data/daemon/chat_history.jsonl"]
         CANDLE_DB["data/candles/candle_cache.db"]
         AGENT_MEM["data/agent_memory/<br/>MEMORY.md + topic files"]
@@ -413,7 +413,7 @@ graph TD
         TH["common/thesis.py<br/>ThesisState dataclass"]
         ACR["common/account_resolver.py<br/>Dynamic wallet resolution"]
         MC["common/memory_consolidator.py<br/>Event compression"]
-        MM["common/memory.py<br/>SQLite 6-table store"]
+        MM["common/memory.py<br/>SQLite store + FTS5 lessons"]
         CTP["common/code_tool_parser.py<br/>AST-based tool parsing"]
         HB_C["common/heartbeat.py<br/>2-min monitoring"]
         WL["common/watchlist.py<br/>Dynamic market whitelist"]
