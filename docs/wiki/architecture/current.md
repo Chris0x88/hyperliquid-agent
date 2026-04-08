@@ -1,15 +1,21 @@
 # HyperLiquid Trading System — Complete Architecture
 
-*Updated 2026-04-05 (v4). Supersedes v1-v3 (archived in git). See [build-log.md](build-log.md) for version history.*
+*Last major rev 2026-04-05 (v4). v4+ extensions added 2026-04-09 (Oil Bot-Pattern sub-systems + Trade Lesson Layer + guardian cartographer). See [build-log.md](build-log.md) for version history.*
 
-The system serves three roles: **copilot** (AI chat via Telegram), **research agent** (autonomous market analysis), and **risk manager** (stop enforcement, drawdown protection, conviction-based sizing). Built on four architecture generations:
+The system serves three roles: **copilot** (AI chat via Telegram), **research agent** (autonomous market analysis), and **risk manager** (stop enforcement, drawdown protection, conviction-based sizing). Built on four architecture generations plus a post-v4 extension layer:
 
 | Version | Era | Key Innovation |
 |---------|-----|---------------|
-| v1 | Daemon-centric | 19 iterators, 4-phase plan, no UI |
+| v1 | Daemon-centric | Hummingbot-style tick engine, tiered iterators, 4-phase plan, no UI |
 | v2 | Interface-first | Telegram bot, OpenRouter bypass, rich AI context |
-| v3 | Agentic tool-calling | 9 tools, dual-mode parsing, approval gates |
+| v3 | Agentic tool-calling | Function-tool invocation with dual-mode parsing + approval gates |
 | v4 | Embedded agent runtime | Claude Code port, parallel tools, streaming, self-modification |
+| v4+ | Oil Bot-Pattern + Lesson Layer (2026-04-09) | News/supply-disruption ingestion pipelines, trade-lesson FTS5 corpus, guardian cartographer |
+
+> Per `MAINTAINING.md` golden rule: iterator / tool / command counts live in
+> code, not docs. Grep `class .*Iterator` in `cli/daemon/iterators/` for the
+> live iterator set; grep `^def cmd_` in `cli/telegram_bot.py` for the
+> command set.
 
 ---
 

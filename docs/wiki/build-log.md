@@ -119,10 +119,10 @@ together as commit `3027b00`:
 | `modules/lesson_engine.py` (dataclass, prompt, parser) | Shipped (`7ac7bea`) |
 | Test coverage for the above | Shipped (`3027b00`) |
 | `import re` fix in `common/memory.py` | Shipped (`3027b00`) |
-| `cli/daemon/iterators/lesson_author.py` (lesson-writer iterator) | **Not built** |
-| `search_lessons` + `get_lesson` in `cli/agent_tools.py` | **Not built** |
-| `RECENT RELEVANT LESSONS` section in `cli/agent_runtime.py:build_system_prompt()` | **Not built** |
-| `/lessons` + `/lesson` + `/lessonsearch` in `cli/telegram_bot.py` | **Not built** |
+| `cli/daemon/iterators/lesson_author.py` (lesson-writer iterator) | Shipped (`9094b22`, wedge 5) |
+| `search_lessons` + `get_lesson` in `cli/agent_tools.py` | Shipped (`dda624f`) |
+| `RECENT RELEVANT LESSONS` section in `cli/agent_runtime.py:build_system_prompt()` | Shipped (`3723060`, wedge 3) |
+| `/lessons` + `/lesson` + `/lessonsearch` in `cli/telegram_bot.py` | Shipped (`488857f`, wedge 4) |
 | `agent/reference/tools.md` + `agent/AGENT.md` updates | **Not built** |
 | `common/thesis.py:snapshot_to_disk()` helper (for `thesis_snapshot_path`) | **Not built** (verify H6 backup coverage first) |
 

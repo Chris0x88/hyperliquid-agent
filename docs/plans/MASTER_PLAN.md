@@ -10,15 +10,32 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention
 
-## Current Phase: Oil Bot Pattern System (Sub-System 1 — News Ingestion)
+## Current Phase: Oil Bot Pattern System (Sub-Systems 1 + 2 SHIPPED; dry-run pending)
 
 Hardening is complete. All F-items and H-items from `docs/plans/AUDIT_FIX_PLAN.md`
-shipped (see build-log 2026-04-07/08). Active work is now the Oil Bot Pattern system.
+shipped (see build-log 2026-04-07/08). The Oil Bot Pattern system is the active
+workstream. Two sub-systems have shipped in parallel with the Trade Lesson Layer
+(separate workstream owned by the Lessons session — see build-log 2026-04-09).
 
-**Active:** `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` — 6-sub-system plan approved 2026-04-09.
-**Next to build:** Sub-system 1 — News & Catalyst Ingestion
+**Active plan:** `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` — 6-sub-system plan approved 2026-04-09.
+
+**Shipped 2026-04-09:**
+- ✅ Sub-system 1 — News & Catalyst Ingestion
   - Spec: `docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md`
-  - 19 tests (TDD), then implementation, then 24h live dry-run
+  - Plan: `docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION_PLAN.md`
+  - Shipped behind kill switch `data/config/news_ingest.json` with `severity_floor: 5`
+    dry-run posture. 24h dry-run gate auto-promotes to `severity_floor: 3` via the
+    scheduled task `oil-botpattern-s1-promote-severity-floor` (fires 2026-04-10 06:00 AEST).
+- ✅ Sub-system 2 — Supply Disruption Ledger
+  - Spec: `docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER.md`
+  - Plan: `docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER_PLAN.md`
+  - 4 Telegram commands: `/supply`, `/disruptions`, `/disrupt`, `/disrupt-update`
+
+**Next to build:**
+- Sub-system 3 — Stop-hunt / liquidity heatmap (HL L2 orderbook analysis)
+- Then: sub-system 4 (bot-pattern classifier), 5 (strategy engine with scoped
+  oil-short relaxation), 6 (self-tune harness — partially pre-built by the
+  Trade Lesson Layer work)
 
 For the deferred research-app build (parked), see
 `docs/wiki/decisions/011-two-app-architecture-research-sibling.md` —

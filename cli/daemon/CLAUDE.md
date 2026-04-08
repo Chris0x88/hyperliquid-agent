@@ -26,6 +26,23 @@ hl daemon start --tier watch --mainnet --tick 120
 hl daemon start --tier watch --mock --max-ticks 10  # safest test
 ```
 
+## Known Iterators
+
+> Full inventory lives in `iterators/` — grep `class .*Iterator` for the live set.
+> Only iterators with external-facing contracts, kill switches, or recent ship
+> context are called out here.
+
+- `news_ingest` — sub-system 1 of the Oil Bot-Pattern Strategy. Polls RSS/iCal
+  feeds and feeds structured catalysts to `catalyst_deleverage`. Kill switch:
+  `data/config/news_ingest.json`. Spec: `agent-cli/docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md`.
+- `supply_ledger` — sub-system 2 of the Oil Bot-Pattern Strategy. Consumes
+  `news_ingest` catalysts + manual `/disrupt` Telegram entries, aggregates active
+  physical oil disruptions into `data/supply/state.json`. Kill switch:
+  `data/config/supply_ledger.json`. Spec: `agent-cli/docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER.md`.
+- `lesson_author` — Trade Lesson Layer (wedge 5). Detects closed positions and
+  writes lesson candidate files for agent-authored post-mortems. Output feeds
+  the FTS5 lessons table in `common/memory.py`. See build-log 2026-04-09 for context.
+
 ## Gotchas
 
 - Single-instance: pacman kill pattern (SIGTERM → sleep → SIGKILL)
