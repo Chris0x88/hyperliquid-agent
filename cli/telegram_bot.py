@@ -1103,6 +1103,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /rebalancer — status / start / stop\n"
         "  /rebalance — force rebalance now\n"
         "\n*System*\n"
+        "  /restart — restart all services (daemon + bot + heartbeat)\n"
         "  /models — AI model selection\n"
         "  /memory — memory system status\n"
         "  /health — app health check\n"
@@ -1571,6 +1572,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "\n🤖 Agent = bot makes all decisions (you approve trades)\n"
         "👤 Manual = you trade, bot ensures SL/TP exist\n"
         "\n🔧 *System*\n"
+        "`/restart` — restart all services (daemon, bot, heartbeat)\n"
         "`/models` — switch AI model (10 free, 8 paid)\n"
         "`/health` — check what's running (bot, heartbeat, daemon)\n"
         "`/diag` — tool calls, errors, authority status\n"
@@ -3092,6 +3094,7 @@ def _set_telegram_commands(token: str) -> None:
         # System
         {"command": "models", "description": "AI model selection"},
         {"command": "memory", "description": "Memory system status"},
+        {"command": "restart", "description": "Restart all services (daemon + bot + heartbeat)"},
         {"command": "health", "description": "App health check"},
         {"command": "diag", "description": "Error diagnostics"},
         {"command": "bug", "description": "Report a bug"},
