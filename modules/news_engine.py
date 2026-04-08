@@ -221,3 +221,32 @@ def parse_event_date(headline_text: str, published_at: datetime) -> datetime:
         return published_at + timedelta(hours=int(m.group(1)))
 
     return published_at
+
+
+def extract_catalysts(headlines: list[Headline], rules: list[Rule]) -> list[Catalyst]:
+    """Tag each headline, extract a Catalyst record per rule that fires."""
+    out: list[Catalyst] = []
+    now = datetime.now(timezone.utc)
+    for h in headlines:
+        for rule in tag_headline(h, rules):
+            # Rule-conditional direction overrides the rule's default direction
+            direction = rule.direction
+            if rule.name in RULE_CONDITIONAL_DIRECTION:
+                conditional = RULE_CONDITIONAL_DIRECTION[rule.name](h.title + " " + h.body_excerpt)
+                if conditional is not None:
+                    direction = conditional
+
+            event_date = parse_event_date(h.title, h.published_at)
+            cat_id = _hash_headline(rule.name, h.id, "")
+            out.append(Catalyst(
+                id=cat_id,
+                headline_id=h.id,
+                instruments=list(rule.instruments),
+                event_date=event_date,
+                category=rule.name,
+                severity=rule.severity,
+                expected_direction=direction,
+                rationale=f"rule: {rule.name} severity={rule.severity}",
+                created_at=now,
+            ))
+    return out

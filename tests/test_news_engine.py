@@ -17,6 +17,7 @@ from modules.news_engine import (
     direction_for_iran_deal,
     direction_for_fomc_macro,
     parse_event_date,
+    extract_catalysts,
 )
 
 RULES_YAML = Path("data/config/news_rules.yaml")
@@ -229,3 +230,17 @@ def test_event_date_tomorrow_phrase():
     result = parse_event_date("Trump's 8 PM ET deadline tomorrow", published)
     # Tomorrow at 8 PM ET = 2026-04-10 00:00 UTC (ET = UTC-4 in April DST)
     assert result.date() == datetime(2026, 4, 10).date()
+
+
+@skip_if_no_rules
+def test_extract_catalysts_from_tagged_headline():
+    rules = _load_all_rules()
+    h = _make_headline("Drone strike hits Volgograd refinery, 200kbpd offline")
+    catalysts = extract_catalysts([h], rules)
+    assert len(catalysts) >= 1
+    cat = [c for c in catalysts if c.category == "physical_damage_facility"][0]
+    assert cat.severity == 5
+    assert cat.expected_direction == "bull"
+    assert "xyz:BRENTOIL" in cat.instruments
+    assert "CL" in cat.instruments
+    assert cat.headline_id == h.id
