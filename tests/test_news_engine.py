@@ -48,3 +48,12 @@ def test_parse_atom_feed_well_formed():
         assert e.published_at.tzinfo is not None
         assert e.source == "reuters_energy"
         assert e.id  # sha256 non-empty
+
+
+def test_parse_rss20_well_formed():
+    xml = (FIXTURES / "oilprice_rss20_sample.xml").read_text()
+    entries = parse_feed(xml, source="oilprice_main")
+    assert len(entries) == 2
+    titles = [e.title for e in entries]
+    assert "Houthi missiles strike VLCC in Red Sea, vessel ablaze" in titles
+    assert "OPEC+ agrees production cut of 1M bpd" in titles
