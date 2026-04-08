@@ -248,7 +248,8 @@ def compute_state(rows: list[Disruption]) -> SupplyState:
 
     Applies latest-per-id semantics, filters to active/partial, partial halves volume.
     """
-    now = datetime.now(tz=rows[0].incident_date.tzinfo) if rows and rows[0].incident_date.tzinfo else datetime.utcnow()
+    from datetime import timezone as _tz
+    now = datetime.now(tz=rows[0].incident_date.tzinfo) if rows and rows[0].incident_date.tzinfo else datetime.now(tz=_tz.utc)
 
     latest = latest_per_id(rows)
     active = [r for r in latest if r.status in ("active", "partial")]
