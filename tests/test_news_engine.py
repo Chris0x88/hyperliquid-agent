@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from modules.news_engine import Headline, Catalyst, parse_feed
+from modules.news_engine import Headline, Catalyst, parse_feed, dedupe_headlines
 
 FIXTURES = Path(__file__).parent / "fixtures" / "news"
 
@@ -63,3 +63,20 @@ def test_parse_malformed_feed_returns_empty():
     xml = (FIXTURES / "malformed.xml").read_text()
     entries = parse_feed(xml, source="broken_feed")
     assert entries == []
+
+
+def test_dedupe_same_headline_twice():
+    xml = (FIXTURES / "reuters_atom_sample.xml").read_text()
+    first = parse_feed(xml, source="reuters_energy")
+    second = parse_feed(xml, source="reuters_energy")
+    deduped = dedupe_headlines(first + second)
+    assert len(deduped) == len(first)  # second pass added nothing new
+
+
+def test_dedupe_different_sources_kept_separate():
+    xml_a = (FIXTURES / "reuters_atom_sample.xml").read_text()
+    xml_b = (FIXTURES / "oilprice_rss20_sample.xml").read_text()
+    a = parse_feed(xml_a, source="reuters_energy")
+    b = parse_feed(xml_b, source="oilprice_main")
+    deduped = dedupe_headlines(a + b)
+    assert len(deduped) == len(a) + len(b)  # different sources → different IDs

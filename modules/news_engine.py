@@ -83,3 +83,15 @@ def parse_feed(xml: str, source: str) -> list[Headline]:
             fetched_at=now,
         ))
     return out
+
+
+def dedupe_headlines(headlines: list[Headline]) -> list[Headline]:
+    """Dedupe by Headline.id (sha256(source+url+title)). Stable order preserved."""
+    seen: set[str] = set()
+    out: list[Headline] = []
+    for h in headlines:
+        if h.id in seen:
+            continue
+        seen.add(h.id)
+        out.append(h)
+    return out
