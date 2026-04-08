@@ -12,6 +12,8 @@ from typing import Optional
 
 import typer
 
+log = logging.getLogger("daemon.commands")
+
 daemon_app = typer.Typer(no_args_is_help=True)
 
 
