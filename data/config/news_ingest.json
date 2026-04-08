@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "severity_floor": 5,
+  "alert_floor": 4,
+  "default_poll_interval_s": 60,
+  "max_headlines_per_tick": 50,
+  "headlines_jsonl": "data/news/headlines.jsonl",
+  "catalysts_jsonl": "data/news/catalysts.jsonl",
+  "external_catalyst_events_json": "data/daemon/external_catalyst_events.json"
+}
