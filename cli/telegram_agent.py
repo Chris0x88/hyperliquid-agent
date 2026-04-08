@@ -759,6 +759,23 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     memory_write("dream_consolidation", dream_text)
                     log.info("Dream consolidation saved (%d chars)", len(dream_text))
 
+                # Wedge 6: same dream pass also processes pending lesson
+                # candidates. The lesson_author iterator wrote them as
+                # verbatim context bundles; here we hand each to the agent
+                # to author the post-mortem and persist to memory.db.
+                try:
+                    lesson_result = _author_pending_lessons(max_lessons=3)
+                    if lesson_result["processed"] or lesson_result["failed"]:
+                        log.info(
+                            "Lesson authoring (dream cycle): processed=%d, failed=%d",
+                            lesson_result["processed"],
+                            lesson_result["failed"],
+                        )
+                        for err in lesson_result["errors"][:5]:
+                            log.warning("lesson author error: %s", err)
+                except Exception as e:
+                    log.debug("Lesson authoring during dream failed: %s", e)
+
                 mark_dream_complete()
         except Exception as e:
             log.debug("Dream failed: %s", e)
@@ -805,6 +822,158 @@ def _build_system_prompt() -> str:
         memory_content=memory_content,
         lessons_section=lessons_section,
     )
+
+
+# ── Lesson candidate consumer (wedge 6) ─────────────────────────────────
+
+def _author_pending_lessons(
+    max_lessons: int = 3,
+    candidate_dir: Optional[str] = None,
+) -> dict:
+    """Consume pending lesson candidates: call the agent to author each
+    post-mortem and persist to common.memory.lessons.
+
+    This is the consumer that closes the lesson learning loop. It runs:
+      1. As part of the dream cycle (auto, on the 24h+3 trigger), so the
+         agent's own slow-tempo memory consolidation also writes lessons.
+      2. On demand via /lessonauthorai Telegram command.
+
+    Each candidate file is processed atomically: if the AI call or the
+    parser fails the file is left in place for the next run (refuse-to-
+    write-garbage; the failure is logged but the candidate persists).
+    On success the candidate file is unlinked after the lesson row lands.
+
+    Returns: dict with `processed`, `failed`, `skipped`, and `errors`
+    counts/messages so callers can render a useful summary.
+    """
+    from pathlib import Path as _P
+    from common import memory as common_memory
+    from modules.lesson_engine import (
+        LessonAuthorRequest,
+        LessonEngine,
+    )
+
+    cdir = _P(candidate_dir or "data/daemon/lesson_candidates")
+    if not cdir.exists():
+        return {"processed": 0, "failed": 0, "skipped": 0, "errors": []}
+
+    candidates = sorted(cdir.glob("*.json"))[:max_lessons]
+    if not candidates:
+        return {"processed": 0, "failed": 0, "skipped": 0, "errors": []}
+
+    engine = LessonEngine()
+    processed = 0
+    failed = 0
+    errors: list[str] = []
+
+    for path in candidates:
+        try:
+            with path.open("r") as f:
+                cand = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            failed += 1
+            errors.append(f"{path.name}: load failed ({e})")
+            continue
+
+        # Reconstruct the LessonAuthorRequest from the candidate dict.
+        request = LessonAuthorRequest(
+            journal_entry=cand.get("journal_entry") or {},
+            thesis_snapshot=cand.get("thesis_snapshot"),
+            thesis_snapshot_path=cand.get("thesis_snapshot_path"),
+            learnings_md_slice=cand.get("learnings_md_slice", "") or "",
+            news_context_at_open=cand.get("news_context_at_open", "") or "",
+            autoresearch_eval_window=cand.get("autoresearch_eval_window", "") or "",
+        )
+
+        try:
+            prompt = engine.build_lesson_prompt(request)
+        except Exception as e:
+            failed += 1
+            errors.append(f"{path.name}: prompt build failed ({e})")
+            continue
+
+        # Call the model with Haiku — fast, cheap, sufficient for structured
+        # post-mortem authoring. Same pattern as the dream cycle: synchronous
+        # _call_anthropic with model_override.
+        try:
+            resp = _call_anthropic(
+                [{"role": "user", "content": prompt}],
+                model_override="claude-haiku-4-5",
+            )
+        except Exception as e:
+            failed += 1
+            errors.append(f"{path.name}: model call failed ({e})")
+            continue
+
+        response_text = (resp or {}).get("content", "")
+        if not response_text:
+            failed += 1
+            errors.append(f"{path.name}: empty model response")
+            continue
+
+        # Parse the response into a Lesson — strict, raises ValueError on
+        # missing/invalid sentinels. Per Bug A pattern: refuse to write
+        # garbage; leave the candidate for a future run.
+        try:
+            lesson = engine.parse_lesson_response(
+                response_text=response_text,
+                request=request,
+                market=str(cand.get("market") or ""),
+                direction=str(cand.get("direction") or ""),
+                signal_source=str(cand.get("signal_source") or "manual"),
+                pnl_usd=float(cand.get("pnl_usd") or 0.0),
+                roe_pct=float(cand.get("roe_pct") or 0.0),
+                holding_ms=int(cand.get("holding_ms") or 0),
+                trade_closed_at=str(cand.get("trade_closed_at") or ""),
+                journal_entry_id=cand.get("journal_entry_id"),
+                thesis_snapshot_path=cand.get("thesis_snapshot_path"),
+            )
+        except ValueError as e:
+            failed += 1
+            errors.append(f"{path.name}: parse failed ({e})")
+            continue
+
+        # Idempotency: if a lesson with this journal_entry_id already exists
+        # in the corpus, skip and unlink the candidate so we don't double-write.
+        try:
+            existing = common_memory.search_lessons(
+                query="",
+                limit=1000,
+            )
+            if any(
+                r.get("journal_entry_id") == lesson.journal_entry_id
+                for r in existing
+            ):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+        except Exception as e:
+            log.warning("lesson dedup check failed: %s — proceeding with insert", e)
+
+        try:
+            lesson_dict = lesson.to_dict()
+            lesson_dict.pop("id", None)  # SQLite assigns the id
+            common_memory.log_lesson(lesson_dict)
+        except Exception as e:
+            failed += 1
+            errors.append(f"{path.name}: insert failed ({e})")
+            continue
+
+        # Success — unlink the candidate so it doesn't get re-processed.
+        try:
+            path.unlink()
+        except OSError as e:
+            log.warning("lesson candidate %s persisted but unlink failed: %s", path.name, e)
+        processed += 1
+
+    return {
+        "processed": processed,
+        "failed": failed,
+        "skipped": 0,
+        "errors": errors,
+    }
 
 
 def _build_live_context() -> str:

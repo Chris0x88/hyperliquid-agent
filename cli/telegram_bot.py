@@ -1109,6 +1109,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /lesson <id> — view verbatim body\n"
         "  /lesson approve|reject <id> — curate\n"
         "  /lessonsearch <query> — BM25 search\n"
+        "  /lessonauthorai [N|all] — author pending candidates via AI\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -2082,6 +2083,61 @@ def cmd_lesson(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(header))
 
 
+def cmd_lessonauthorai(token: str, chat_id: str, args: str) -> None:
+    """Author pending lesson candidates: hand them to the agent and persist.
+
+    AI-dependent — uses Claude Haiku via _call_anthropic in telegram_agent.
+    Per CLAUDE.md slash-command rule, the `ai` suffix is required because
+    this command's output (the lesson summary, analysis, tags) is written
+    by the model.
+
+    Usage:
+        /lessonauthorai          — author the next 3 pending candidates
+        /lessonauthorai 1        — author 1
+        /lessonauthorai all      — author every pending candidate (capped at 25
+                                   to keep the bot responsive)
+    """
+    arg = (args or "").strip().lower()
+    if arg == "all":
+        max_lessons = 25
+    elif arg:
+        try:
+            max_lessons = max(1, min(25, int(arg)))
+        except ValueError:
+            tg_send(token, chat_id, "Usage: `/lessonauthorai [N|all]`")
+            return
+    else:
+        max_lessons = 3
+
+    try:
+        from cli.telegram_agent import _author_pending_lessons
+        result = _author_pending_lessons(max_lessons=max_lessons)
+    except Exception as e:
+        tg_send(token, chat_id, f"📓 Authoring failed: {e}")
+        return
+
+    processed = result.get("processed", 0)
+    failed = result.get("failed", 0)
+    errors = result.get("errors", []) or []
+
+    if processed == 0 and failed == 0:
+        tg_send(token, chat_id, "📓 No pending lesson candidates to author.")
+        return
+
+    lines = [f"📓 *Lesson authoring*: {processed} authored, {failed} failed", ""]
+    if processed:
+        lines.append(f"✅ Wrote {processed} new lesson(s) to the corpus.")
+        lines.append("Use `/lessons` to browse them.")
+    if failed:
+        lines.append("")
+        lines.append("⚠️ Failures (candidates left in place for next run):")
+        for err in errors[:5]:
+            lines.append(f"  - {err}")
+        if len(errors) > 5:
+            lines.append(f"  ... and {len(errors) - 5} more")
+    tg_send(token, chat_id, "\n".join(lines))
+
+
 def cmd_lessonsearch(token: str, chat_id: str, args: str) -> None:
     """BM25-ranked search over the lesson corpus.
 
@@ -2153,6 +2209,8 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/lesson approve 42` — boost its ranking in future prompt injection\n"
         "`/lesson reject 42` — exclude it (anti-pattern; stays searchable)\n"
         "`/lessonsearch weekend wick` — BM25 keyword search over summaries/bodies/tags\n"
+        "`/lessonauthorai` — manually trigger AI authoring of pending candidates "
+        "(also runs automatically every dream cycle on the same 24h+3 trigger)\n"
         "The agent sees the top recent lessons automatically in its system prompt; "
         "use these commands to browse and curate from Telegram.\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
@@ -3593,6 +3651,7 @@ HANDLERS = {
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
+    "/lessonauthorai": cmd_lessonauthorai,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3646,6 +3705,7 @@ HANDLERS = {
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
     "lessonsearch": cmd_lessonsearch,
+    "lessonauthorai": cmd_lessonauthorai,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3708,6 +3768,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
+        {"command": "lessonauthorai", "description": "Author pending lesson candidates via AI (dream cycle also runs this)"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
