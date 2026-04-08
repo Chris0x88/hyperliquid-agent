@@ -10,17 +10,21 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention
 
-## Current Phase: Hardening (audit fix execution)
+## Current Phase: Oil Bot Pattern System (Sub-System 1 — News Ingestion)
 
-The active work is closing the items in `docs/plans/AUDIT_FIX_PLAN.md`
-(self-audit performed by the embedded agent on 2026-04-07). Phase 3
-shipped via the autoresearch iterator before the audit ran.
+Hardening is complete. All F-items and H-items from `docs/plans/AUDIT_FIX_PLAN.md`
+shipped (see build-log 2026-04-07/08). Active work is now the Oil Bot Pattern system.
+
+**Active:** `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` — 6-sub-system plan approved 2026-04-09.
+**Next to build:** Sub-system 1 — News & Catalyst Ingestion
+  - Spec: `docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md`
+  - 19 tests (TDD), then implementation, then 24h live dry-run
 
 For the deferred research-app build (parked), see
 `docs/wiki/decisions/011-two-app-architecture-research-sibling.md` —
 status `Proposed`, no implementation.
 
-### What's Next After Hardening
+### What's Next After Oil Bot Pattern
 
 - **Phase 4: Self-Improving** — Auto-tuning, catalyst calendar, convergence tracking
 - See `docs/plans/PHASE_4_SELF_IMPROVING.md`
@@ -41,17 +45,11 @@ cycle and emits round-trip metrics into the daemon log and memory.
 See `cli/daemon/iterators/autoresearch.py`. The Phase 3 plan document
 remains as the historical spec — its `Status: Planned` field is stale.
 
-### Audit hardening (2026-04-07) — IN PROGRESS
-- F1 (agent self-knowledge), F2 (auto-watchlist), F3 (model selection
-  honoured by dream/compaction), F5 (LIVE CONTEXT staleness), F7
-  (tool execution verification), F8 (model logging), web_search fix
-- F4 (context_harness verification) — verified, no fix needed
-- F6 (liquidation cushion alerts) — new `liquidation_monitor` iterator
-  in all 3 tiers, alert-only
-- F9 (chat history continuity) — bot is already stateless; added
-  startup diagnostic log line
-- H4 (account snapshot dual-write) — new `account_snapshots` table in
-  memory.db, dual-written from `account_collector` iterator
+### Audit hardening (2026-04-07) — DONE
+- All F-items and H-items shipped. See `docs/plans/AUDIT_FIX_PLAN.md` status table
+  and build-log entries 2026-04-07 and 2026-04-08 for full detail.
+- Alert format + equity reporting postmortem shipped 2026-04-08 (Bugs A-D, 45 tests).
+- Liquidation monitor thresholds recalibrated 2026-04-09 (19.8x avg leverage).
 
 ## Open Questions / Priorities
 

@@ -134,6 +134,79 @@ def _init(con: sqlite3.Connection):
         );
         CREATE INDEX IF NOT EXISTS idx_account_snapshots_ts
             ON account_snapshots(timestamp_ms);
+
+        -- ------------------------------------------------------------------
+        -- Trade lessons: verbatim post-mortems authored by the agent after
+        -- every closed position. Append-only (body_full and summary are
+        -- frozen at insert time; only reviewed_by_chris and tags may change).
+        -- Indexed with FTS5 for BM25-ranked recall at decision time.
+        -- See modules/lesson_engine.py for the pure-computation layer.
+        -- ------------------------------------------------------------------
+        CREATE TABLE IF NOT EXISTS lessons (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at          TEXT NOT NULL,
+            trade_closed_at     TEXT NOT NULL,
+            market              TEXT NOT NULL,
+            direction           TEXT NOT NULL CHECK (direction IN ('long','short','flat')),
+            signal_source       TEXT NOT NULL,
+            lesson_type         TEXT NOT NULL,
+            outcome             TEXT NOT NULL CHECK (outcome IN ('win','loss','breakeven','scratched')),
+            pnl_usd             REAL NOT NULL,
+            roe_pct             REAL NOT NULL,
+            holding_ms          INTEGER NOT NULL,
+            conviction_at_open  REAL,
+            journal_entry_id    TEXT,
+            thesis_snapshot_path TEXT,
+            summary             TEXT NOT NULL,
+            body_full           TEXT NOT NULL,
+            tags                TEXT NOT NULL DEFAULT '[]',
+            reviewed_by_chris   INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_lessons_market_dir ON lessons(market, direction);
+        CREATE INDEX IF NOT EXISTS idx_lessons_signal     ON lessons(signal_source);
+        CREATE INDEX IF NOT EXISTS idx_lessons_type       ON lessons(lesson_type);
+        CREATE INDEX IF NOT EXISTS idx_lessons_closed     ON lessons(trade_closed_at);
+
+        -- FTS5 virtual table — indexes summary, body_full, and tags for
+        -- BM25-ranked search. content='lessons' ties it to the base table;
+        -- we maintain it manually via explicit sync triggers below so the
+        -- base table can have CHECK constraints without FTS5 complaining.
+        CREATE VIRTUAL TABLE IF NOT EXISTS lessons_fts USING fts5(
+            summary, body_full, tags,
+            content='lessons',
+            content_rowid='id',
+            tokenize='porter unicode61'
+        );
+
+        -- Keep lessons_fts in sync with lessons on insert. We do NOT create
+        -- update/delete triggers because the append-only trigger below blocks
+        -- body_full/summary updates, and deletes are not part of the design.
+        CREATE TRIGGER IF NOT EXISTS lessons_ai AFTER INSERT ON lessons BEGIN
+            INSERT INTO lessons_fts(rowid, summary, body_full, tags)
+            VALUES (new.id, new.summary, new.body_full, new.tags);
+        END;
+
+        -- Append-only trigger: body_full, summary, pnl_usd, roe_pct, outcome,
+        -- and the identity columns are frozen at insert. Updates are only
+        -- allowed for reviewed_by_chris and tags (for curation).
+        CREATE TRIGGER IF NOT EXISTS lessons_append_only
+            BEFORE UPDATE OF
+                body_full, summary, pnl_usd, roe_pct, holding_ms,
+                outcome, market, direction, signal_source, lesson_type,
+                trade_closed_at, created_at, journal_entry_id,
+                thesis_snapshot_path, conviction_at_open
+            ON lessons
+        BEGIN
+            SELECT RAISE(ABORT, 'lessons table is append-only on content columns');
+        END;
+
+        -- When tags are updated (via curation), keep FTS5 in sync.
+        CREATE TRIGGER IF NOT EXISTS lessons_tags_au AFTER UPDATE OF tags ON lessons BEGIN
+            INSERT INTO lessons_fts(lessons_fts, rowid, summary, body_full, tags)
+            VALUES ('delete', old.id, old.summary, old.body_full, old.tags);
+            INSERT INTO lessons_fts(rowid, summary, body_full, tags)
+            VALUES (new.id, new.summary, new.body_full, new.tags);
+        END;
     """)
     con.commit()
 
@@ -405,3 +478,190 @@ def format_timeline_for_prompt(market: str, days: int = 60, db_path: str = _DB_P
         if ev.get("detail"):
             lines.append(f"    {ev['detail'][:120]}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Trade lesson helpers
+# ---------------------------------------------------------------------------
+#
+# The `lessons` table stores verbatim trade post-mortems authored by the
+# agent after every closed position. See modules/lesson_engine.py for the
+# pure-computation layer (Lesson dataclass, prompt builder, response parser).
+# The table is append-only on content columns — only `reviewed_by_chris` and
+# `tags` may change after insert.
+#
+# These helpers intentionally take `dict` inputs/outputs instead of the
+# Lesson dataclass to keep common/memory.py free of a circular dependency
+# with modules/. Callers in modules/ and cli/daemon/ convert via
+# Lesson.to_dict() / Lesson.from_dict().
+
+def log_lesson(lesson: dict, db_path: str = _DB_PATH) -> int:
+    """Insert a lesson row. Returns the assigned id.
+
+    `lesson` must contain all NOT NULL columns. `tags` may be a list (it will
+    be JSON-encoded) or a JSON string. Raises sqlite3.IntegrityError on CHECK
+    constraint violations (e.g. invalid direction or outcome).
+    """
+    tags = lesson.get("tags", [])
+    if isinstance(tags, (list, tuple)):
+        tags_str = json.dumps(list(tags))
+    elif isinstance(tags, str):
+        tags_str = tags if tags else "[]"
+    else:
+        tags_str = "[]"
+
+    with _conn(db_path) as con:
+        cur = con.execute(
+            """
+            INSERT INTO lessons (
+                created_at, trade_closed_at, market, direction, signal_source,
+                lesson_type, outcome, pnl_usd, roe_pct, holding_ms,
+                conviction_at_open, journal_entry_id, thesis_snapshot_path,
+                summary, body_full, tags, reviewed_by_chris
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lesson["created_at"],
+                lesson["trade_closed_at"],
+                lesson["market"],
+                lesson["direction"],
+                lesson["signal_source"],
+                lesson["lesson_type"],
+                lesson["outcome"],
+                float(lesson["pnl_usd"]),
+                float(lesson["roe_pct"]),
+                int(lesson["holding_ms"]),
+                lesson.get("conviction_at_open"),
+                lesson.get("journal_entry_id"),
+                lesson.get("thesis_snapshot_path"),
+                lesson["summary"],
+                lesson["body_full"],
+                tags_str,
+                int(lesson.get("reviewed_by_chris", 0)),
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def get_lesson(lesson_id: int, db_path: str = _DB_PATH) -> Optional[dict]:
+    """Return a single lesson row as a dict, or None if not found."""
+    with _conn(db_path) as con:
+        row = con.execute(
+            "SELECT * FROM lessons WHERE id = ?", (lesson_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def search_lessons(
+    query: str = "",
+    market: Optional[str] = None,
+    direction: Optional[str] = None,
+    signal_source: Optional[str] = None,
+    lesson_type: Optional[str] = None,
+    outcome: Optional[str] = None,
+    include_rejected: bool = False,
+    limit: int = 5,
+    db_path: str = _DB_PATH,
+) -> list[dict]:
+    """BM25-ranked lesson search.
+
+    If `query` is empty, falls back to recency ordering (trade_closed_at DESC)
+    — useful for prompt injection when there's no specific query to rank by.
+    Otherwise uses FTS5 MATCH over summary/body_full/tags and ranks by BM25.
+
+    Rejected lessons (reviewed_by_chris = -1) are excluded by default so they
+    don't influence the agent's prompt. Pass include_rejected=True to get them
+    back (e.g. for anti-pattern search from Telegram).
+
+    Returns dicts with the full lesson row plus a `bm25_score` key for MATCH
+    results (None for recency fallback).
+    """
+    with _conn(db_path) as con:
+        params: list = []
+        where_parts: list[str] = []
+
+        query_stripped = (query or "").strip()
+        if query_stripped:
+            # FTS5 path. Use the matchinfo()-backed bm25() function.
+            sql = (
+                "SELECT lessons.*, bm25(lessons_fts) AS bm25_score "
+                "FROM lessons_fts "
+                "JOIN lessons ON lessons.id = lessons_fts.rowid "
+                "WHERE lessons_fts MATCH ?"
+            )
+            params.append(_fts5_escape_query(query_stripped))
+        else:
+            # Recency path.
+            sql = "SELECT lessons.*, NULL AS bm25_score FROM lessons WHERE 1=1"
+
+        if market is not None:
+            where_parts.append("lessons.market = ?")
+            params.append(market)
+        if direction is not None:
+            where_parts.append("lessons.direction = ?")
+            params.append(direction)
+        if signal_source is not None:
+            where_parts.append("lessons.signal_source = ?")
+            params.append(signal_source)
+        if lesson_type is not None:
+            where_parts.append("lessons.lesson_type = ?")
+            params.append(lesson_type)
+        if outcome is not None:
+            where_parts.append("lessons.outcome = ?")
+            params.append(outcome)
+        if not include_rejected:
+            where_parts.append("lessons.reviewed_by_chris >= 0")
+
+        if where_parts:
+            sql += " AND " + " AND ".join(where_parts)
+
+        # BM25 is negative in SQLite's bm25() — lower = more relevant. Order
+        # ascending for MATCH, descending for recency fallback.
+        if query_stripped:
+            sql += " ORDER BY bm25_score ASC"
+        else:
+            sql += " ORDER BY lessons.trade_closed_at DESC"
+
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+        rows = con.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_lesson_review(
+    lesson_id: int,
+    status: int,
+    db_path: str = _DB_PATH,
+) -> bool:
+    """Set reviewed_by_chris for a lesson. status must be -1, 0, or 1.
+
+    Returns True if a row was updated, False if the id was not found.
+    Note: the append-only trigger does NOT block updates to reviewed_by_chris
+    (it only covers content columns).
+    """
+    if status not in (-1, 0, 1):
+        raise ValueError(f"status must be -1, 0, or 1, got {status!r}")
+    with _conn(db_path) as con:
+        cur = con.execute(
+            "UPDATE lessons SET reviewed_by_chris = ? WHERE id = ?",
+            (status, lesson_id),
+        )
+        return cur.rowcount > 0
+
+
+def _fts5_escape_query(query: str) -> str:
+    """Escape an FTS5 MATCH query so user input can't inject FTS operators.
+
+    FTS5 interprets characters like `"`, `*`, `(`, `)`, `:`, `AND`, `OR`, `NOT`
+    as query operators. For retrieval from user/agent text we want a simple
+    keyword search: wrap each word in double quotes (which FTS5 treats as a
+    phrase) and join with implicit AND (space). Double-quotes inside a word
+    are doubled per FTS5 quoting rules.
+    """
+    words = [w for w in re.split(r"\s+", query.strip()) if w]
+    quoted = []
+    for w in words:
+        escaped = w.replace('"', '""')
+        quoted.append(f'"{escaped}"')
+    return " ".join(quoted) if quoted else '""'

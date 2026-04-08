@@ -4,6 +4,49 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 — Calibration + /restart + Oil Bot Pattern System Approved
+
+### Liquidation monitor threshold recalibration
+
+Default thresholds (`crit<10%`, `warn<20%`) were built for 2-5x retail traders.
+Production journal data showed avg leverage of 19.8x (range 17-24x) with typical
+entry-to-liquidation cushions of 2-3%. A 6.5% cushion was firing CRITICAL every
+tick as a result.
+
+New thresholds: `safe>=6%`, `warn 2-6%`, `crit<2%`. All 19 tests updated to
+match new bands, 1969 still passing.
+
+### /restart telegram registration
+
+`cmd_restart` was implemented and in HANDLERS but missing from all three
+visibility surfaces (`_set_telegram_commands`, `cmd_help`, `cmd_guide`). Added
+to all three. No behaviour change — command already worked, just invisible to
+the menu.
+
+### Oil Bot Pattern System — Approved for implementation
+
+Brainstormed and approved a new oil-trading subsystem that exploits
+bot-driven mispricing on CL (WTI) and BRENTOIL by combining RSS news
+ingestion, physical supply disruption tracking, orderbook stop-cluster
+detection, and bot-pattern classification into a fixed, bounded strategy.
+
+Key design decisions captured in `docs/plans/OIL_BOT_PATTERN_SYSTEM.md`:
+- 6 sub-systems built in strict sequence with kill switches and ship gates
+- Additive-only: does NOT replace the existing BRENTOIL thesis path
+- **Scoped oil short relaxation** (sub-system 5 only): SHORT permitted on CL/BRENTOIL
+  when bot-pattern classifier fires `bot_driven_overextension` at ≥0.7 confidence,
+  no bullish catalyst pending, no recent supply disruption, size ≤50% long budget,
+  24h hard cap, 1.5% daily loss cap. All other oil shorting remains forbidden.
+- The long-standing "LONG or NEUTRAL only on oil — never short" rule in CLAUDE.md
+  and memory is updated at sub-system 5 ship time, not now.
+- `OIL_BOT_PATTERN_01_NEWS_INGESTION.md` drafted: 19-test TDD spec for RSS + iCal
+  ingestion, rule-based catalyst tagging, existing CatalystDeleverageIterator
+  integration. Sub-system 1 is next to build.
+
+**Pattern:** separate alert/monitoring semantics from sizing semantics. See ADR-013.
+
+---
+
 ## 2026-04-08 -- Alert Numbers + Format Postmortem (4 commits, 45 new tests)
 
 **Production incident: trade closed alerts on the morning of 2026-04-08 reported
