@@ -15,6 +15,7 @@ Tables:
 """
 import json
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
