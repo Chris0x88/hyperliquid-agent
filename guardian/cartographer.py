@@ -165,3 +165,113 @@ def _extract_help_mentions(source: str, func_name: str) -> list[str]:
             body_text = ast.unparse(node)
             return list(set(_HELP_MENTION_RE.findall(body_text)))
     return []
+
+
+# ---------- Daemon iterator scanner ----------
+
+def scan_iterators(iterators_dir: Path) -> list[dict[str, Any]]:
+    """Scan a daemon iterators directory for *Iterator classes.
+
+    Returns a list of {module, path, class} dicts. An iterator is any
+    .py file (not __init__) containing a class whose name ends with 'Iterator'.
+    """
+    results: list[dict[str, Any]] = []
+    if not iterators_dir.exists():
+        return results
+
+    for py_file in sorted(iterators_dir.glob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        try:
+            source = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(py_file))
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Iterator"):
+                results.append({
+                    "module": py_file.stem,
+                    "path": py_file.name,
+                    "class": node.name,
+                })
+                break
+    return results
+
+
+# ---------- Full inventory builder ----------
+
+def build_inventory(repo_root: Path) -> dict[str, Any]:
+    """Build a complete inventory of the repo for Guardian.
+
+    Reads: Python imports, Telegram commands, daemon iterators.
+    Adds: timestamp, summary stats.
+    """
+    from datetime import datetime, timezone
+
+    py_graph = scan_python_imports(repo_root)
+
+    tg_path = repo_root / "cli" / "telegram_bot.py"
+    telegram = scan_telegram_commands(tg_path) if tg_path.exists() else {
+        "handlers": [],
+        "handlers_dict_keys": [],
+        "menu_commands": [],
+        "help_mentions": [],
+        "guide_mentions": [],
+    }
+
+    iter_dir = repo_root / "cli" / "daemon" / "iterators"
+    iterators = scan_iterators(iter_dir) if iter_dir.exists() else []
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "repo_root": str(repo_root),
+        "modules": py_graph["modules"],
+        "edges": py_graph["edges"],
+        "telegram": telegram,
+        "iterators": iterators,
+        "stats": {
+            "module_count": len(py_graph["modules"]),
+            "edge_count": len(py_graph["edges"]),
+            "telegram_handler_count": len(telegram["handlers"]),
+            "iterator_count": len(iterators),
+        },
+    }
+
+
+def write_inventory(inventory: dict[str, Any], state_dir: Path) -> None:
+    """Write inventory.json + map.mmd + map.md to state_dir.
+
+    Rotates previous inventory.json to inventory.prev.json if present.
+    """
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    current = state_dir / "inventory.json"
+    if current.exists():
+        (state_dir / "inventory.prev.json").write_text(current.read_text())
+
+    current.write_text(json.dumps(inventory, indent=2))
+
+    # Build a minimal Mermaid graph of module edges
+    lines = ["graph TD"]
+    seen_edges: set[tuple[str, str]] = set()
+    for e in inventory.get("edges", []):
+        key = (e["from"], e["to"])
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        lines.append(f'    {e["from"]}[{e["from"]}] --> {e["to"]}[{e["to"]}]')
+
+    (state_dir / "map.mmd").write_text("\n".join(lines) + "\n")
+
+    stats = inventory.get("stats", {})
+    summary = (
+        "# Guardian Repo Map\n\n"
+        f"Generated: {inventory.get('timestamp', 'unknown')}\n\n"
+        f"- Modules: {stats.get('module_count', 0)}\n"
+        f"- Edges: {stats.get('edge_count', 0)}\n"
+        f"- Telegram handlers: {stats.get('telegram_handler_count', 0)}\n"
+        f"- Daemon iterators: {stats.get('iterator_count', 0)}\n\n"
+        "See map.mmd for the Mermaid diagram.\n"
+    )
+    (state_dir / "map.md").write_text(summary)

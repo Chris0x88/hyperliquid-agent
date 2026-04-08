@@ -1,0 +1,1 @@
+"""Fake daemon iterators package."""
