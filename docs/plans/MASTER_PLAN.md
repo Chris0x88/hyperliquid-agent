@@ -52,6 +52,7 @@ status `Proposed`, no implementation.
 - **Phase 4: Self-Improving** — Auto-tuning, catalyst calendar, convergence tracking
 - See `docs/plans/PHASE_4_SELF_IMPROVING.md`
 - **Optional: ADR-011 research-app** — only if Chris greenlights it
+- **Dev infrastructure:** Guardian Angel meta-system — `docs/plans/GUARDIAN_PLAN.md` (auto-runs in Claude Code sessions; see `agent-cli/guardian/guide.md`)
 
 ## What Has Shipped
 

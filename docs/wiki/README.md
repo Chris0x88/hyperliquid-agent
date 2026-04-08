@@ -23,6 +23,7 @@ This wiki is maintained by Claude Code. See MAINTAINING.md for the maintenance p
 | [007](decisions/007-renderer-abc.md) | Renderer ABC | UI portability layer for Telegram, web, and tests |
 | [008](decisions/008-triple-mode-tools.md) | Triple-Mode Tools | Native + regex + AST fallback for free model tool calling |
 | [009](decisions/009-embedded-agent-runtime.md) | Embedded Agent Runtime | Claude Code architecture ported to Python — parallel tools, streaming, compaction |
+| [014](decisions/014-guardian-system.md) | Guardian Angel | Dev-side meta-system — in-session cartography, drift, gate, friction, sub-agent synthesis |
 
 ### Build History
 

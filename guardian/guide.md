@@ -71,6 +71,31 @@ GUARDIAN_ENABLED=0 claude
 
 ## Current status
 
-**Phase 1 — Foundation.** Cartographer + SessionStart hook (read-only) shipped. No gate, no sub-agents, no drift detection yet.
+All 6 phases shipped.
 
-See `docs/plans/GUARDIAN_PLAN.md` for the phase status table.
+- **Phase 1 — Foundation:** cartographer (imports + Telegram + iterators), SessionStart hook, state directory, guide stub.
+- **Phase 2 — Drift:** orphan detection, parallel-track detection, Telegram completeness gap reporting, plan/code mismatch, report writer.
+- **Phase 3 — Gate:** PreToolUse hook with four rules — telegram-completeness, parallel-track-warning, recent-delete-guard, stale-adr-guard. Each individually kill-switchable.
+- **Phase 4 — Friction:** repeated-correction pattern, recurring-error pattern, friction report builder + writer.
+- **Phase 5 — Orchestrator + sub-agents:** `sweep.py` runs the full tier-1 pipeline; SessionStart hook runs a lazy sweep when state is stale; `/guardian` slash command dispatches a background sub-agent for natural-language synthesis.
+- **Phase 6 — Lock-in:** this guide, ADR-014, `docs/wiki/components/guardian.md`, `docs/plans/GUARDIAN_PLAN.md`, cross-links in MASTER_PLAN.md and root CLAUDE.md.
+
+See `docs/plans/GUARDIAN_PLAN.md` for the full status table with commit hashes.
+
+## How to extend Guardian
+
+- **Add a drift rule:** write a new function in `guardian/drift.py`, call it from `build_drift_report()`, write a test in `guardian/tests/`.
+- **Add a friction pattern:** write a new detector in `guardian/friction.py`, call it from `build_friction_report()`, write a test.
+- **Add a gate rule:** write a new function in `guardian/gate.py` decorated with `@register_rule("rule-name")`, add a kill switch env var, write a test.
+- **Add a new kill switch:** document it in the Kill Switches table above.
+
+## Known limits
+
+- Guardian only runs while a Claude Code session is active. It cannot observe drift or friction that occurs outside of sessions.
+- The parallel-track-warning rule uses a 60% Jaccard token similarity threshold and can produce false positives on files that legitimately share naming conventions.
+- The stale-adr-guard rule tracks session reads via `/tmp/guardian_session_reads.txt`. On multi-user systems this could theoretically be racy — acceptable for a single-user dev setup.
+- The friction surfacer assumes entries in `feedback.jsonl` have `type: "user_correction"` and `subject` fields; entries in other schemas are ignored. Extend `detect_repeated_corrections()` if the schema evolves.
+
+## Failure modes
+
+See `docs/wiki/decisions/014-guardian-system.md` §Risks for the full list.
