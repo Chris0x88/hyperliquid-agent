@@ -443,6 +443,37 @@ class TestAppendOnly:
 # FTS5 is kept in sync on insert
 # ---------------------------------------------------------------------------
 
+class TestDbPathRuntimeLookup:
+    """Regression: common.memory helpers must resolve _DB_PATH at call time,
+    not capture it as a default argument. Without this, monkeypatching the
+    module attribute in tests silently hits production memory.db. This is the
+    footgun that caused the 2026-04-09 subagent flake in
+    test_bm25_query_ranks_relevant_first — see build-log entry."""
+
+    def test_monkeypatch_without_explicit_db_path(self, tmp_db, monkeypatch):
+        from common import memory as common_memory
+        monkeypatch.setattr(common_memory, "_DB_PATH", tmp_db)
+
+        # Call with NO explicit db_path — must still hit the temp DB.
+        rid = common_memory.log_lesson(_base_lesson(summary="runtime-lookup-marker"))
+        assert rid > 0
+
+        # Read back without explicit db_path.
+        row = common_memory.get_lesson(rid)
+        assert row is not None
+        assert row["summary"] == "runtime-lookup-marker"
+
+        # Search without explicit db_path — must hit the temp DB, not prod.
+        results = common_memory.search_lessons(query="runtime-lookup-marker")
+        assert len(results) == 1
+        assert results[0]["id"] == rid
+
+        # Curate without explicit db_path.
+        assert common_memory.set_lesson_review(rid, 1) is True
+        row = common_memory.get_lesson(rid)
+        assert row["reviewed_by_chris"] == 1
+
+
 class TestFtsSync:
     def test_fts_populated_on_insert(self, tmp_db):
         log_lesson(

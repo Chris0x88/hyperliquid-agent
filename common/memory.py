@@ -25,9 +25,17 @@ from typing import Optional
 _DB_PATH = "data/memory/memory.db"
 
 
-def _conn(db_path: str = _DB_PATH) -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    con = sqlite3.connect(db_path)
+def _resolve_db_path(db_path: Optional[str]) -> str:
+    """Resolve db_path at call time so tests can monkeypatch the module
+    attribute _DB_PATH without hitting the default-argument binding footgun.
+    See docs/wiki/build-log.md 2026-04-09 for the postmortem."""
+    return db_path if db_path is not None else _DB_PATH
+
+
+def _conn(db_path: Optional[str] = None) -> sqlite3.Connection:
+    path = _resolve_db_path(db_path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     _init(con)
     return con
@@ -224,7 +232,7 @@ def log_event(
     tags: Optional[list] = None,
     source: Optional[str] = None,
     timestamp_ms: Optional[int] = None,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> int:
     """
     Log a geopolitical event, trade event, or observation to the timeline.
@@ -245,7 +253,7 @@ def log_event(
 def log_account_snapshot(
     snapshot: dict,
     snapshot_filename: Optional[str] = None,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> int:
     """Append an account snapshot row from the daemon's account_collector.
 
@@ -309,7 +317,7 @@ def log_account_snapshot(
 def get_account_snapshots(
     days: int = 7,
     limit: Optional[int] = None,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> list[dict]:
     """Return account snapshots from the last N days, newest first."""
     cutoff = int((time.time() - days * 86400) * 1000)
@@ -333,7 +341,7 @@ def log_learning(
     confidence: str = "medium",
     market: Optional[str] = None,
     source: Optional[str] = None,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> int:
     """
     Log a structured learning, indexed by topic for later retrieval.
@@ -358,7 +366,7 @@ def get_timeline(
     market: Optional[str] = None,
     days: int = 60,
     event_types: Optional[list] = None,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> list[dict]:
     """Return chronological event list for temporal grounding."""
     cutoff = int((time.time() - days * 86400) * 1000)
@@ -381,7 +389,7 @@ def get_learnings(
     topic: Optional[str] = None,
     market: Optional[str] = None,
     days: int = 365,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> list[dict]:
     """Return learnings filtered by topic and/or market."""
     cutoff = int((time.time() - days * 86400) * 1000)
@@ -403,7 +411,7 @@ def search(
     query_text: str,
     market: Optional[str] = None,
     days: int = 90,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> dict:
     """Full-text search across events and learnings."""
     cutoff = int((time.time() - days * 86400) * 1000)
@@ -433,7 +441,7 @@ def search(
 def get_market_context(
     market: str,
     days: int = 30,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> str:
     """
     Return a compact memory context string for a given market.
@@ -467,7 +475,7 @@ def get_market_context(
     return "\n".join(lines)
 
 
-def format_timeline_for_prompt(market: str, days: int = 60, db_path: str = _DB_PATH) -> str:
+def format_timeline_for_prompt(market: str, days: int = 60, db_path: Optional[str] = None) -> str:
     """Compact timeline string suitable for injection into a prompt."""
     events = get_timeline(market=market, days=days, db_path=db_path)
     if not events:
@@ -496,7 +504,7 @@ def format_timeline_for_prompt(market: str, days: int = 60, db_path: str = _DB_P
 # with modules/. Callers in modules/ and cli/daemon/ convert via
 # Lesson.to_dict() / Lesson.from_dict().
 
-def log_lesson(lesson: dict, db_path: str = _DB_PATH) -> int:
+def log_lesson(lesson: dict, db_path: Optional[str] = None) -> int:
     """Insert a lesson row. Returns the assigned id.
 
     `lesson` must contain all NOT NULL columns. `tags` may be a list (it will
@@ -544,7 +552,7 @@ def log_lesson(lesson: dict, db_path: str = _DB_PATH) -> int:
         return int(cur.lastrowid)
 
 
-def get_lesson(lesson_id: int, db_path: str = _DB_PATH) -> Optional[dict]:
+def get_lesson(lesson_id: int, db_path: Optional[str] = None) -> Optional[dict]:
     """Return a single lesson row as a dict, or None if not found."""
     with _conn(db_path) as con:
         row = con.execute(
@@ -562,7 +570,7 @@ def search_lessons(
     outcome: Optional[str] = None,
     include_rejected: bool = False,
     limit: int = 5,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> list[dict]:
     """BM25-ranked lesson search.
 
@@ -633,7 +641,7 @@ def search_lessons(
 def set_lesson_review(
     lesson_id: int,
     status: int,
-    db_path: str = _DB_PATH,
+    db_path: Optional[str] = None,
 ) -> bool:
     """Set reviewed_by_chris for a lesson. status must be -1, 0, or 1.
 
