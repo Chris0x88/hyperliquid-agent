@@ -150,3 +150,40 @@ def tag_headline(headline: Headline, rules: list[Rule]) -> list[Rule]:
             continue
         hits.append(rule)
     return hits
+
+
+def direction_for_opec_action(headline_text: str) -> str | None:
+    text = headline_text.lower()
+    if any(w in text for w in ("cut", "reduce", "lower")):
+        return "bull"
+    if any(w in text for w in ("increase", "raise", "boost", "ramp")):
+        return "bear"
+    return None
+
+
+def direction_for_iran_deal(headline_text: str) -> str | None:
+    text = headline_text.lower()
+    if any(w in text for w in ("deal", "agreement", "reached", "signed")) and not any(
+        w in text for w in ("collapse", "walk out", "walks out", "breakdown", "fails")
+    ):
+        return "bear"
+    if any(w in text for w in ("collapse", "walk out", "walks out", "breakdown", "fails", "rejects")):
+        return "bull"
+    return None
+
+
+def direction_for_fomc_macro(headline_text: str) -> str | None:
+    text = headline_text.lower()
+    if any(w in text for w in ("cut", "dovish", "pause", "ease")):
+        return "bull"
+    if any(w in text for w in ("hike", "hawkish", "raise", "tighten")):
+        return "bear"
+    return None
+
+
+# Registry: category name → conditional direction callable
+RULE_CONDITIONAL_DIRECTION = {
+    "opec_action": direction_for_opec_action,
+    "iran_deal": direction_for_iran_deal,
+    "fomc_macro": direction_for_fomc_macro,
+}

@@ -13,6 +13,9 @@ from modules.news_engine import (
     dedupe_headlines,
     load_rules,
     tag_headline,
+    direction_for_opec_action,
+    direction_for_iran_deal,
+    direction_for_fomc_macro,
 )
 
 RULES_YAML = Path("data/config/news_rules.yaml")
@@ -184,3 +187,31 @@ def test_rule_negative_no_false_positive():
     h = _make_headline("Trump tweets about golf tournament schedule")
     hits = tag_headline(h, rules)
     assert hits == []
+
+
+def test_opec_action_cut_is_bull():
+    assert direction_for_opec_action("OPEC+ agrees production cut of 1M bpd") == "bull"
+
+
+def test_opec_action_increase_is_bear():
+    assert direction_for_opec_action("OPEC ramps production by 500k bpd") == "bear"
+
+
+def test_opec_action_neutral_returns_none():
+    assert direction_for_opec_action("OPEC holds meeting in Vienna") is None
+
+
+def test_iran_deal_agreement_is_bear():
+    assert direction_for_iran_deal("Iran nuclear deal agreement reached in Geneva") == "bear"
+
+
+def test_iran_deal_collapse_is_bull():
+    assert direction_for_iran_deal("Iran talks collapse, US walks out of nuclear deal") == "bull"
+
+
+def test_fomc_cut_is_bull():
+    assert direction_for_fomc_macro("Fed cuts rates by 25bp at dovish FOMC meeting") == "bull"
+
+
+def test_fomc_hike_is_bear():
+    assert direction_for_fomc_macro("Fed hikes rates 50bp, signals hawkish path") == "bear"
