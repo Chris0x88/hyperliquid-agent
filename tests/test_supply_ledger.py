@@ -78,3 +78,29 @@ def test_refine_facility_type_terminal_wins():
 
 def test_refine_facility_type_fallback():
     assert refine_facility_type("Volgograd refinery fire", default="refinery") == "refinery"
+
+
+import tempfile
+from modules.supply_ledger import load_auto_extract_rules, AutoExtractRule
+
+
+def test_load_auto_extract_rules_from_yaml():
+    yaml_text = """
+mappings:
+  - catalyst_category: physical_damage_facility
+    facility_type: refinery
+    confidence: 2
+    status: active
+  - catalyst_category: shipping_attack
+    facility_type: ship
+    confidence: 2
+    status: active
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(yaml_text)
+        path = f.name
+    rules = load_auto_extract_rules(path)
+    assert len(rules) == 2
+    assert rules[0].catalyst_category == "physical_damage_facility"
+    assert rules[0].facility_type == "refinery"
+    assert rules[1].catalyst_category == "shipping_attack"

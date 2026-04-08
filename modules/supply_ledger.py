@@ -81,3 +81,28 @@ def refine_facility_type(text: str, default: str) -> str:
         if keyword in t:
             return facility
     return default
+
+
+import yaml
+
+
+@dataclass(frozen=True)
+class AutoExtractRule:
+    catalyst_category: str
+    facility_type: str
+    confidence: int
+    status: str
+
+
+def load_auto_extract_rules(yaml_path: str) -> list[AutoExtractRule]:
+    with open(yaml_path, "r") as f:
+        doc = yaml.safe_load(f) or {}
+    out: list[AutoExtractRule] = []
+    for m in doc.get("mappings", []):
+        out.append(AutoExtractRule(
+            catalyst_category=m["catalyst_category"],
+            facility_type=m["facility_type"],
+            confidence=int(m["confidence"]),
+            status=m["status"],
+        ))
+    return out
