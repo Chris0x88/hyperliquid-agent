@@ -1097,6 +1097,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /brief — mechanical PDF (fixed code, no AI)\n"
         "  /briefai — brief + thesis & catalysts (AI)\n"
         "  /news — last 10 catalysts by severity\n"
+        "  /catalysts — upcoming catalysts in next 7 days\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1587,6 +1588,62 @@ def cmd_news(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
+def cmd_catalysts(token: str, chat_id: str, args: str) -> None:
+    """Show upcoming catalysts in the next 7 days.
+
+    Deterministic — reads data/news/catalysts.jsonl directly.
+    Sub-system 1 (news ingest). See docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION_PLAN.md.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    path = Path(CATALYSTS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No upcoming catalysts.")
+        return
+
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=7)
+
+    upcoming: list[dict] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    c = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    ed = datetime.fromisoformat(c["event_date"])
+                except (KeyError, ValueError):
+                    continue
+                if now <= ed <= horizon:
+                    upcoming.append(c)
+    except OSError as e:
+        tg_send(token, chat_id, f"🛢️ Error reading catalysts: {e}")
+        return
+
+    if not upcoming:
+        tg_send(token, chat_id, "🛢️ No catalysts in the next 7 days.")
+        return
+
+    upcoming.sort(key=lambda c: c["event_date"])
+
+    lines = ["🛢️ *Upcoming catalysts (next 7 days)*", ""]
+    for c in upcoming[:20]:
+        when = c["event_date"][:16].replace("T", " ") + " UTC"
+        sev = int(c.get("severity", 0))
+        cat = c.get("category", "?")
+        instruments = ", ".join(c.get("instruments", []))
+        lines.append(f"`sev={sev}` {cat} — {when}")
+        lines.append(f"  → {instruments}")
+        lines.append("")
+
+    tg_send(token, chat_id, "\n".join(lines))
+
+
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
     """Onboarding guide — how to use the bot."""
     tg_send(token, chat_id,
@@ -1609,6 +1666,7 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "(those are AI/research-seeded, hence the `ai` suffix).\n"
         "\n📰 *News & Catalysts*\n"
         "`/news` — shows recent catalysts surfaced by the news ingest iterator\n"
+        "`/catalysts` — shows upcoming scheduled catalysts from news ingest + iCal sources\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
         "carries an `ai` suffix. Natural-language messages always go to the AI.\n"
         "\n💬 *AI Chat*\n"
@@ -3039,6 +3097,7 @@ HANDLERS = {
     "/h": cmd_health,
     "/thesis": cmd_thesis,
     "/news": cmd_news,
+    "/catalysts": cmd_catalysts,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -3084,6 +3143,7 @@ HANDLERS = {
     "h": cmd_health,
     "thesis": cmd_thesis,
     "news": cmd_news,
+    "catalysts": cmd_catalysts,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -3138,6 +3198,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "brief", "description": "Mechanical brief PDF (no AI content)"},
         {"command": "briefai", "description": "AI brief PDF — adds thesis + catalysts"},
         {"command": "news", "description": "Show last 10 catalysts by severity"},
+        {"command": "catalysts", "description": "Show upcoming catalysts in next 7 days"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},

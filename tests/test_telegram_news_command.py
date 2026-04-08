@@ -9,10 +9,11 @@ to the message body, matching the plan's assertion style.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_news
+from cli.telegram_bot import cmd_news, cmd_catalysts
 
 
 def _write_catalysts_jsonl(d, catalysts):
@@ -49,3 +50,40 @@ def test_cmd_news_returns_top_10_by_severity(tmp_path):
             assert "catalyst" in body.lower()
             # 10 entries max
             assert body.count("sev=") <= 10 or body.count("  ") <= 10
+
+
+def test_cmd_catalysts_filters_upcoming(tmp_path):
+    now = datetime.now(timezone.utc)
+    past = now - timedelta(days=1)
+    future = now + timedelta(days=3)
+    far_future = now + timedelta(days=30)
+
+    catalysts = [
+        {
+            "id": "past", "headline_id": "h1", "instruments": ["CL"],
+            "event_date": past.isoformat(), "category": "eia_weekly",
+            "severity": 3, "expected_direction": None, "rationale": "test",
+            "created_at": past.isoformat(),
+        },
+        {
+            "id": "near_future", "headline_id": "h2", "instruments": ["CL"],
+            "event_date": future.isoformat(), "category": "opec_action",
+            "severity": 4, "expected_direction": None, "rationale": "test",
+            "created_at": now.isoformat(),
+        },
+        {
+            "id": "far_future", "headline_id": "h3", "instruments": ["CL"],
+            "event_date": far_future.isoformat(), "category": "fomc_macro",
+            "severity": 3, "expected_direction": None, "rationale": "test",
+            "created_at": now.isoformat(),
+        },
+    ]
+    _write_catalysts_jsonl(str(tmp_path), catalysts)
+
+    with patch("cli.telegram_bot.CATALYSTS_JSONL", str(Path(tmp_path) / "catalysts.jsonl")):
+        with patch("cli.telegram_bot.tg_send") as send:
+            cmd_catalysts("fake_token", "chat_id", "")
+            body = send.call_args[0][2]
+            assert "near_future" in body or "opec_action" in body
+            assert "far_future" not in body or "fomc_macro" not in body  # beyond 7 days
+            assert "past" not in body  # already elapsed
