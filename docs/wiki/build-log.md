@@ -4,6 +4,17 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 — Oil Bot-Pattern Sub-System 2 shipped
+
+- **What:** Supply Disruption Ledger. Auto-extracts structured disruption records from sub-system 1 catalysts, accepts manual entries via Telegram, aggregates into SupplyState consumed by later sub-systems.
+- **Shape:** `modules/supply_ledger.py` (pure logic), `cli/daemon/iterators/supply_ledger.py` (daemon iterator, all 3 tiers), 4 Telegram commands (`/supply`, `/disruptions`, `/disrupt`, `/disrupt-update`), YAML auto-extract rules.
+- **Storage:** JSONL append-only at `data/supply/disruptions.jsonl` with latest-per-id semantics; aggregated `state.json` atomic-written every 5 min.
+- **Tests:** ~26 (unit + iterator + Telegram), full suite green.
+- **Plan:** `docs/plans/OIL_BOT_PATTERN_02_SUPPLY_LEDGER_PLAN.md`
+- **Next:** Sub-system 3 (stop/liquidity heatmap).
+
+---
+
 ## 2026-04-09 — Oil Bot-Pattern Sub-System 1 shipped
 
 - **What:** First sub-system of the Oil Bot-Pattern Strategy ships — news & catalyst ingestion.
