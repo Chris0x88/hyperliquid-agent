@@ -52,6 +52,19 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
   SYSTEM doc §6). Writes `data/research/bot_patterns.jsonl`. Read-only. Kill switch:
   `data/config/bot_classifier.json`. Spec:
   `agent-cli/docs/plans/OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md`.
+- `oil_botpattern` — sub-system 5 of the Oil Bot-Pattern Strategy. **THE ONLY
+  PLACE in the codebase where shorting BRENTOIL/CL is legal**, behind a chain of
+  hard gates and TWO master kill switches (`enabled` + `short_legs_enabled`).
+  Conviction sizing (Druckenmiller-style edge → notional × leverage ladder) with
+  drawdown circuit breakers (3% daily / 8% weekly / 15% monthly) as the ruin floor.
+  Funding-cost exit for longs (no time cap); 24h hard cap on shorts. Coexists
+  with the existing thesis_engine path per SYSTEM doc §5 — opposite-direction
+  conflicts yield to thesis with 24h lockout. Runs in REBALANCE + OPPORTUNISTIC
+  only (NOT WATCH). Writes `data/strategy/oil_botpattern_{journal.jsonl,state.json}`.
+  Closed positions also append to `data/research/journal.jsonl` so `lesson_author`
+  auto-picks them up. Both kill switches ship OFF by default. Kill switch:
+  `data/config/oil_botpattern.json`. Spec:
+  `agent-cli/docs/plans/OIL_BOT_PATTERN_05_STRATEGY_ENGINE.md`.
 - `lesson_author` — Trade Lesson Layer (wedge 5). Detects closed positions and
   writes lesson candidate files for agent-authored post-mortems. Output feeds
   the FTS5 lessons table in `common/memory.py`. See build-log 2026-04-09 for context.

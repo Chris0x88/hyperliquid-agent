@@ -44,6 +44,7 @@ ALLOWED_PATHS=(
     "^data/supply/\.gitkeep$"
     "^data/research/\.gitkeep$"
     "^data/heatmap/\.gitkeep$"
+    "^data/strategy/\.gitkeep$"
 )
 
 CHECK_FILES="$STAGED_FILES"

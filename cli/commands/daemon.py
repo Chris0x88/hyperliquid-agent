@@ -148,6 +148,7 @@ def daemon_start(
     from cli.daemon.iterators.supply_ledger import SupplyLedgerIterator
     from cli.daemon.iterators.heatmap import HeatmapIterator
     from cli.daemon.iterators.bot_classifier import BotPatternIterator
+    from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
     from cli.daemon.iterators.pulse import PulseIterator
     from cli.daemon.iterators.profit_lock import ProfitLockIterator
     from cli.daemon.iterators.journal import JournalIterator
@@ -187,6 +188,7 @@ def daemon_start(
     clock.register(SupplyLedgerIterator())  # sub-system 2: supply disruption ledger
     clock.register(HeatmapIterator())       # sub-system 3: stop/liquidity heatmap
     clock.register(BotPatternIterator())    # sub-system 4: bot-pattern classifier
+    clock.register(BotPatternStrategyIterator())  # sub-system 5: strategy engine (kill switches OFF at ship)
     clock.register(PulseIterator())
     clock.register(ProfitLockIterator(data_dir=data_dir))
     if _has_funding:

@@ -59,6 +59,9 @@ SUPPLY_DISRUPTIONS_JSONL = "data/supply/disruptions.jsonl"  # sub-system 2: appe
 HEATMAP_ZONES_JSONL = "data/heatmap/zones.jsonl"  # sub-system 3: liquidity zones snapshots
 HEATMAP_CASCADES_JSONL = "data/heatmap/cascades.jsonl"  # sub-system 3: liquidation cascade events
 BOT_PATTERNS_JSONL = "data/research/bot_patterns.jsonl"  # sub-system 4: bot-pattern classifications
+OIL_BOTPATTERN_CONFIG_JSON = "data/config/oil_botpattern.json"  # sub-system 5: strategy config + kill switches
+OIL_BOTPATTERN_STATE_JSON = "data/strategy/oil_botpattern_state.json"  # sub-system 5: strategy state
+OIL_BOTPATTERN_DECISIONS_JSONL = "data/strategy/oil_botpattern_journal.jsonl"  # sub-system 5: per-decision audit log
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1120,6 +1123,9 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /disrupt-update — update an existing supply disruption\n"
         "  /heatmap [SYMBOL] — stop/liquidity heatmap (sub-system 3)\n"
         "  /botpatterns [SYMBOL N] — recent bot-pattern classifications (sub-system 4)\n"
+        "  /oilbot — oil_botpattern strategy state (sub-system 5)\n"
+        "  /oilbotjournal [N] — recent strategy decisions\n"
+        "  /oilbotreviewai [N] — AI review of strategy behaviour\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2151,6 +2157,199 @@ def cmd_botpatterns(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id, "\n".join(lines), markdown=True)
 
 
+def cmd_oilbot(token: str, chat_id: str, args: str) -> None:
+    """Show sub-system 5 (oil_botpattern strategy) state.
+
+    Deterministic — reads state + config JSON directly. NOT AI-driven.
+    """
+    import json
+    from pathlib import Path
+
+    try:
+        cfg = json.loads(Path(OIL_BOTPATTERN_CONFIG_JSON).read_text()) if Path(OIL_BOTPATTERN_CONFIG_JSON).exists() else {}
+    except (OSError, json.JSONDecodeError):
+        cfg = {}
+    try:
+        state = json.loads(Path(OIL_BOTPATTERN_STATE_JSON).read_text()) if Path(OIL_BOTPATTERN_STATE_JSON).exists() else {}
+    except (OSError, json.JSONDecodeError):
+        state = {}
+
+    enabled = cfg.get("enabled", False)
+    shorts = cfg.get("short_legs_enabled", False)
+    instruments = cfg.get("instruments", [])
+
+    lines = ["🛢️ *oil_botpattern strategy (sub-system 5)*", ""]
+    lines.append(f"*Master kill switch:* {'🟢 ON' if enabled else '🔴 OFF'}")
+    lines.append(f"*Short legs:* {'🟢 ON' if shorts else '🔴 OFF'}")
+    lines.append(f"*Instruments:* {', '.join(instruments) or 'none'}")
+    if state.get("enabled_since"):
+        lines.append(f"*Enabled since:* {state['enabled_since'][:19].replace('T', ' ')} UTC")
+    lines.append("")
+
+    brakes = cfg.get("drawdown_brakes", {})
+    daily_pnl = float(state.get("daily_realised_pnl_usd", 0.0))
+    weekly_pnl = float(state.get("weekly_realised_pnl_usd", 0.0))
+    monthly_pnl = float(state.get("monthly_realised_pnl_usd", 0.0))
+    lines.append("*Circuit breakers:*")
+    lines.append(f"  Daily P&L:   ${daily_pnl:+,.0f}  (cap {brakes.get('daily_max_loss_pct', '?')}%)")
+    lines.append(f"  Weekly P&L:  ${weekly_pnl:+,.0f}  (cap {brakes.get('weekly_max_loss_pct', '?')}%)")
+    lines.append(f"  Monthly P&L: ${monthly_pnl:+,.0f}  (cap {brakes.get('monthly_max_loss_pct', '?')}%)")
+    if state.get("daily_brake_tripped_at"):
+        lines.append(f"  ⚠️ Daily brake tripped at {state['daily_brake_tripped_at'][:19]}")
+    if state.get("weekly_brake_tripped_at"):
+        lines.append(f"  🔴 Weekly brake tripped at {state['weekly_brake_tripped_at'][:19]}")
+    if state.get("monthly_brake_tripped_at"):
+        lines.append(f"  🔴 Monthly brake tripped at {state['monthly_brake_tripped_at'][:19]}")
+    if state.get("brake_cleared_at"):
+        lines.append(f"  ✅ Manual clear: {state['brake_cleared_at'][:19]}")
+    lines.append("")
+
+    positions = state.get("open_positions", {})
+    if positions:
+        lines.append("*Open tactical positions:*")
+        for inst, p in positions.items():
+            side = p.get("side", "?")
+            entry_price = float(p.get("entry_price", 0.0))
+            size = float(p.get("size", 0.0))
+            lev = float(p.get("leverage", 0.0))
+            notional = size * entry_price
+            funding = float(p.get("cumulative_funding_usd", 0.0))
+            funding_pct = funding / notional * 100.0 if notional > 0 else 0.0
+            entry_ts = p.get("entry_ts", "")[:19].replace("T", " ")
+            lines.append(f"  {side.upper()} {inst} @ {entry_price:.2f} size={size:.2f} lev={lev}x")
+            lines.append(f"    entry {entry_ts} UTC | notional ${notional:,.0f}")
+            lines.append(f"    funding paid ${funding:,.0f} ({funding_pct:+.2f}%)")
+    else:
+        lines.append("*Open tactical positions:* none")
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
+def cmd_oilbotjournal(token: str, chat_id: str, args: str) -> None:
+    """Show recent oil_botpattern decision records. Deterministic."""
+    import json
+    from pathlib import Path
+
+    limit = 20
+    if args:
+        try:
+            limit = max(1, min(50, int(args.strip())))
+        except ValueError:
+            pass
+
+    path = Path(OIL_BOTPATTERN_DECISIONS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id,
+                "🛢️ No oil_botpattern decisions yet — strategy may be disabled.",
+                markdown=True)
+        return
+
+    rows: list[dict] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError as e:
+        tg_send(token, chat_id, f"🛢️ Error reading decisions: {e}", markdown=True)
+        return
+
+    rows.sort(key=lambda r: r.get("decided_at", ""), reverse=True)
+    rows = rows[:limit]
+
+    if not rows:
+        tg_send(token, chat_id, "🛢️ No decisions logged.", markdown=True)
+        return
+
+    lines = [f"🛢️ *oil_botpattern decisions* (last {len(rows)})", ""]
+    for r in rows:
+        ts = r.get("decided_at", "")[:19].replace("T", " ")
+        direction = r.get("direction", "?")
+        action = r.get("action", "?")
+        edge = float(r.get("edge", 0))
+        cls = r.get("classification", "?")
+        emoji = "✅" if action == "open" else "❌" if action == "skip" else "⏸️"
+        lines.append(f"{emoji} `{ts}` *{action}* {direction} edge={edge:.2f} ({cls})")
+        failed = [g for g in r.get("gate_results", []) if not g.get("passed", False)]
+        for g in failed[:2]:
+            lines.append(f"     · blocked: {g.get('name')}: {g.get('reason', '')}")
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
+def cmd_oilbotreviewai(token: str, chat_id: str, args: str) -> None:
+    """AI review of recent oil_botpattern decisions. AI-SUFFIXED."""
+    import json
+    from pathlib import Path
+
+    limit = 50
+    if args:
+        try:
+            limit = max(1, min(200, int(args.strip())))
+        except ValueError:
+            pass
+
+    path = Path(OIL_BOTPATTERN_DECISIONS_JSONL)
+    if not path.exists():
+        tg_send(token, chat_id, "🛢️ No decisions to review yet.", markdown=True)
+        return
+
+    rows: list[dict] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError as e:
+        tg_send(token, chat_id, f"🛢️ Error: {e}", markdown=True)
+        return
+
+    rows.sort(key=lambda r: r.get("decided_at", ""), reverse=True)
+    rows = rows[:limit]
+
+    if not rows:
+        tg_send(token, chat_id, "🛢️ No decisions to review.", markdown=True)
+        return
+
+    summary_lines = [
+        f"Review the last {len(rows)} oil_botpattern strategy decisions. "
+        "Summarize: (1) which gate failures are most common, (2) how edge scores "
+        "trend, (3) any pattern in classification vs direction, (4) suggestions "
+        "for tuning. Keep it concise — max 8 bullet points.",
+        "",
+        "Decisions:",
+    ]
+    for r in rows:
+        summary_lines.append(json.dumps({
+            "t": r.get("decided_at", ""),
+            "inst": r.get("instrument"),
+            "dir": r.get("direction"),
+            "action": r.get("action"),
+            "edge": r.get("edge"),
+            "cls": r.get("classification"),
+            "conf": r.get("classifier_confidence"),
+            "gates_failed": [g.get("name") for g in r.get("gate_results", []) if not g.get("passed")],
+        }))
+
+    try:
+        from cli.telegram_agent import handle_ai_message
+        handle_ai_message(token, chat_id, "\n".join(summary_lines))
+    except ImportError:
+        tg_send(token, chat_id,
+                "🛢️ AI review unavailable — telegram_agent not loaded.",
+                markdown=True)
+
+
 def cmd_lessons(token: str, chat_id: str, args: str) -> None:
     """Show the most recent lessons from the trade lesson corpus.
 
@@ -2428,6 +2627,9 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/disrupt-update abc12345 status=restored` — update an existing entry (history preserved)\n"
         "`/heatmap [BRENTOIL]` — stop/liquidity heatmap (sub-system 3): top bid/ask walls + recent cascades\n"
         "`/botpatterns [BRENTOIL] [10]` — recent classifications from sub-system 4 (bot-driven vs informed)\n"
+        "`/oilbot` — sub-system 5 strategy: kill-switch status, open positions, drawdown brakes\n"
+        "`/oilbotjournal [20]` — per-decision audit log (which gates passed/failed, sizing rung, edge)\n"
+        "`/oilbotreviewai [50]` — AI summary of recent strategy decisions (the `ai` suffix is required)\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -3898,6 +4100,9 @@ HANDLERS = {
     "/disrupt-update": cmd_disrupt_update,
     "/heatmap": cmd_heatmap,
     "/botpatterns": cmd_botpatterns,
+    "/oilbot": cmd_oilbot,
+    "/oilbotjournal": cmd_oilbotjournal,
+    "/oilbotreviewai": cmd_oilbotreviewai,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -3953,6 +4158,9 @@ HANDLERS = {
     "disrupt": cmd_disrupt,
     "heatmap": cmd_heatmap,
     "botpatterns": cmd_botpatterns,
+    "oilbot": cmd_oilbot,
+    "oilbotjournal": cmd_oilbotjournal,
+    "oilbotreviewai": cmd_oilbotreviewai,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4023,6 +4231,9 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "disrupt-update", "description": "Update an existing supply disruption"},
         {"command": "heatmap", "description": "Show stop/liquidity heatmap (sub-system 3)"},
         {"command": "botpatterns", "description": "Show recent bot-pattern classifications (sub-system 4)"},
+        {"command": "oilbot", "description": "oil_botpattern strategy state (sub-system 5)"},
+        {"command": "oilbotjournal", "description": "Recent oil_botpattern decision records"},
+        {"command": "oilbotreviewai", "description": "AI review of oil_botpattern strategy"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},

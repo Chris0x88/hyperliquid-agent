@@ -1,0 +1,49 @@
+{
+  "_comment": "Sub-system 5 of the Oil Bot-Pattern Strategy. BOTH kill switches ship OFF. Enable manually after review.",
+  "enabled": false,
+  "short_legs_enabled": false,
+  "short_legs_grace_period_s": 3600,
+
+  "instruments": ["BRENTOIL", "CL"],
+  "tick_interval_s": 60,
+
+  "long_min_edge": 0.50,
+  "short_min_edge": 0.70,
+
+  "short_blocking_catalyst_severity": 4,
+  "short_blocking_supply_freshness_hours": 72,
+  "short_max_hold_hours": 24,
+  "short_daily_loss_cap_pct": 1.5,
+
+  "sizing_ladder": [
+    {"min_edge": 0.50, "base_pct": 0.02, "leverage": 2.0},
+    {"min_edge": 0.60, "base_pct": 0.05, "leverage": 3.0},
+    {"min_edge": 0.70, "base_pct": 0.10, "leverage": 5.0},
+    {"min_edge": 0.80, "base_pct": 0.18, "leverage": 7.0},
+    {"min_edge": 0.90, "base_pct": 0.28, "leverage": 10.0}
+  ],
+
+  "drawdown_brakes": {
+    "daily_max_loss_pct": 3.0,
+    "weekly_max_loss_pct": 8.0,
+    "monthly_max_loss_pct": 15.0
+  },
+
+  "funding_warn_pct": 0.5,
+  "funding_exit_pct": 1.5,
+
+  "preferred_sl_atr_mult": 0.8,
+  "preferred_tp_atr_mult": 2.0,
+
+  "patterns_jsonl": "data/research/bot_patterns.jsonl",
+  "zones_jsonl": "data/heatmap/zones.jsonl",
+  "cascades_jsonl": "data/heatmap/cascades.jsonl",
+  "supply_state_json": "data/supply/state.json",
+  "catalysts_jsonl": "data/news/catalysts.jsonl",
+  "risk_caps_json": "data/config/risk_caps.json",
+  "thesis_state_path": "data/thesis/xyz_brentoil_state.json",
+  "funding_tracker_jsonl": "data/daemon/funding_tracker.jsonl",
+  "main_journal_jsonl": "data/research/journal.jsonl",
+  "decision_journal_jsonl": "data/strategy/oil_botpattern_journal.jsonl",
+  "state_json": "data/strategy/oil_botpattern_state.json"
+}

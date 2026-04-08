@@ -10,12 +10,18 @@ A Financial Assistant + Trading Research Agent + Risk Manager. One product, thre
 2. **Research agent** — Proactively hunts for trades, challenges thesis, learns from outcomes
 3. **Risk manager** — Autonomous stops, leverage management, ruin prevention
 
-## Current Phase: Oil Bot Pattern System (Sub-Systems 1 + 2 + 3 + 4 SHIPPED; dry-run pending on #1)
+## Current Phase: Oil Bot Pattern System (Sub-Systems 1 + 2 + 3 + 4 + 5 SHIPPED; kill switches OFF on #5)
 
 Hardening is complete. All F-items and H-items from `docs/plans/AUDIT_FIX_PLAN.md`
 shipped (see build-log 2026-04-07/08). The Oil Bot Pattern system is the active
-workstream. Four sub-systems have shipped in parallel with the Trade Lesson Layer
+workstream. Five sub-systems have shipped in parallel with the Trade Lesson Layer
 (separate workstream owned by the Lessons session — see build-log 2026-04-09).
+
+**Sub-system 5 is registered but INERT on first ship** — both kill switches
+(`enabled`, `short_legs_enabled`) default to `false`, and the iterator runs in
+REBALANCE + OPPORTUNISTIC tiers only (not WATCH, which is Chris's current
+production tier). No trade will be placed by sub-system 5 until Chris flips
+`enabled` AND promotes the daemon tier.
 
 **Active plan:** `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` — 6-sub-system plan approved 2026-04-09.
 
@@ -43,15 +49,23 @@ workstream. Four sub-systems have shipped in parallel with the Trade Lesson Laye
     as bot-driven, informed, mixed, or unclear. Heuristic only — NO ML, NO LLM
     (L5 deferred). Writes `data/research/bot_patterns.jsonl`. Telegram
     surface: `/botpatterns`. Kill switch: `data/config/bot_classifier.json`.
+- ✅ Sub-system 5 — Oil Bot-Pattern Strategy Engine
+  - Spec: `docs/plans/OIL_BOT_PATTERN_05_STRATEGY_ENGINE.md`
+  - **The ONLY place in the codebase where shorting BRENTOIL/CL is legal.**
+    Conviction sizing (Druckenmiller ladder: edge → notional × leverage,
+    max 2.8× equity notional at edge ≥ 0.90) with drawdown circuit breakers
+    (3% daily / 8% weekly / 15% monthly) as the ruin floor. Funding-cost
+    exit for longs (no time cap); 24h hard cap on shorts. Coexists with
+    existing thesis_engine per SYSTEM doc §5. Runs in REBALANCE +
+    OPPORTUNISTIC (NOT WATCH). Both kill switches ship OFF. Telegram
+    surface: `/oilbot`, `/oilbotjournal`, `/oilbotreviewai`. Spec:
+    `docs/plans/OIL_BOT_PATTERN_05_STRATEGY_ENGINE.md`.
 
 **Next to build:**
-- Sub-system 5 — Strategy engine (the only piece that places trades). Reads
-  bot_patterns.jsonl + supply state + heatmap zones + thesis files; emits
-  OrderIntents tagged `strategy_id="oil_botpattern"`. This is where the
-  scoped short-leg relaxation in `OIL_BOT_PATTERN_SYSTEM.md` §4 lives.
-  Promotes CL to a thesis-eligible market.
-- Then: sub-system 6 (self-tune harness — partially pre-built by the
-  Trade Lesson Layer work)
+- Sub-system 6 — Self-tune harness (L2 reflect proposals + L3 pattern
+  library + L4 shadow trading). Partially pre-built by the Trade Lesson
+  Layer work — the lesson corpus feeds the reflect loop. Needs wedge
+  planning to connect the existing pieces.
 
 For the deferred research-app build (parked), see
 `docs/wiki/decisions/011-two-app-architecture-research-sibling.md` —

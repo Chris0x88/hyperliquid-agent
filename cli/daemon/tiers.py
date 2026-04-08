@@ -44,6 +44,7 @@ TIER_ITERATORS = {
         "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in REBALANCE)
         "heatmap",             # sub-system 3: stop/liquidity heatmap (read-only, safe in REBALANCE)
         "bot_classifier",      # sub-system 4: bot-pattern classifier (read-only, safe in REBALANCE)
+        "oil_botpattern",      # sub-system 5: strategy engine (ONLY place oil shorting is legal; kill switches OFF at ship)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -72,6 +73,7 @@ TIER_ITERATORS = {
         "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in OPPORTUNISTIC)
         "heatmap",             # sub-system 3: stop/liquidity heatmap (read-only, safe in OPPORTUNISTIC)
         "bot_classifier",      # sub-system 4: bot-pattern classifier (read-only, safe in OPPORTUNISTIC)
+        "oil_botpattern",      # sub-system 5: strategy engine (ONLY place oil shorting is legal; kill switches OFF at ship)
         "pulse",
         "profit_lock",
         "funding_tracker",

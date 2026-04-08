@@ -4,6 +4,133 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (PM, even later) — Sub-system 5 shipped: Oil Bot-Pattern Strategy Engine
+
+The fifth and single most consequential sub-system of the Oil Bot-Pattern
+Strategy is live on disk. **This is the only place in the codebase where
+shorting BRENTOIL/CL is legal.** Ships behind two master kill switches
+(both OFF by default) and runs in REBALANCE + OPPORTUNISTIC tiers only —
+NOT in Chris's current mainnet WATCH tier. First-ship posture is
+deliberately inert: registered, tested, but cannot trade until Chris
+manually flips `enabled` AND promotes the daemon tier.
+
+### The framing shift Chris asked for
+
+The first draft of the plan had per-instrument equity caps (8% BRENTOIL,
+5% CL) and fixed leverage caps (5× BRENTOIL, 3× CL). Chris rejected that
+framing with the clearest statement of goal this project has seen:
+
+> Compound wealth as fast as possible (without tanking the account).
+> Put me under pressure to perform and take risk to make big money when
+> I have a high edge, and bet less money when my edge is small.
+
+Everything else in sub-system 5 follows from that. Caps were replaced with:
+
+1. **Conviction sizing ladder** (Druckenmiller-style) — edge → notional
+   AND leverage scale nonlinearly. Max conviction (edge ≥ 0.90) targets
+   2.8× equity notional on BRENTOIL: `0.28 base_pct × 10x leverage`.
+   Minimum conviction (edge < 0.50) → no trade.
+2. **Drawdown circuit breakers** replace per-trade caps: 3% daily /
+   8% weekly / 15% monthly realised loss. Daily auto-resets at UTC
+   rollover; weekly/monthly require Chris to manually flip a
+   `brake_cleared_at` timestamp. These are ruin floors, not per-trade caps.
+3. **No hold-hours cap on longs.** Thesis may hold for years. Funding
+   cost is the exit trigger (monitored via existing funding_tracker.jsonl).
+   The short leg keeps its 24h hard cap per SYSTEM doc §4.
+4. **1-hour short-legs grace period** (Chris: "I want max flex for the
+   conditions") after `enabled` is flipped.
+5. **CL in instruments from day 1** with `sizing_multiplier=0.6`, not
+   hard-coded promotion timing.
+6. **Closed positions append to main journal.jsonl**, so `lesson_author`
+   auto-picks them up. Per-decision audit log stays separate in
+   `data/strategy/oil_botpattern_journal.jsonl`.
+
+### Wedges shipped
+
+| # | What |
+|---|---|
+| 1 | Plan doc `OIL_BOT_PATTERN_05_STRATEGY_ENGINE.md` with Chris's revisions inlined at the top. Full gate chain, coexistence rules, wedge order, open-questions-with-answers. |
+| 2 | `data/config/{oil_botpattern,risk_caps}.json` with both kill switches OFF, sizing ladder, drawdown brakes, funding thresholds. `data/strategy/.gitkeep`. Pre-commit hook allowlist for the new gitkeep (both `.git/hooks` and `githooks/` trees). |
+| 3 | `modules/oil_botpattern.py` — pure logic (~550 lines). `BotPattern`, `Decision`, `SizingDecision`, `GateResult`, `StrategyState` dataclasses. JSONL I/O for decisions, atomic state writer. `compute_edge()` blending classifier + thesis + recent outcome bias. `compute_recent_outcome_bias()` from last 5 closed trades. `size_from_edge()` walking the ladder. All six gates as pure functions returning `(passed, reason)`. `check_drawdown_brakes()`. Window rollover helpers (`maybe_reset_daily/weekly/monthly`). `should_exit_on_funding()` for longs. `short_should_force_close()` for the 24h cap. |
+| 4 | `tests/test_oil_botpattern.py` — 61 tests covering every pure function. Edge blend clamping. Sizing ladder below-floor / mid-rung / max-rung / multiplier / zero-equity. Every gate with pass + fail cases + edge cases (missing inputs, unparseable timestamps, stale supply, grace period not set, lockout window expiry). Drawdown brake thresholds + manual clear flow. Window rollover for day/week/month. Funding exit thresholds. Decision + state round-trips. |
+| 5 | `cli/daemon/iterators/oil_botpattern.py` — `BotPatternStrategyIterator` (~450 lines). Loads all inputs from disk each tick. Runs drawdown brakes → existing position management (funding exit, 24h hold cap) → per-instrument entry evaluation through gate chain → sizing → journal → OrderIntent emission. Every order carries `strategy_id`, `intended_hold_hours`, `preferred_sl_atr_mult`, `preferred_tp_atr_mult` in meta so `exchange_protection` attaches SL+TP on next tick. Short-leg entries emit `Alert(severity="warning")` for Telegram visibility. Registered in REBALANCE + OPPORTUNISTIC tiers in `cli/daemon/tiers.py`; registered in `cli/commands/daemon.py`. |
+| 6 | `tests/test_oil_botpattern_iterator.py` — 16 tests covering kill switches, tier registration, long entry happy path with SL/TP meta verification, long skip on low edge, long skip on unclear classification, short blocked by `short_legs_enabled=false`, short blocked by grace period, short blocked by catalyst, short happy path (end-to-end), opposite-direction thesis block, same-direction thesis stacking, daily brake blocking entries, short force-close on 24h hold cap, long funding exit, decision journaled even on skip. |
+| 7 | Telegram commands in `cli/telegram_bot.py`: `/oilbot` (kill-switch + brake + position state, deterministic), `/oilbotjournal [N]` (recent decisions with failing gates, deterministic), `/oilbotreviewai [N]` (routes to telegram_agent.handle_ai_message for AI summary — `ai` suffix required per command discipline). Full 5-surface checklist for each: handler, HANDLERS dict (both slash and bare forms), `_set_telegram_commands()`, `cmd_help()`, `cmd_guide()`. Supporting path constants added near BOT_PATTERNS_JSONL. Tests in `tests/test_telegram_oil_botpattern_commands.py` (7 tests). |
+| 8 | This build-log entry, wiki page `docs/wiki/components/oil_botpattern.md` (behaviour + inputs + outputs + ladder + brakes + gate chain + tests + first-ship posture), daemon CLAUDE.md routing update with full prose, MASTER_PLAN status flipped to "1+2+3+4+5 SHIPPED" with an explicit note that sub-system 5 is INERT on first ship, alignment commit. |
+
+### Test coverage
+
+84 new tests across 3 files, all green. Full suite: **2407 passed,
+0 failed** (was 2323 after sub-system 4).
+
+- `tests/test_oil_botpattern.py` — 61 pure-logic tests
+- `tests/test_oil_botpattern_iterator.py` — 16 iterator wiring tests
+- `tests/test_telegram_oil_botpattern_commands.py` — 7 Telegram tests
+
+### Lessons from this session
+
+Two worth noting:
+
+1. **Large multi-edit operations are fragile.** The first pass at the
+   Telegram command changes tried to edit 8 locations in telegram_bot.py
+   in one burst. A linter touched the file between edits, invalidating
+   my reads, and 7 of the 8 Edits were rejected. Had to re-read and
+   re-apply. Lesson: for any file with active linting, do edits in
+   smaller batches with re-reads between them.
+
+2. **Trade-touching code needed a plan doc first even when Chris said
+   "just keep going".** For sub-systems 1-4 I went straight from "do
+   it" to code. Sub-system 5 is the only one that places orders, and
+   writing the plan doc first let Chris reject the entire caps-based
+   framing before a single line of trading code was written. The
+   revision conversation was 2 minutes. The code would have been 2
+   hours of wasted work. The CLAUDE.md workflow rule about "state your
+   plan before implementing a feature" exists precisely for this.
+
+### First-ship posture — critical reading
+
+Sub-system 5 ships **registered but INERT** for THREE independent reasons:
+
+1. `enabled` kill switch is `false` in `data/config/oil_botpattern.json`
+2. `short_legs_enabled` kill switch is `false` in the same file
+3. Iterator is only in REBALANCE + OPPORTUNISTIC tiers; the production
+   daemon runs in WATCH
+
+ALL THREE must be cleared before any oil_botpattern order can hit the
+exchange. The recommended promotion sequence:
+
+1. **Review the plan doc + this build-log entry.** Especially the
+   sizing ladder and drawdown brakes. Adjust `oil_botpattern.json` if
+   any threshold looks off.
+2. **Smoke test in mock mode:** `hl daemon start --tier rebalance
+   --mock` with `enabled: true, short_legs_enabled: false`. Watch
+   `/oilbotjournal` and the decision journal file for 30+ minutes.
+   Verify: edge values look reasonable, long entries happen on
+   high-confidence classifications, skips are journaled with
+   reasonable gate-failure reasons.
+3. **Promote mainnet to REBALANCE tier** with long leg only
+   (`short_legs_enabled: false`). Watch for ≥1 week. Chris checks
+   `/oilbot` daily; the strategy may or may not open positions
+   depending on classifier signals.
+4. **Only then flip `short_legs_enabled: true`.** The 1-hour grace
+   period starts ticking from the moment this flip is persisted to
+   disk; shorts become eligible after 1h.
+5. **Monitor drawdown brakes.** If any trips, investigate before
+   clearing. Weekly and monthly brakes require manual `brake_cleared_at`
+   timestamps in the state file.
+
+### What's next
+
+Sub-system 6 — self-tune harness. Partially pre-built by the Trade
+Lesson Layer work: the lesson corpus + BM25 search + dream-cycle
+authoring loop already exists. Sub-system 6 connects that to the
+sub-system 5 decision journal so closed oil_botpattern trades become
+lessons that feed back into the next decision's prompt. Also the L2
+reflect proposals + L3 pattern library growth + L4 shadow trading
+from SYSTEM doc §6. Needs its own plan doc before code, same as #5.
+
+---
+
 ## 2026-04-09 (PM, late) — Sub-system 4 shipped: Bot-Pattern Classifier
 
 The fourth sub-system of the Oil Bot-Pattern Strategy is live. First
