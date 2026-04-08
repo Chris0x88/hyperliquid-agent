@@ -78,3 +78,90 @@ def scan_python_imports(root: Path) -> dict[str, Any]:
                     })
 
     return {"modules": modules, "edges": edges}
+
+
+# ---------- Telegram command scanner ----------
+
+_HANDLER_DEF_RE = re.compile(r"^def (cmd_\w+)\s*\(", re.MULTILINE)
+_HANDLERS_DICT_RE = re.compile(
+    r"HANDLERS\s*=\s*\{(.*?)\n\}", re.DOTALL
+)
+_HANDLERS_KEY_RE = re.compile(r'["\']([^"\']+)["\']\s*:')
+_MENU_CMD_RE = re.compile(r'["\']command["\']\s*:\s*["\']([^"\']+)["\']')
+_HELP_MENTION_RE = re.compile(r"/([a-z_][a-z0-9_]*)")
+
+
+def scan_telegram_commands(telegram_bot_path: Path) -> dict[str, Any]:
+    """Scan cli/telegram_bot.py for command handlers and registrations.
+
+    Returns:
+        {
+            "handlers": [{"name": "cmd_X", "line": N}, ...],
+            "handlers_dict_keys": ["/cmd", "cmd", ...],
+            "menu_commands": ["cmd", ...],  # entries in _set_telegram_commands
+            "help_mentions": ["cmd", ...],  # commands mentioned in cmd_help
+            "guide_mentions": ["cmd", ...],  # commands mentioned in cmd_guide
+        }
+    """
+    empty = {
+        "handlers": [],
+        "handlers_dict_keys": [],
+        "menu_commands": [],
+        "help_mentions": [],
+        "guide_mentions": [],
+    }
+    if not telegram_bot_path.exists():
+        return empty
+
+    try:
+        source = telegram_bot_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return empty
+
+    # Handlers: def cmd_X(...)
+    handlers = [
+        {"name": m.group(1), "line": source[: m.start()].count("\n") + 1}
+        for m in _HANDLER_DEF_RE.finditer(source)
+    ]
+
+    # HANDLERS dict keys
+    handlers_dict_keys: list[str] = []
+    dict_match = _HANDLERS_DICT_RE.search(source)
+    if dict_match:
+        handlers_dict_keys = _HANDLERS_KEY_RE.findall(dict_match.group(1))
+
+    # _set_telegram_commands() menu entries — find the function and extract menu
+    menu_commands: list[str] = []
+    try:
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_set_telegram_commands":
+                body_text = ast.unparse(node)
+                menu_commands = _MENU_CMD_RE.findall(body_text)
+                break
+    except SyntaxError:
+        pass
+
+    help_mentions = _extract_help_mentions(source, "cmd_help")
+    guide_mentions = _extract_help_mentions(source, "cmd_guide")
+
+    return {
+        "handlers": handlers,
+        "handlers_dict_keys": handlers_dict_keys,
+        "menu_commands": menu_commands,
+        "help_mentions": help_mentions,
+        "guide_mentions": guide_mentions,
+    }
+
+
+def _extract_help_mentions(source: str, func_name: str) -> list[str]:
+    """Find all /cmd mentions inside a named function body."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            body_text = ast.unparse(node)
+            return list(set(_HELP_MENTION_RE.findall(body_text)))
+    return []
