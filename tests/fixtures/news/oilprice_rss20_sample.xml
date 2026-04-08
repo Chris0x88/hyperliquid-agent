@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>OilPrice.com</title>
+    <link>https://oilprice.com/</link>
+    <description>Latest oil news</description>
+    <item>
+      <title>Houthi missiles strike VLCC in Red Sea, vessel ablaze</title>
+      <link>https://oilprice.com/geopolitics/houthi-vlcc-red-sea</link>
+      <guid>oilprice-vlcc-001</guid>
+      <pubDate>Wed, 09 Apr 2026 14:22:00 +0000</pubDate>
+      <description>Two Houthi-fired anti-ship missiles struck a Suezmax tanker transiting the southern Red Sea. Bridge ablaze, crew evacuated; cargo status unknown.</description>
+    </item>
+    <item>
+      <title>OPEC+ agrees production cut of 1M bpd</title>
+      <link>https://oilprice.com/opec/production-cut-announcement</link>
+      <guid>oilprice-opec-cut-001</guid>
+      <pubDate>Wed, 09 Apr 2026 12:00:00 +0000</pubDate>
+      <description>OPEC+ ministers agreed to a 1 million barrels per day production cut at their emergency meeting.</description>
+    </item>
+  </channel>
+</rss>

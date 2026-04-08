@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Reuters Energy</title>
+  <link href="https://www.reuters.com/business/energy/feed/"/>
+  <updated>2026-04-09T05:00:00Z</updated>
+  <id>urn:uuid:reuters-energy-test</id>
+  <entry>
+    <title>Drone strike hits Volgograd refinery, 200kbpd offline</title>
+    <link href="https://www.reuters.com/business/energy/volgograd-refinery-strike"/>
+    <id>reuters-volgograd-001</id>
+    <updated>2026-04-08T22:14:00Z</updated>
+    <published>2026-04-08T22:14:00Z</published>
+    <summary>Ukrainian drones struck the Volgograd refinery overnight. Russian energy ministry confirms 200 thousand barrels per day of capacity offline; repair timeline uncertain.</summary>
+  </entry>
+  <entry>
+    <title>Trump sets 8 PM deadline for Iran nuclear deal</title>
+    <link href="https://www.reuters.com/world/trump-iran-deadline"/>
+    <id>reuters-trump-iran-001</id>
+    <updated>2026-04-08T19:30:00Z</updated>
+    <published>2026-04-08T19:30:00Z</published>
+    <summary>President Trump issued an 8 PM Eastern deadline for Iran to accept the nuclear framework or face immediate consequences.</summary>
+  </entry>
+</feed>
