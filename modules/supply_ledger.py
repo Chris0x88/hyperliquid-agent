@@ -287,3 +287,25 @@ def compute_state(rows: list[Disruption]) -> SupplyState:
         active_disruption_count=len(active),
         high_confidence_count=high_conf,
     )
+
+
+import os
+
+
+def write_state_atomic(path: str, state: SupplyState) -> None:
+    """Write SupplyState as JSON atomically via tmp+rename."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "computed_at": state.computed_at.isoformat(),
+        "total_offline_bpd": state.total_offline_bpd,
+        "total_offline_mcfd": state.total_offline_mcfd,
+        "by_region": state.by_region,
+        "by_facility_type": state.by_facility_type,
+        "active_chokepoints": state.active_chokepoints,
+        "active_disruption_count": state.active_disruption_count,
+        "high_confidence_count": state.high_confidence_count,
+    }
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    os.replace(tmp, p)

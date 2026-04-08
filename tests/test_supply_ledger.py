@@ -271,3 +271,24 @@ def test_compute_state_latest_per_id_semantics():
     late = _make_disruption("a", status="restored", updated=datetime(2026, 4, 9, 18, tzinfo=timezone.utc))
     state = compute_state([early, late])
     assert state.active_disruption_count == 0
+
+
+def test_write_state_atomic(tmp_path):
+    from modules.supply_ledger import write_state_atomic
+    import json as _json
+    state = SupplyState(
+        computed_at=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        total_offline_bpd=2_400_000.0,
+        total_offline_mcfd=0.0,
+        by_region={"russia": 1_200_000.0},
+        by_facility_type={"refinery": 1_200_000.0},
+        active_chokepoints=[],
+        active_disruption_count=1,
+        high_confidence_count=0,
+    )
+    path = tmp_path / "state.json"
+    write_state_atomic(str(path), state)
+    assert path.exists()
+    data = _json.loads(path.read_text())
+    assert data["total_offline_bpd"] == 2_400_000.0
+    assert data["by_region"]["russia"] == 1_200_000.0
