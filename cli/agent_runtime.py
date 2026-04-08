@@ -39,16 +39,25 @@ _MEMORY_DIR = _PROJECT_ROOT / "data" / "agent_memory"
 _PROMPT_CORE = """You are an autonomous agent. Think, plan, act. Lead with answers, not reasoning. Verify before claiming success. Report outcomes faithfully. Diagnose failures before switching tactics. Challenge constructively. Call independent tools in parallel. Check LIVE CONTEXT before calling tools for data already in your prompt."""
 
 
+# Kill switch for the RECENT RELEVANT LESSONS prompt-injection section.
+# Flip to False to disable lesson injection globally without removing code.
+# Tests may also monkeypatch this module attribute to exercise both branches.
+_LESSON_INJECTION_ENABLED = True
+
+
 def build_system_prompt(
     agent_md: str = "",
     soul_md: str = "",
     memory_content: str = "",
     live_context: str = "",
+    lessons_section: str = "",
 ) -> str:
     """Assemble the full system prompt from static + dynamic sections.
 
     Static sections (Claude Code patterns) provide the agent architecture.
-    Dynamic sections (agent_md, memory, live_context) provide domain specifics.
+    Dynamic sections (agent_md, memory, lessons, live_context) provide domain
+    specifics. Pass an empty `lessons_section` to skip the section entirely —
+    callers typically get the string from `build_lessons_section()`.
     """
     parts = [_PROMPT_CORE]
 
@@ -61,10 +70,86 @@ def build_system_prompt(
     # Dynamic per-message content
     if memory_content:
         parts.append(f"--- AGENT MEMORY ---\n\n{memory_content}")
+    # Lessons sit between memory and live_context: structured historical
+    # recall, as opposed to live_context which is immediate account/market state.
+    if lessons_section:
+        parts.append(lessons_section)
     if live_context:
         parts.append(live_context)
 
     return "\n\n---\n\n".join(parts)
+
+
+def build_lessons_section(
+    query: str = "",
+    market: Optional[str] = None,
+    signal_source: Optional[str] = None,
+    direction: Optional[str] = None,
+    lesson_type: Optional[str] = None,
+    limit: int = 5,
+) -> str:
+    """Build the `## RECENT RELEVANT LESSONS` prompt-injection section.
+
+    Reads from the lessons corpus in `data/memory/memory.db` via
+    `common.memory.search_lessons`. Non-empty `query` ranks by BM25 over
+    summary + body_full + tags; empty query falls back to recency.
+
+    Returns an empty string (section is naturally skipped by
+    `build_system_prompt`) when:
+      - `_LESSON_INJECTION_ENABLED` is False (global kill switch)
+      - the corpus has no matching rows
+      - the memory DB query raises — logged and swallowed. The 2026-04-08
+        Bug A pattern applies here: refuse to degrade the prompt with a
+        broken section; lesson injection must never break the agent.
+    """
+    if not _LESSON_INJECTION_ENABLED:
+        return ""
+
+    try:
+        from common import memory as common_memory
+        # common.memory helpers resolve _DB_PATH at call time as of 5382a0b,
+        # so we don't need to pass db_path= explicitly anymore — the default
+        # None flows through to _resolve_db_path(_DB_PATH).
+        rows = common_memory.search_lessons(
+            query=query or "",
+            market=market,
+            direction=direction,
+            signal_source=signal_source,
+            lesson_type=lesson_type,
+            limit=int(limit),
+        )
+    except Exception as e:
+        log.warning("lessons section: search failed, omitting section: %s", e)
+        return ""
+
+    if not rows:
+        return ""
+
+    lines = [
+        "## RECENT RELEVANT LESSONS",
+        "",
+        "Your own prior trade post-mortems. Call `get_lesson(id)` for the",
+        "verbatim body when a summary looks relevant.",
+        "",
+    ]
+    for r in rows:
+        lesson_id = r.get("id")
+        market_col = r.get("market", "?")
+        direction_col = r.get("direction", "?")
+        outcome_col = r.get("outcome", "?")
+        signal_col = r.get("signal_source", "?")
+        type_col = r.get("lesson_type", "?")
+        roe = r.get("roe_pct", 0.0)
+        closed = (r.get("trade_closed_at") or "")[:10]
+        summary = (r.get("summary") or "").strip()
+        reviewed = r.get("reviewed_by_chris", 0)
+        review_flag = " [approved]" if reviewed == 1 else ""
+        lines.append(
+            f"- #{lesson_id} {closed} {market_col} {direction_col} "
+            f"({signal_col}, {type_col}) → {outcome_col} {roe:+.1f}%{review_flag}"
+        )
+        lines.append(f"  {summary}")
+    return "\n".join(lines)
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -1,5 +1,7 @@
 """Tests for cli/agent_runtime.py — the core agent runtime."""
 import json
+import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +30,200 @@ class TestBuildSystemPrompt:
         from cli.agent_runtime import build_system_prompt
         prompt = build_system_prompt(live_context="--- LIVE CONTEXT ---\nequity=$500")
         assert "equity=$500" in prompt
+
+    def test_includes_lessons_section(self):
+        from cli.agent_runtime import build_system_prompt
+        section = "## RECENT RELEVANT LESSONS\n\n- #1 test lesson summary"
+        prompt = build_system_prompt(lessons_section=section)
+        assert "RECENT RELEVANT LESSONS" in prompt
+        assert "#1 test lesson summary" in prompt
+
+    def test_empty_lessons_section_is_skipped(self):
+        from cli.agent_runtime import build_system_prompt
+        prompt = build_system_prompt(lessons_section="")
+        assert "RECENT RELEVANT LESSONS" not in prompt
+
+    def test_lessons_between_memory_and_live_context(self):
+        """Section ordering: memory → lessons → live_context."""
+        from cli.agent_runtime import build_system_prompt
+        prompt = build_system_prompt(
+            memory_content="MEMORY_MARKER",
+            lessons_section="LESSONS_MARKER",
+            live_context="LIVE_MARKER",
+        )
+        assert prompt.index("MEMORY_MARKER") < prompt.index("LESSONS_MARKER") < prompt.index("LIVE_MARKER")
+
+
+# ---------------------------------------------------------------------------
+# build_lessons_section — pulls the top lessons from data/memory/memory.db
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def tmp_lessons_db(monkeypatch):
+    """Point common.memory at a throwaway SQLite file for lesson injection tests."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    import common.memory as common_memory
+    monkeypatch.setattr(common_memory, "_DB_PATH", path)
+    yield path
+    os.unlink(path)
+
+
+def _seed_lesson(**overrides):
+    """Seed one lesson into whatever _DB_PATH is monkeypatched to."""
+    from common import memory as common_memory
+    base = {
+        "created_at": "2026-04-09T05:00:00Z",
+        "trade_closed_at": "2026-04-09T04:55:00Z",
+        "market": "xyz:BRENTOIL",
+        "direction": "long",
+        "signal_source": "thesis_driven",
+        "lesson_type": "entry_timing",
+        "outcome": "win",
+        "pnl_usd": 123.45,
+        "roe_pct": 8.7,
+        "holding_ms": 3_600_000,
+        "conviction_at_open": 0.72,
+        "journal_entry_id": "xyz:BRENTOIL-1712633100000",
+        "thesis_snapshot_path": None,
+        "summary": "BRENTOIL long on EIA draw, entry ahead of print, +8.7% in 1h.",
+        "body_full": "verbatim body",
+        "tags": ["supply-disruption"],
+        "reviewed_by_chris": 0,
+    }
+    base.update(overrides)
+    return common_memory.log_lesson(base)
+
+
+class TestBuildLessonsSection:
+    def test_empty_corpus_returns_empty_string(self, tmp_lessons_db):
+        from cli.agent_runtime import build_lessons_section
+        assert build_lessons_section() == ""
+
+    def test_hits_formatted_as_markdown_section(self, tmp_lessons_db):
+        _seed_lesson()
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section()
+        assert out.startswith("## RECENT RELEVANT LESSONS")
+        assert "get_lesson(id)" in out
+        assert "#1" in out
+        assert "xyz:BRENTOIL" in out
+        assert "long" in out
+        assert "thesis_driven" in out
+        assert "win" in out
+        assert "+8.7%" in out
+        assert "BRENTOIL long on EIA draw" in out
+
+    def test_recency_ordering_on_empty_query(self, tmp_lessons_db):
+        _seed_lesson(summary="first", trade_closed_at="2026-04-09T12:00:00Z")
+        _seed_lesson(summary="second", trade_closed_at="2026-04-08T12:00:00Z")
+        _seed_lesson(summary="third", trade_closed_at="2026-04-07T12:00:00Z")
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(limit=3)
+        assert out.index("first") < out.index("second") < out.index("third")
+
+    def test_limit_applied(self, tmp_lessons_db):
+        for i in range(10):
+            _seed_lesson(
+                summary=f"lesson number {i}",
+                trade_closed_at=f"2026-04-0{i % 9 + 1}T12:00:00Z",
+            )
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(limit=3)
+        assert out.count("\n- #") == 3
+
+    def test_bm25_query_ranks_relevant_first(self, tmp_lessons_db):
+        _seed_lesson(
+            summary="BRENTOIL weekend wick stopped us out",
+            body_full="Weekend wick took the stop, price recovered 20 minutes later.",
+            tags=["weekend-wick", "stop-too-tight"],
+            trade_closed_at="2026-04-08T00:00:00Z",
+        )
+        _seed_lesson(
+            summary="GOLD CPI catalyst played out",
+            body_full="Positioned 24h before CPI. Thesis confirmed.",
+            tags=["cpi"],
+            market="xyz:GOLD",
+            trade_closed_at="2026-04-07T12:00:00Z",
+        )
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(query="weekend wick")
+        # BM25 MATCH filters to rows that contain the query terms — only the
+        # weekend-wick lesson should appear. CPI lesson is filtered out.
+        assert "weekend wick stopped" in out
+        assert "CPI catalyst" not in out
+
+    def test_market_filter(self, tmp_lessons_db):
+        _seed_lesson(market="xyz:BRENTOIL", summary="brent lesson")
+        _seed_lesson(market="BTC", summary="btc lesson")
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(market="BTC")
+        assert "btc lesson" in out
+        assert "brent lesson" not in out
+
+    def test_direction_filter(self, tmp_lessons_db):
+        _seed_lesson(direction="long", summary="long lesson")
+        _seed_lesson(direction="short", summary="short lesson")
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(direction="short")
+        assert "short lesson" in out
+        assert "long lesson" not in out
+
+    def test_signal_source_filter(self, tmp_lessons_db):
+        _seed_lesson(signal_source="radar", summary="radar lesson")
+        _seed_lesson(signal_source="thesis_driven", summary="thesis lesson")
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(signal_source="radar")
+        assert "radar lesson" in out
+        assert "thesis lesson" not in out
+
+    def test_lesson_type_filter(self, tmp_lessons_db):
+        _seed_lesson(lesson_type="exit_quality", summary="exit lesson")
+        _seed_lesson(lesson_type="entry_timing", summary="entry lesson")
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(lesson_type="exit_quality")
+        assert "exit lesson" in out
+        assert "entry lesson" not in out
+
+    def test_approved_flagged(self, tmp_lessons_db):
+        from common import memory as common_memory
+        rid = _seed_lesson(summary="approved lesson")
+        common_memory.set_lesson_review(rid, 1)
+        from cli.agent_runtime import build_lessons_section
+        assert "[approved]" in build_lessons_section()
+
+    def test_rejected_excluded(self, tmp_lessons_db):
+        from common import memory as common_memory
+        rid = _seed_lesson(summary="rejected lesson")
+        common_memory.set_lesson_review(rid, -1)
+        from cli.agent_runtime import build_lessons_section
+        assert "rejected lesson" not in build_lessons_section()
+
+    def test_disabled_flag_returns_empty(self, tmp_lessons_db, monkeypatch):
+        _seed_lesson()
+        import cli.agent_runtime as agent_runtime
+        monkeypatch.setattr(agent_runtime, "_LESSON_INJECTION_ENABLED", False)
+        assert agent_runtime.build_lessons_section() == ""
+
+    def test_db_error_swallowed(self, tmp_lessons_db, monkeypatch):
+        """If search_lessons raises, section returns '' — agent must not break."""
+        def boom(*a, **kw):
+            raise RuntimeError("simulated db failure")
+        import common.memory as common_memory
+        monkeypatch.setattr(common_memory, "search_lessons", boom)
+        from cli.agent_runtime import build_lessons_section
+        assert build_lessons_section() == ""
+
+    def test_section_is_compact(self, tmp_lessons_db):
+        """~150 token cap discipline proxy: 5 entries under ~1500 chars."""
+        for i in range(5):
+            _seed_lesson(
+                summary=f"lesson {i} summary",
+                trade_closed_at=f"2026-04-0{i + 1}T12:00:00Z",
+            )
+        from cli.agent_runtime import build_lessons_section
+        out = build_lessons_section(limit=5)
+        assert len(out) < 1500, f"lessons section is {len(out)} chars, expected <1500"
 
 
 class TestParallelToolExecution:

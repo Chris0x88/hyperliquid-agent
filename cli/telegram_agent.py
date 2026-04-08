@@ -773,7 +773,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
 def _build_system_prompt() -> str:
     """Load system prompt using agent runtime + domain-specific instructions."""
-    from cli.agent_runtime import build_system_prompt
+    from cli.agent_runtime import build_system_prompt, build_lessons_section
 
     # Load domain-specific files
     agent_md = ""
@@ -789,10 +789,21 @@ def _build_system_prompt() -> str:
     if memory_path.exists():
         memory_content = memory_path.read_text().strip()
 
+    # Pull top recent lessons from the lesson corpus for prompt injection.
+    # Empty query → recency fallback. build_lessons_section() returns "" when
+    # the corpus is empty, disabled, or the DB query raises — all failures
+    # are swallowed so lesson injection cannot break the agent.
+    lessons_section = ""
+    try:
+        lessons_section = build_lessons_section(limit=5)
+    except Exception as e:
+        log.warning("lessons section failed to build: %s", e)
+
     return build_system_prompt(
         agent_md=agent_md,
         soul_md=soul_md,
         memory_content=memory_content,
+        lessons_section=lessons_section,
     )
 
 
