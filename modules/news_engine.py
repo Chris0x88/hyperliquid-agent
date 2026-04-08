@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import feedparser
 import yaml
+from icalendar import Calendar
 
 log = logging.getLogger("news_engine")
 
@@ -249,4 +250,53 @@ def extract_catalysts(headlines: list[Headline], rules: list[Rule]) -> list[Cata
                 rationale=f"rule: {rule.name} severity={rule.severity}",
                 created_at=now,
             ))
+    return out
+
+
+def parse_ical_source(
+    ical_text: str,
+    source: str,
+    category: str,
+    severity: int,
+    instruments: list[str],
+    direction: str | None = None,
+) -> list[Catalyst]:
+    """Parse an iCal VCALENDAR and return one Catalyst per VEVENT.
+
+    Used for scheduled events (EIA, OPEC, FOMC) where the news ingest rule
+    library is not the right fit — we already know these are catalysts; we
+    just need to publish them into the same pipeline.
+    """
+    try:
+        cal = Calendar.from_ical(ical_text)
+    except Exception as e:
+        log.warning("iCal parse failed for source=%s: %s", source, e)
+        return []
+
+    now = datetime.now(timezone.utc)
+    out: list[Catalyst] = []
+    for comp in cal.walk("VEVENT"):
+        dtstart = comp.get("DTSTART")
+        if dtstart is None:
+            continue
+        start = dtstart.dt
+        if hasattr(start, "tzinfo") and start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        elif not hasattr(start, "tzinfo"):
+            # date-only VEVENT
+            start = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
+
+        summary = str(comp.get("SUMMARY") or "")
+        uid = str(comp.get("UID") or _hash_headline(source, summary, start.isoformat()))
+        out.append(Catalyst(
+            id=_hash_headline(source, uid, summary),
+            headline_id=uid,
+            instruments=list(instruments),
+            event_date=start,
+            category=category,
+            severity=severity,
+            expected_direction=direction,
+            rationale=f"ical:{source}",
+            created_at=now,
+        ))
     return out

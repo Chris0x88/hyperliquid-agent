@@ -244,3 +244,33 @@ def test_extract_catalysts_from_tagged_headline():
     assert "xyz:BRENTOIL" in cat.instruments
     assert "CL" in cat.instruments
     assert cat.headline_id == h.id
+
+
+SAMPLE_ICAL = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:eia-2026-04-16
+SUMMARY:EIA Weekly Petroleum Status Report
+DTSTART:20260416T143000Z
+DTEND:20260416T150000Z
+DESCRIPTION:Weekly crude oil inventory release
+END:VEVENT
+END:VCALENDAR
+"""
+
+
+def test_parse_ical_source():
+    from modules.news_engine import parse_ical_source
+    catalysts = parse_ical_source(
+        SAMPLE_ICAL,
+        source="eia_weekly_petroleum",
+        category="eia_weekly",
+        severity=3,
+        instruments=["xyz:BRENTOIL", "CL"],
+    )
+    assert len(catalysts) == 1
+    c = catalysts[0]
+    assert c.category == "eia_weekly"
+    assert c.severity == 3
+    assert c.event_date.date() == datetime(2026, 4, 16).date()
