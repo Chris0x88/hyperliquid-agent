@@ -152,19 +152,37 @@ class AccountCollectorIterator:
         ctx.high_water_mark = self._high_water_mark
         ctx.account_drawdown_pct = drawdown_pct
 
-        # Alert on significant drawdowns (only when in a position)
+        # Alert on significant drawdowns (only when in a position).
+        #
+        # BUG-FIX 2026-04-08 (alert-format): the message templates already
+        # used backticks but the TelegramIterator was sending under HTML
+        # parse mode so they rendered literally. Now that the iterator
+        # sends under Markdown the backticks render as code, and the
+        # newline-separated layout reads cleanly. The numbers themselves
+        # were already correct here (account_collector has always summed
+        # native + xyz + spot in _build_snapshot).
         if has_positions and drawdown_pct >= 25.0:
             ctx.alerts.append(Alert(
                 severity="critical",
                 source=self.name,
-                message=f"DRAWDOWN: `${equity:,.0f}` is {drawdown_pct:.0f}% below peak `${self._high_water_mark:,.0f}` — halting new entries",
+                message=(
+                    f"*DRAWDOWN HALT*\n"
+                    f"  Equity `${equity:,.2f}` is `{drawdown_pct:.0f}%` "
+                    f"below peak `${self._high_water_mark:,.2f}`\n"
+                    f"  → halting new entries"
+                ),
                 data={"drawdown_pct": drawdown_pct, "hwm": self._high_water_mark, "equity": equity},
             ))
         elif has_positions and drawdown_pct >= 15.0:
             ctx.alerts.append(Alert(
                 severity="warning",
                 source=self.name,
-                message=f"Drawdown: `${equity:,.0f}` is {drawdown_pct:.0f}% below peak — reduce risk",
+                message=(
+                    f"*Drawdown warning*\n"
+                    f"  Equity `${equity:,.2f}` is `{drawdown_pct:.0f}%` "
+                    f"below peak `${self._high_water_mark:,.2f}`\n"
+                    f"  → reduce risk"
+                ),
                 data={"drawdown_pct": drawdown_pct, "equity": equity},
             ))
 

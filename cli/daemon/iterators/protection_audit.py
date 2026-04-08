@@ -246,8 +246,16 @@ class ProtectionAuditIterator:
         tps_by_coin: Dict[str, List[dict]],
         ctx: TickContext,
     ) -> None:
+        # BUG-FIX 2026-04-08 (alert-format): all messages in this method
+        # were ``Entry=96.2530 mark=95.9900 stop=82.3800``-style key=value
+        # noise. They are now labelled markdown blocks with $X,XXX.XX
+        # comma-grouped numbers and direction dots.
+        from cli.daemon.iterators._format import dir_dot, fmt_price
+
         inst = pos.instrument
         is_long = pos.net_qty > ZERO
+        direction = "LONG" if is_long else "SHORT"
+        ddot = dir_dot(direction)
         entry = pos.avg_entry_price
         mark_raw = ctx.prices.get(inst)
         mark = Decimal(str(mark_raw)) if mark_raw is not None else ZERO
@@ -274,12 +282,11 @@ class ProtectionAuditIterator:
                     ctx,
                     severity="critical",
                     inst=inst,
-                    direction="LONG" if is_long else "SHORT",
+                    direction=direction,
                     msg=(
-                        f"UNGUARDED: {inst} "
-                        f"{'LONG' if is_long else 'SHORT'} has NO exchange stop. "
-                        f"Heartbeat may have failed. "
-                        f"Entry={float(entry):.4f} mark={float(mark):.4f}"
+                        f"*UNGUARDED* — {ddot} *{inst}* {direction}\n"
+                        f"  No exchange stop-loss. Heartbeat may have failed.\n"
+                        f"  Entry `{fmt_price(entry)}` | Mark `{fmt_price(mark)}`"
                     ),
                     state=new_state,
                 )
@@ -307,8 +314,11 @@ class ProtectionAuditIterator:
                     ctx,
                     severity="critical",
                     inst=inst,
-                    direction="LONG" if is_long else "SHORT",
-                    msg=f"INVALID STOP: {inst} trigger order has trigger_price=0",
+                    direction=direction,
+                    msg=(
+                        f"*INVALID STOP* — {ddot} *{inst}* {direction}\n"
+                        f"  Trigger order has `trigger_price=0` — SL is not protective."
+                    ),
                     state=new_state,
                 )
             self._last_state[inst] = new_state
@@ -325,11 +335,11 @@ class ProtectionAuditIterator:
                     ctx,
                     severity="critical",
                     inst=inst,
-                    direction="LONG" if is_long else "SHORT",
+                    direction=direction,
                     msg=(
-                        f"UNPROTECTED: {inst} "
-                        f"{'LONG' if is_long else 'SHORT'} has NO take-profit. "
-                        f"Entry={float(entry):.4f}"
+                        f"*UNPROTECTED* — {ddot} *{inst}* {direction}\n"
+                        f"  No exchange take-profit.\n"
+                        f"  Entry `{fmt_price(entry)}`"
                     ),
                     state=new_state,
                 )
@@ -350,10 +360,10 @@ class ProtectionAuditIterator:
                     ctx,
                     severity="critical",
                     inst=inst,
-                    direction="LONG" if is_long else "SHORT",
+                    direction=direction,
                     msg=(
-                        f"WRONG-SIDE STOP: {inst} {'LONG' if is_long else 'SHORT'} "
-                        f"stop={float(stop_px):.4f} on wrong side of entry={float(entry):.4f}"
+                        f"*WRONG-SIDE STOP* — {ddot} *{inst}* {direction}\n"
+                        f"  Stop `{fmt_price(stop_px)}` on wrong side of entry `{fmt_price(entry)}`"
                     ),
                     state=new_state,
                 )
@@ -371,11 +381,12 @@ class ProtectionAuditIterator:
                         ctx,
                         severity="warning",
                         inst=inst,
-                        direction="LONG" if is_long else "SHORT",
+                        direction=direction,
                         msg=(
-                            f"STOP TOO CLOSE: {inst} stop={float(stop_px):.4f} "
-                            f"is {float(distance) * 100:.2f}% from mark={float(mark):.4f} "
-                            f"(< {float(MIN_STOP_DISTANCE_PCT) * 100:.1f}% — likely to be hunted)"
+                            f"*STOP TOO CLOSE* — {ddot} *{inst}* {direction}\n"
+                            f"  Stop `{fmt_price(stop_px)}` is `{float(distance) * 100:.2f}%` "
+                            f"from mark `{fmt_price(mark)}`\n"
+                            f"  (< `{float(MIN_STOP_DISTANCE_PCT) * 100:.1f}%` — likely to be hunted)"
                         ),
                         state=new_state,
                     )
@@ -386,11 +397,12 @@ class ProtectionAuditIterator:
                         ctx,
                         severity="warning",
                         inst=inst,
-                        direction="LONG" if is_long else "SHORT",
+                        direction=direction,
                         msg=(
-                            f"STOP TOO FAR: {inst} stop={float(stop_px):.4f} "
-                            f"is {float(distance) * 100:.0f}% from mark={float(mark):.4f} "
-                            f"(> {float(MAX_STOP_DISTANCE_PCT) * 100:.0f}% — effectively no protection)"
+                            f"*STOP TOO FAR* — {ddot} *{inst}* {direction}\n"
+                            f"  Stop `{fmt_price(stop_px)}` is `{float(distance) * 100:.0f}%` "
+                            f"from mark `{fmt_price(mark)}`\n"
+                            f"  (> `{float(MAX_STOP_DISTANCE_PCT) * 100:.0f}%` — effectively no protection)"
                         ),
                         state=new_state,
                     )
@@ -401,10 +413,10 @@ class ProtectionAuditIterator:
                 ctx,
                 severity="info",
                 inst=inst,
-                direction="LONG" if is_long else "SHORT",
+                direction=direction,
                 msg=(
-                    f"PROTECTION RESTORED: {inst} stop={float(stop_px):.4f} "
-                    f"now reasonable vs mark={float(mark):.4f}"
+                    f"*PROTECTION RESTORED* — {ddot} *{inst}* {direction}\n"
+                    f"  Stop `{fmt_price(stop_px)}` now reasonable vs mark `{fmt_price(mark)}`"
                 ),
                 state=new_state,
             )

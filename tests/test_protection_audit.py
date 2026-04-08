@@ -425,7 +425,11 @@ class TestNoTp:
         assert "UNPROTECTED" in a.message
         assert "BTC" in a.message
         assert "LONG" in a.message
-        assert "NO take-profit" in a.message
+        # 2026-04-08 alert reformat: phrase changed from "NO take-profit"
+        # to "No exchange take-profit" — same semantic, friendlier wording.
+        # data["state"] is the source of truth; the phrase check is just a
+        # belt-and-braces sanity check on the human-readable message.
+        assert "take-profit" in a.message
         assert a.data["state"] == "no_tp"
 
     def test_neither_sl_nor_tp_alerts_unguarded_not_no_tp(self, iterator):

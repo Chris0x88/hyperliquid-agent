@@ -73,7 +73,12 @@ class RiskIterator:
         if gate_severity.get(chain_gate, 0) > gate_severity.get(ctx.risk_gate, 0):
             ctx.risk_gate = chain_gate
 
-        # Consolidated alert: one message with ALL triggered reasons
+        # Consolidated alert: one message with ALL triggered reasons.
+        #
+        # BUG-FIX 2026-04-08 (alert-format): replaced the single-line
+        # ``Protection chain [COOLDOWN]: reason | reason [tag, tag]``
+        # with a labelled markdown block so the gate state, reasons, and
+        # market context each get their own line.
         if triggered:
             reasons = " | ".join(t.reason for t in triggered)
             worst_severity = "critical" if chain_gate == RiskGate.CLOSED else "warning"
@@ -81,11 +86,16 @@ class RiskIterator:
             # market context the protection chain fired in
             from cli.daemon.calendar_tags import get_current_tags
             cal = get_current_tags()
-            tag_suffix = f" [{', '.join(cal['tags'])}]" if cal["tags"] else ""
+            tag_line = (
+                f"\n  Context: _{', '.join(cal['tags'])}_" if cal["tags"] else ""
+            )
             ctx.alerts.append(Alert(
                 severity=worst_severity,
                 source=self.name,
-                message=f"Protection chain [{chain_gate.value}]: {reasons}{tag_suffix}",
+                message=(
+                    f"*Protection chain* — `{chain_gate.value}`\n"
+                    f"  {reasons}{tag_line}"
+                ),
                 data={
                     "calendar_tags": cal["tags"],
                     "weekend": cal["weekend"],

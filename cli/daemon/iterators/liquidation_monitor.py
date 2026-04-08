@@ -134,12 +134,18 @@ class LiquidationMonitorIterator:
                 # C4: append calendar regime tags so the operator knows what
                 # market context this alert fired in
                 from cli.daemon.calendar_tags import get_current_tags
+                from cli.daemon.iterators._format import dir_dot, fmt_price
                 cal = get_current_tags()
-                tag_suffix = f" [{', '.join(cal['tags'])}]" if cal["tags"] else ""
+                tag_suffix = f"  _{', '.join(cal['tags'])}_" if cal["tags"] else ""
+                # BUG-FIX 2026-04-08 (alert-format): replaced
+                # ``cushion=3.6% mark=112.1900 liq=108.1349 lev=20.0x``
+                # with a labelled markdown block the operator can read
+                # at a glance.
                 msg = (
-                    f"{prefix}{inst} {direction} cushion={cushion_pct:.1f}% "
-                    f"mark={float(mark_dec):.4f} liq={float(liq_dec):.4f} "
-                    f"lev={lev_str}{tag_suffix}"
+                    f"{prefix.strip()}\n"
+                    f"  {dir_dot(direction)} *{inst}* {direction} `{lev_str}`\n"
+                    f"  Mark `{fmt_price(mark_dec)}` → Liq `{fmt_price(liq_dec)}`\n"
+                    f"  Cushion `{cushion_pct:.1f}%`{tag_suffix}"
                 )
                 ctx.alerts.append(Alert(
                     severity=severity,
