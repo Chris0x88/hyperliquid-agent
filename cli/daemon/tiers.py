@@ -12,6 +12,7 @@ TIER_ITERATORS = {
         "market_structure",    # pre-compute technicals before thesis/execution
         "thesis_engine",       # reads AI thesis files into ctx
         "radar",               # opportunity scanner (read-only intelligence)
+        "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in WATCH)
         "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
@@ -35,6 +36,7 @@ TIER_ITERATORS = {
         "risk",
         "guard",
         "rebalancer",
+        "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in REBALANCE)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -58,6 +60,7 @@ TIER_ITERATORS = {
         "guard",
         "rebalancer",
         "radar",
+        "news_ingest",         # sub-system 1: RSS → catalysts (read-only, safe in OPPORTUNISTIC)
         "pulse",
         "profit_lock",
         "funding_tracker",
