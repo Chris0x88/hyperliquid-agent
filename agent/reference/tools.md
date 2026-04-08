@@ -87,6 +87,29 @@ Read agent memory. Pass `"index"` (or omit) for the index, or a topic name like 
 ### `memory_write(topic, content)` (WRITE)
 Save a new memory topic or overwrite an existing one. Use this to capture conviction shifts, lessons from a trade, recurring patterns. Memory survives across sessions.
 
+### `search_lessons(query, market, direction, signal_source, lesson_type, outcome, include_rejected, limit)`
+BM25-ranked search over your trade lesson corpus. Every closed position gets a verbatim post-mortem written to `data/memory/memory.db` (table `lessons` + FTS5 virtual table `lessons_fts`) — this tool is how you recall them.
+
+**When to call this.** Before opening a new position, if you want to drill into a specific pattern: *"Have I traded BRENTOIL longs during weekend sessions before? What happened?"* The top-ranked lesson summaries are automatically injected into your prompt at decision time, but this tool lets you ask targeted questions that the prompt injection won't cover.
+
+**How ranking works.** Non-empty `query` runs FTS5 MATCH over `summary + body_full + tags` and ranks by BM25 (lower bm25_score = more relevant). Empty query returns most-recent lessons by `trade_closed_at`. Filters stack — all filters are AND-combined.
+
+- `query` — keyword search, optional. FTS5 operators are escaped, you can pass raw user text.
+- `market` — e.g. `"xyz:BRENTOIL"`, `"BTC"`, `"xyz:GOLD"`. Exact match.
+- `direction` — `"long"`, `"short"`, or `"flat"`.
+- `signal_source` — `"thesis_driven"`, `"radar"`, `"pulse_signal"`, `"pulse_immediate"`, `"manual"`, or any source string that appears in the corpus.
+- `lesson_type` — one of `"sizing"`, `"entry_timing"`, `"exit_quality"`, `"thesis_invalidation"`, `"funding_carry"`, `"catalyst_timing"`, `"pattern_recognition"`.
+- `outcome` — `"win"`, `"loss"`, `"breakeven"`, `"scratched"`.
+- `include_rejected` — default `false`. Lessons Chris rejected (`reviewed_by_chris = -1`) are hidden from ranking unless you pass `true`. Use `true` for anti-pattern queries like *"what kinds of setups did Chris tell me NOT to take?"*.
+- `limit` — default 5. Keep small — each result is a summary line plus metadata.
+
+Returns one line per hit: `#id YYYY-MM-DD market direction (signal_source, lesson_type) → outcome ROE% [review_flag]` plus the summary. Follow up with `get_lesson(id)` when you need the verbatim body.
+
+### `get_lesson(id)`
+Fetch one lesson by id and return its full verbatim body — the complete post-mortem including thesis snapshot at open time, entry reasoning, journal retrospective, autoresearch eval window, news context at open, and your structured analysis from when you wrote it. This is the "tell me everything" tool; `search_lessons` is the "find me candidates" tool.
+
+Use this after `search_lessons` when a ranked hit looks relevant. The body includes every piece of verbatim source material that was available when you wrote the lesson — nothing is summarised away. If you only need the one-line summary, it's already in the `search_lessons` output; don't call `get_lesson` to re-fetch something you already have.
+
 ## Self-knowledge tools (READ)
 
 ### `introspect_self()`

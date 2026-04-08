@@ -422,6 +422,100 @@ TOOL_DEFS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_lessons",
+            "description": (
+                "BM25-ranked search over your trade-lesson corpus (verbatim post-mortems "
+                "of closed trades written after each position closes). Use this BEFORE "
+                "opening a new position to check whether you've traded a similar setup "
+                "before and what happened — the lesson summaries are injected automatically "
+                "at decision time, but this tool lets you drill in with specific queries. "
+                "Empty query returns most-recent lessons ordered by trade_closed_at. "
+                "Non-empty query uses FTS5 over summary + body_full + tags, ranked by BM25. "
+                "Results exclude lessons Chris rejected (reviewed_by_chris = -1) unless "
+                "include_rejected=True (useful for anti-pattern search). Returns lesson "
+                "id, market, direction, outcome, ROE%, summary. Use get_lesson(id) to read "
+                "the verbatim body."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword search over summary/body/tags. Empty string returns recent lessons by date.",
+                        "default": "",
+                    },
+                    "market": {
+                        "type": "string",
+                        "description": "Optional market filter, e.g. 'xyz:BRENTOIL', 'BTC'.",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "description": "Optional direction filter: 'long', 'short', or 'flat'.",
+                        "enum": ["long", "short", "flat"],
+                    },
+                    "signal_source": {
+                        "type": "string",
+                        "description": "Optional signal source filter: 'thesis_driven', 'radar', 'pulse_signal', 'pulse_immediate', 'manual'.",
+                    },
+                    "lesson_type": {
+                        "type": "string",
+                        "description": "Optional lesson type filter.",
+                        "enum": [
+                            "sizing",
+                            "entry_timing",
+                            "exit_quality",
+                            "thesis_invalidation",
+                            "funding_carry",
+                            "catalyst_timing",
+                            "pattern_recognition",
+                        ],
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "description": "Optional outcome filter.",
+                        "enum": ["win", "loss", "breakeven", "scratched"],
+                    },
+                    "include_rejected": {
+                        "type": "boolean",
+                        "description": "If true, include lessons Chris rejected. Defaults to false — rejected lessons are hidden from ranking.",
+                        "default": False,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results. Default 5, max reasonable 20.",
+                        "default": 5,
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_lesson",
+            "description": (
+                "Fetch a single lesson by id and return its full verbatim body (the "
+                "entire post-mortem: thesis snapshot at open time, entry reasoning, "
+                "journal retrospective, autoresearch eval window, news context at open, "
+                "and your own structured analysis from when you wrote it). Call this "
+                "after search_lessons when a ranked hit looks relevant and you need the "
+                "full context, not just the summary."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Lesson id from search_lessons results.",
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+    },
 ]
 
 
@@ -1141,6 +1235,128 @@ def _tool_read_reference(args: dict) -> str:
     return _cap(path.read_text())
 
 
+def _format_holding(holding_ms: int) -> str:
+    """Render holding time as a compact human string."""
+    if holding_ms <= 0:
+        return "0m"
+    minutes = holding_ms // 60_000
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes / 60
+    if hours < 48:
+        return f"{hours:.1f}h"
+    return f"{hours/24:.1f}d"
+
+
+def _tool_search_lessons(args: dict) -> str:
+    """BM25-ranked search over the trade lesson corpus. See TOOL_DEFS entry."""
+    from common import memory as common_memory
+
+    try:
+        # Read _DB_PATH dynamically at call time so tests can monkeypatch it.
+        # The default-arg binding on search_lessons captures _DB_PATH at function
+        # definition time, so passing it explicitly here is the only reliable way.
+        rows = common_memory.search_lessons(
+            query=args.get("query", "") or "",
+            market=args.get("market") or None,
+            direction=args.get("direction") or None,
+            signal_source=args.get("signal_source") or None,
+            lesson_type=args.get("lesson_type") or None,
+            outcome=args.get("outcome") or None,
+            include_rejected=bool(args.get("include_rejected", False)),
+            limit=int(args.get("limit", 5) or 5),
+            db_path=common_memory._DB_PATH,
+        )
+    except Exception as e:
+        return f"Lesson search failed: {e}"
+
+    if not rows:
+        return "No lessons found for that query/filter combination."
+
+    lines = [f"Found {len(rows)} lesson(s):"]
+    for r in rows:
+        lesson_id = r.get("id")
+        market = r.get("market", "?")
+        direction = r.get("direction", "?")
+        outcome = r.get("outcome", "?")
+        roe = r.get("roe_pct", 0.0)
+        closed = (r.get("trade_closed_at") or "")[:10]
+        signal = r.get("signal_source", "?")
+        ltype = r.get("lesson_type", "?")
+        summary = r.get("summary", "").strip()
+        reviewed = r.get("reviewed_by_chris", 0)
+        review_flag = " [approved]" if reviewed == 1 else (" [rejected]" if reviewed == -1 else "")
+        lines.append(
+            f"\n#{lesson_id} {closed} {market} {direction} ({signal}, {ltype}) "
+            f"→ {outcome} {roe:+.1f}%{review_flag}\n  {summary}"
+        )
+    lines.append("\nUse get_lesson(id) to read the verbatim body.")
+    return "\n".join(lines)
+
+
+def _tool_get_lesson(args: dict) -> str:
+    """Fetch one lesson by id and render its full verbatim body."""
+    from common import memory as common_memory
+
+    raw_id = args.get("id")
+    if raw_id is None:
+        return "get_lesson requires 'id' argument"
+    try:
+        lesson_id = int(raw_id)
+    except (TypeError, ValueError):
+        return f"get_lesson id must be an integer, got {raw_id!r}"
+
+    try:
+        # Dynamic _DB_PATH read — same reason as _tool_search_lessons.
+        row = common_memory.get_lesson(lesson_id, db_path=common_memory._DB_PATH)
+    except Exception as e:
+        return f"get_lesson failed: {e}"
+
+    if row is None:
+        return f"Lesson #{lesson_id} not found."
+
+    # Tags come back from SQLite as a JSON string.
+    tags_raw = row.get("tags", "[]") or "[]"
+    try:
+        tags = json.loads(tags_raw) if isinstance(tags_raw, str) else list(tags_raw)
+    except (ValueError, TypeError):
+        tags = []
+
+    reviewed = row.get("reviewed_by_chris", 0)
+    review_flag = "approved" if reviewed == 1 else ("rejected" if reviewed == -1 else "unreviewed")
+
+    header_lines = [
+        f"# Lesson #{row.get('id')}",
+        f"**Trade closed:** {row.get('trade_closed_at', '?')}",
+        f"**Market:** {row.get('market', '?')} {row.get('direction', '?')}",
+        f"**Signal source:** {row.get('signal_source', '?')}",
+        f"**Lesson type:** {row.get('lesson_type', '?')}",
+        f"**Outcome:** {row.get('outcome', '?')} "
+        f"(PnL ${row.get('pnl_usd', 0):+.2f}, ROE {row.get('roe_pct', 0):+.2f}%, "
+        f"held {_format_holding(int(row.get('holding_ms') or 0))})",
+    ]
+    conviction = row.get("conviction_at_open")
+    if conviction is not None:
+        header_lines.append(f"**Conviction at open:** {conviction:.2f}")
+    journal_id = row.get("journal_entry_id")
+    if journal_id:
+        header_lines.append(f"**Journal entry:** {journal_id}")
+    thesis_path = row.get("thesis_snapshot_path")
+    if thesis_path:
+        header_lines.append(f"**Thesis snapshot:** {thesis_path}")
+    if tags:
+        header_lines.append(f"**Tags:** {', '.join(tags)}")
+    header_lines.append(f"**Review status:** {review_flag}")
+    header_lines.append("")
+    header_lines.append(f"**Summary:** {row.get('summary', '').strip()}")
+    header_lines.append("")
+    header_lines.append("## Verbatim body")
+    header_lines.append("")
+    header_lines.append((row.get("body_full") or "").strip())
+
+    return "\n".join(header_lines)
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -1168,6 +1384,8 @@ _TOOL_DISPATCH = {
     "get_feedback": _tool_get_feedback,
     "introspect_self": _tool_introspect_self,
     "read_reference": _tool_read_reference,
+    "search_lessons": _tool_search_lessons,
+    "get_lesson": _tool_get_lesson,
 }
 
 
