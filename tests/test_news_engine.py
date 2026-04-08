@@ -3,6 +3,8 @@ from pathlib import Path
 
 import tempfile
 
+import pytest
+
 from modules.news_engine import (
     Headline,
     Catalyst,
@@ -10,6 +12,12 @@ from modules.news_engine import (
     parse_feed,
     dedupe_headlines,
     load_rules,
+    tag_headline,
+)
+
+RULES_YAML = Path("data/config/news_rules.yaml")
+skip_if_no_rules = pytest.mark.skipif(
+    not RULES_YAML.exists(), reason="rules YAML lands in Phase 2"
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "news"
@@ -120,3 +128,59 @@ def test_load_rules_from_yaml():
     assert rules[0].direction is None
     assert rules[1].direction == "bull"
     assert "refinery" in rules[1].keywords_require_any
+
+
+def _make_headline(title: str, body: str = "") -> Headline:
+    return Headline(
+        id="h1",
+        source="test",
+        url="https://example.com/a",
+        title=title,
+        body_excerpt=body,
+        published_at=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        fetched_at=datetime(2026, 4, 9, tzinfo=timezone.utc),
+    )
+
+
+def _load_all_rules():
+    return load_rules("data/config/news_rules.yaml")
+
+
+@skip_if_no_rules
+def test_rule_trump_oil_announcement_fires():
+    rules = _load_all_rules()
+    h = _make_headline("Trump sets 8 PM deadline for Iran nuclear deal")
+    hits = tag_headline(h, rules)
+    assert any(r.name == "trump_oil_announcement" for r in hits)
+
+
+@skip_if_no_rules
+def test_rule_physical_damage_fires():
+    rules = _load_all_rules()
+    h = _make_headline("Drone strike hits Volgograd refinery, 200kbpd offline")
+    hits = tag_headline(h, rules)
+    assert any(r.name == "physical_damage_facility" for r in hits)
+
+
+@skip_if_no_rules
+def test_rule_shipping_attack_fires():
+    rules = _load_all_rules()
+    h = _make_headline("Houthi missiles strike VLCC in Red Sea, vessel ablaze")
+    hits = tag_headline(h, rules)
+    assert any(r.name == "shipping_attack" for r in hits)
+
+
+@skip_if_no_rules
+def test_rule_chokepoint_fires():
+    rules = _load_all_rules()
+    h = _make_headline("Hormuz strait closed after Iranian navy seizure")
+    hits = tag_headline(h, rules)
+    assert any(r.name == "chokepoint_blockade" for r in hits)
+
+
+@skip_if_no_rules
+def test_rule_negative_no_false_positive():
+    rules = _load_all_rules()
+    h = _make_headline("Trump tweets about golf tournament schedule")
+    hits = tag_headline(h, rules)
+    assert hits == []

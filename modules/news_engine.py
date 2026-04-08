@@ -129,3 +129,24 @@ def load_rules(yaml_path: str) -> list[Rule]:
             keywords_require_any=[k.lower() for k in rd.get("keywords_require_any", [])],
         ))
     return rules
+
+
+def tag_headline(headline: Headline, rules: list[Rule]) -> list[Rule]:
+    """Return every rule whose keyword pattern matches this headline.
+
+    A rule fires when:
+      - every entry in `keywords_all` appears in (title + body_excerpt), lowercased
+      - at least one entry in `keywords_any` appears
+      - if `keywords_require_any` is non-empty, at least one of those entries also appears
+    """
+    text = (headline.title + " " + headline.body_excerpt).lower()
+    hits: list[Rule] = []
+    for rule in rules:
+        if rule.keywords_all and not all(k in text for k in rule.keywords_all):
+            continue
+        if rule.keywords_any and not any(k in text for k in rule.keywords_any):
+            continue
+        if rule.keywords_require_any and not any(k in text for k in rule.keywords_require_any):
+            continue
+        hits.append(rule)
+    return hits
