@@ -233,6 +233,29 @@ class CatalystDeleverageIterator:
         catalyst.executed = True
         self._save_state()
 
+    # ------------------------------------------------------------------
+    # External catalyst injection (sub-system 1 news ingestion)
+    # ------------------------------------------------------------------
+
+    def add_external_catalysts(self, events: list[CatalystEvent]) -> int:
+        """Merge externally-supplied CatalystEvents into the iterator's list.
+
+        Dedupe by `name`. Called by the news_ingest iterator via file watching.
+        Returns the count of new events added.
+        """
+        existing_names = {c.name for c in self._catalysts}
+        added = 0
+        for ev in events:
+            if ev.name in existing_names:
+                continue
+            self._catalysts.append(ev)
+            existing_names.add(ev.name)
+            added += 1
+        if added:
+            log.info("CatalystDeleverage: merged %d external catalysts", added)
+            self._save_state()
+        return added
+
     def _maybe_warn(
         self,
         catalyst: CatalystEvent,
