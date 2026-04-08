@@ -89,7 +89,17 @@ def detect_orphans(
 
     Returns:
         List of {name, path, severity, reason} dicts.
+
+    Modules listed in guardian.knowns.ACCEPTED_ORPHANS are skipped — those
+    have been reviewed and acknowledged as intentional orphans.
     """
+    # Lazy import to keep drift.py usable when knowns.py isn't present
+    # (e.g. older snapshots or cut-down deployments).
+    try:
+        from guardian.knowns import ACCEPTED_ORPHANS
+    except ImportError:
+        ACCEPTED_ORPHANS = {}
+
     if entrypoints is None:
         entrypoints = DEFAULT_ENTRYPOINTS
 
@@ -105,6 +115,8 @@ def detect_orphans(
         if count == 0:
             m = modules_by_name.get(name, {"name": name})
             if _is_entrypoint(m, entrypoints):
+                continue
+            if m.get("path") in ACCEPTED_ORPHANS:
                 continue
             orphans.append({
                 "name": name,
@@ -195,9 +207,23 @@ def detect_parallel_tracks(
     `cli.commands.wallet` share `{cli, commands}` but have distinct stems
     `account` and `wallet`).
 
-    Also skips package markers and test conftest files that legitimately
-    recur across the tree.
+    Also skips:
+    - Package markers (__init__, __main__) and conftest files
+    - Files under tests/ (legitimately share test_X naming patterns)
+    - Generic stems (config, utils, models, etc.)
+    - Pairs matching guardian.knowns.PAIR_PATH_PATTERNS (architectural
+      patterns like cli/commands/X + cli/daemon/iterators/X)
+    - Pairs listed in guardian.knowns.INTENTIONAL_PAIRS
     """
+    try:
+        from guardian.knowns import is_intentional_pair, matches_pair_pattern
+    except ImportError:
+        def is_intentional_pair(_a: str, _b: str) -> bool:  # type: ignore[no-redef]
+            return False
+
+        def matches_pair_pattern(_a: str, _b: str) -> bool:  # type: ignore[no-redef]
+            return False
+
     modules = inventory.get("modules", [])
     pairs: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -216,7 +242,9 @@ def detect_parallel_tracks(
         candidates.append((m, stem))
 
     for i, (a, a_stem) in enumerate(candidates):
+        a_path = a.get("path", "")
         for b, b_stem in candidates[i + 1:]:
+            b_path = b.get("path", "")
             if a_stem == b_stem:
                 # Exact stem match.
                 if a["name"] == b["name"]:
@@ -233,12 +261,17 @@ def detect_parallel_tracks(
                 key = tuple(sorted([a["name"], b["name"]]))
                 if key in seen:
                     continue
+                # Skip legitimate architectural patterns from knowns.py
+                if matches_pair_pattern(a_path, b_path):
+                    continue
+                if is_intentional_pair(a_path, b_path):
+                    continue
                 seen.add(key)
                 pairs.append({
                     "a": a["name"],
                     "b": b["name"],
-                    "a_path": a.get("path", "?"),
-                    "b_path": b.get("path", "?"),
+                    "a_path": a_path,
+                    "b_path": b_path,
                     "similarity": round(sim, 2),
                     "severity": "P1",
                     "reason": f"Module names share {sim:.0%} token overlap — possible parallel track",
