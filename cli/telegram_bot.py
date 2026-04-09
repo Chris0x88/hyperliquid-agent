@@ -1142,6 +1142,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /lesson approve|reject <id> — curate\n"
         "  /lessonsearch <query> — BM25 search\n"
         "  /lessonauthorai [N|all] — author pending candidates via AI\n"
+        "  /brutalreviewai — full deep audit of the codebase + trading state (AI)\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -2704,6 +2705,7 @@ from cli.telegram_commands.lessons import (  # noqa: E402
     cmd_lessons,
     cmd_lessonsearch,
 )
+from cli.telegram_commands.brutal_review import cmd_brutalreviewai  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2765,6 +2767,9 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/lessonsearch weekend wick` — BM25 keyword search over summaries/bodies/tags\n"
         "`/lessonauthorai` — manually trigger AI authoring of pending candidates "
         "(also runs automatically every dream cycle on the same 24h+3 trigger)\n"
+        "`/brutalreviewai` — full deep audit of codebase + trading state. "
+        "Brutally honest, file-and-line-cited, ranked action list. Run weekly "
+        "or after major changes. Output lands at `data/reviews/brutal_review_<date>.md`.\n"
         "The agent sees the top recent lessons automatically in its system prompt; "
         "use these commands to browse and curate from Telegram.\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
@@ -4238,6 +4243,7 @@ HANDLERS = {
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
     "/lessonauthorai": cmd_lessonauthorai,
+    "/brutalreviewai": cmd_brutalreviewai,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -4301,6 +4307,7 @@ HANDLERS = {
     "lesson": cmd_lesson,
     "lessonsearch": cmd_lessonsearch,
     "lessonauthorai": cmd_lessonauthorai,
+    "brutalreviewai": cmd_brutalreviewai,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -4377,6 +4384,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
         {"command": "lessonauthorai", "description": "Author pending lesson candidates via AI (dream cycle also runs this)"},
+        {"command": "brutalreviewai", "description": "Run the Brutal Review Loop — full deep audit (AI)"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},
