@@ -264,10 +264,161 @@ class BotPatternStrategyIterator:
                 self._emit_close(instrument, pos, ctx, reason)
                 return
 
+        # Adaptive live evaluation — test the hypothesis each tick.
+        # v1: EXIT-only for live positions (tighten_stop / trail require
+        # exchange-side stop modification, deferred to a future wedge
+        # that integrates with exchange_protection).
+        if pos.get("entry_classification"):
+            try:
+                self._evaluate_live_adaptive(instrument, pos, ctx, now)
+            except Exception as e:  # noqa: BLE001
+                log.warning("oil_botpattern: live adaptive eval failed for %s: %s", instrument, e)
+
         # Protection audit: if protection_audit has flagged this position
         # as unprotected, force-close immediately. Read from ctx.alerts
         # if present; simpler: let exchange_protection do its job and
         # exit-on-failure lives in a future wedge.
+
+    def _evaluate_live_adaptive(
+        self,
+        instrument: str,
+        pos: dict,
+        ctx: TickContext,
+        now: datetime,
+    ) -> None:
+        """Run the adaptive evaluator against a LIVE position record.
+
+        Emits a close OrderIntent on EXIT. Tighten/trail are logged + alerted
+        but the exchange-side stop is NOT modified — that's a future wedge.
+        """
+        current_price = self._current_price(instrument, ctx)
+        if current_price <= 0:
+            return
+
+        entry_price = float(pos.get("entry_price", 0.0) or 0.0)
+        expected_reach = float(pos.get("expected_reach_price", 0.0) or 0.0)
+        if expected_reach <= 0 and entry_price > 0:
+            pct = float(self._config.get("adaptive_live_expected_reach_pct", 5.0))
+            if pos.get("side") == "long":
+                expected_reach = entry_price * (1.0 + pct / 100.0)
+            else:
+                expected_reach = entry_price * (1.0 - pct / 100.0)
+
+        hypothesis = PositionHypothesis(
+            instrument=instrument,
+            side=str(pos.get("side", "long")),
+            entry_ts=str(pos.get("entry_ts", "")),
+            entry_price=entry_price,
+            expected_reach_price=expected_reach,
+            expected_reach_hours=float(
+                pos.get("expected_reach_hours")
+                or self._config.get("adaptive_expected_reach_hours", 48.0)
+            ),
+            entry_classification=str(pos.get("entry_classification", "")),
+            entry_confidence=float(pos.get("entry_confidence", 0.0) or 0.0),
+            entry_pattern_direction=str(pos.get("entry_pattern_direction", "")),
+        )
+
+        cfg = adaptive_config_from_dict(self._config.get("adaptive", {}))
+        catalysts = self._load_upcoming_catalysts_for_adaptive(now)
+        supply = self._load_supply_state()
+        patterns = self._load_latest_patterns_by_instrument()
+        latest_pattern = (
+            patterns.get(instrument) or patterns.get(f"xyz:{instrument}")
+        )
+        snapshot = MarketSnapshot(
+            current_price=current_price,
+            latest_pattern=latest_pattern,
+            recent_catalysts=catalysts,
+            supply_state=supply,
+            now=now,
+        )
+        decision = adaptive_evaluate(
+            hypothesis, snapshot, cfg,
+            current_stop_price=None,  # live stops are exchange-side, not in this record
+        )
+        self._log_live_adaptive_decision(hypothesis, snapshot, decision, pos, now)
+
+        if decision.action == AdaptiveAction.EXIT:
+            reason = f"adaptive: {decision.reason}"
+            self._emit_close(instrument, pos, ctx, reason)
+            ctx.alerts.append(Alert(
+                severity="warning", source=self.name,
+                message=(
+                    f"🛑 LIVE ADAPTIVE EXIT {instrument} {pos.get('side', '?').upper()} "
+                    f"@ {current_price:,.2f} — {decision.reason}"
+                ),
+                data={
+                    "instrument": instrument,
+                    "adaptive_action": "exit",
+                    "reason": decision.reason,
+                    "price_progress": decision.price_progress,
+                    "time_progress": decision.time_progress,
+                    "velocity_ratio": decision.velocity_ratio,
+                },
+            ))
+            return
+
+        if decision.action in (
+            AdaptiveAction.TIGHTEN_STOP,
+            AdaptiveAction.TRAIL_BREAKEVEN,
+        ):
+            # v1: log + alert only. Stop modification lives in a future
+            # wedge that integrates with exchange_protection.
+            ctx.alerts.append(Alert(
+                severity="info", source=self.name,
+                message=(
+                    f"🔒 LIVE ADAPTIVE {decision.action.value.upper()} "
+                    f"{instrument} {pos.get('side', '?').upper()} — "
+                    f"suggests stop at {decision.new_stop_price:,.2f} "
+                    f"({decision.reason}). Manual action required."
+                ),
+                data={
+                    "instrument": instrument,
+                    "adaptive_action": decision.action.value,
+                    "suggested_stop": decision.new_stop_price,
+                    "reason": decision.reason,
+                    "price_progress": decision.price_progress,
+                },
+            ))
+
+    def _log_live_adaptive_decision(
+        self,
+        hypothesis: PositionHypothesis,
+        snapshot: MarketSnapshot,
+        decision,
+        pos: dict,
+        now: datetime,
+    ) -> None:
+        """Persist a live-mode adaptive decision to the append-only log."""
+        last_hb_str = pos.get("adaptive_last_heartbeat_ts")
+        last_hb: datetime | None = None
+        if last_hb_str:
+            try:
+                last_hb = datetime.fromisoformat(last_hb_str)
+                if last_hb.tzinfo is None:
+                    last_hb = last_hb.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                last_hb = None
+
+        hb_minutes = float(self._config.get("adaptive_heartbeat_minutes", 15.0))
+        if not adaptive_should_log(
+            decision, last_heartbeat_at=last_hb, now=now,
+            heartbeat_interval_minutes=hb_minutes,
+        ):
+            return
+
+        entry = build_log_entry(hypothesis, snapshot, decision, now)
+        # Tag live vs shadow so downstream consumers can filter
+        entry["mode"] = "live"
+        path = self._adaptive_log_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a") as f:
+                f.write(json.dumps(entry) + "\n")
+            pos["adaptive_last_heartbeat_ts"] = now.isoformat()
+        except OSError as e:
+            log.warning("oil_botpattern: failed to append live adaptive log: %s", e)
 
     def _emit_close(
         self,
@@ -469,7 +620,16 @@ class BotPatternStrategyIterator:
         ))
 
         # Update state: open position record (optimistic — exchange_protection
-        # will attach stops when the fill lands)
+        # will attach stops when the fill lands). Hypothesis fields are
+        # captured here so the adaptive evaluator can test the thesis
+        # every tick for live positions the same way it does for shadow.
+        live_expected_reach_pct = float(
+            self._config.get("adaptive_live_expected_reach_pct", 5.0)
+        )
+        if direction == "long":
+            expected_reach_price = price * (1.0 + live_expected_reach_pct / 100.0)
+        else:
+            expected_reach_price = price * (1.0 - live_expected_reach_pct / 100.0)
         state.open_positions[instrument] = {
             "side": direction,
             "entry_ts": now.isoformat(),
@@ -478,6 +638,14 @@ class BotPatternStrategyIterator:
             "leverage": float(sizing.leverage),
             "cumulative_funding_usd": 0.0,
             "realised_pnl_today_usd": 0.0,
+            "entry_classification": cls,
+            "entry_confidence": conf,
+            "entry_pattern_direction": pat_dir,
+            "expected_reach_price": expected_reach_price,
+            "expected_reach_hours": float(
+                self._config.get("adaptive_expected_reach_hours", 48.0)
+            ),
+            "adaptive_last_heartbeat_ts": None,
         }
 
         # Warning alert on every short-leg open (visible in Telegram)
@@ -1109,6 +1277,7 @@ class BotPatternStrategyIterator:
             return
 
         entry = build_log_entry(hypothesis, snapshot, decision, now)
+        entry["mode"] = "shadow"
         path = self._adaptive_log_path()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
