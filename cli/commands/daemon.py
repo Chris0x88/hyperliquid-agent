@@ -254,6 +254,11 @@ def daemon_start(
     except ImportError:
         pass
     try:
+        from cli.daemon.iterators.thesis_challenger import ThesisChallengerIterator
+        clock.register(ThesisChallengerIterator())  # catalyst vs thesis invalidation matcher
+    except ImportError:
+        pass
+    try:
         from cli.daemon.iterators.lab import LabIterator
         clock.register(LabIterator())  # strategy development pipeline (kill switch OFF at ship)
     except ImportError:

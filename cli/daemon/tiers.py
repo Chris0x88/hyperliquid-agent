@@ -37,6 +37,7 @@ TIER_ITERATORS = {
         "oil_botpattern_patternlib",  # sub-system 6 L3: pattern library growth (read-only observational, safe in WATCH)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
@@ -74,6 +75,7 @@ TIER_ITERATORS = {
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
@@ -113,6 +115,7 @@ TIER_ITERATORS = {
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
