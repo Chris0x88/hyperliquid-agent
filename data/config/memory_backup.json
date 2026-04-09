@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "interval_hours": 1,
+  "source_path": "data/memory/memory.db",
+  "backup_dir": "data/memory/backups",
+  "keep_hourly": 24,
+  "keep_daily": 7,
+  "keep_weekly": 4,
+  "verify_integrity": true
+}

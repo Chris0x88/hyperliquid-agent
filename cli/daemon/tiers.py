@@ -24,6 +24,7 @@ TIER_ITERATORS = {
         "memory_consolidation", # compress old events hourly
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
     "rebalance": [
@@ -52,6 +53,7 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
     "opportunistic": [
@@ -82,6 +84,7 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
 }
