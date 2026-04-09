@@ -173,7 +173,7 @@ Each sub-system gets its own spec file under `agent-cli/docs/plans/`:
 - `OIL_BOT_PATTERN_03_LIQUIDITY_HEATMAP.md` — TBD
 - `OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md` — TBD
 - `OIL_BOT_PATTERN_05_STRATEGY_ENGINE.md` — TBD
-- `OIL_BOT_PATTERN_06_SELF_TUNE_HARNESS.md` — TBD
+- `OIL_BOT_PATTERN_06_SELF_TUNE_HARNESS.md` — shipped 2026-04-09 (L1 + L2 only; L3/L4/L5 deferred)
 
 ## 9. Things deliberately deferred
 
