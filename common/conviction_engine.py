@@ -128,12 +128,52 @@ def is_near_roll_window(dt: datetime | None = None) -> bool:
 # 4. Safety guards
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def check_oil_direction_guard(direction: str) -> bool:
-    """HARDCODED: oil is LONG or NEUTRAL only. Never short.
+def check_direction_guard(
+    symbol: str,
+    direction: str,
+    subsystem: str | None = None,
+) -> bool:
+    """Is ``direction`` allowed for ``symbol`` under ``subsystem``?
 
-    This is NOT configurable. It reflects a core portfolio rule.
+    Wedge 1 of the Multi-Market Expansion: this is the config-driven successor
+    to ``check_oil_direction_guard``. It delegates to
+    ``common.markets.MarketRegistry.is_direction_allowed``, which reads the
+    per-instrument ``direction_bias`` field from ``data/config/markets.yaml``.
+
+    Behaviour:
+    - Neutral-bias markets (BTC, GOLD, SILVER, ...) allow any direction.
+    - Long-only markets (BRENTOIL) block ``short`` — unless ``subsystem``
+      is listed in the market's ``exception_subsystems`` (oil_botpattern).
+    - Non-directional states (``""``, ``"flat"``, ``"neutral"``) are always
+      allowed — they represent "no position" or "close", not a new trade.
+    - Unknown symbols fail closed: the registry returns False and logs a
+      warning. Callers that need the legacy "pass unknown" semantics should
+      guard with ``registry.is_known(symbol)`` first.
+
+    This function performs the registry lookup lazily via
+    ``get_default_registry()`` so importing ``conviction_engine`` does not
+    touch the filesystem until the first call.
     """
-    return direction.lower() in ("long", "flat", "neutral", "")
+    # Local import to keep module-import cheap and to avoid circulars
+    from common.markets import get_default_registry
+
+    return get_default_registry().is_direction_allowed(
+        symbol, direction, subsystem=subsystem
+    )
+
+
+def check_oil_direction_guard(direction: str) -> bool:
+    """Deprecated alias — kept for backwards compatibility.
+
+    Pre-Wedge-1 callers pass just a ``direction`` string and implicitly mean
+    BRENTOIL. New code should call ``check_direction_guard(symbol, direction,
+    subsystem)`` instead, which routes through the MarketRegistry.
+
+    Behaviour at ship time is IDENTICAL: this delegates to the registry with
+    ``BRENTOIL`` and no subsystem exception, so the oil long-only rule is
+    enforced exactly as before.
+    """
+    return check_direction_guard("BRENTOIL", direction, subsystem=None)
 
 
 def can_execute_add(
