@@ -30,19 +30,34 @@ _DEFAULT_N = 10
 _MAX_SEARCH_RESULTS = 20
 _SNIPPET_CHARS = 220  # per-entry preview in Telegram bodies
 
+# Hard upper bound on rows loaded from disk for any single command
+# invocation, regardless of file size or .bak union. Per NORTH_STAR P10
+# (preserve everything, retrieve sparingly, bound every read path) and
+# MASTER_PLAN Critical Rule 11. The corpus may grow to gigabytes; one
+# /chathistory call still loads at most this many rows into memory.
+# Telegram's practical message limit is ~3500 chars; ~2000 short rows
+# is well past anything that could fit in a single response.
+_MAX_LOADED_ROWS = 2000
 
-def _load_all_rows() -> List[Dict]:
+
+def _load_live_rows() -> List[Dict]:
     """Load every row from the live chat history file.
 
     Returns an empty list if the file is missing or unreadable. Malformed
     lines are silently skipped so one bad row doesn't black out the whole
     command.
     """
-    if not _HISTORY_PATH.exists():
+    return _load_jsonl(_HISTORY_PATH)
+
+
+def _load_jsonl(path: Path) -> List[Dict]:
+    """Read a single chat-history JSONL file. Internal helper used by
+    both the live loader and the .bak union loader."""
+    if not path.exists():
         return []
     rows: List[Dict] = []
     try:
-        for line in _HISTORY_PATH.read_text().splitlines():
+        for line in path.read_text().splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -53,6 +68,53 @@ def _load_all_rows() -> List[Dict]:
     except OSError:
         return []
     return rows
+
+
+def _load_all_rows_unioned() -> List[Dict]:
+    """Load the live history file PLUS the sibling .bak* files, unioned
+    and chronologically sorted by ``ts``.
+
+    Used by the search subcommand only — the user's "historical oracle"
+    framing means searches should reach the 121 rows that exist only in
+    ``.bak`` and ``.bak2`` (manually truncated before the rotation
+    audit). The default tail listing still uses the live file alone so
+    "last 10" means the 10 most recent live rows, not 10 sampled across
+    archives.
+
+    Hard-bounded by ``_MAX_LOADED_ROWS`` per NORTH_STAR P10. If the
+    union exceeds the cap, the OLDEST rows are dropped (most-recent-wins)
+    so a search query against the live file is preserved at the expense
+    of older archived matches.
+    """
+    rows: List[Dict] = []
+    rows.extend(_load_jsonl(_HISTORY_PATH))
+    for sibling in sorted(_HISTORY_PATH.parent.glob("chat_history.jsonl.bak*")):
+        if sibling.is_file():
+            rows.extend(_load_jsonl(sibling))
+
+    # Sort chronologically; preserve insertion order ties via stable sort.
+    # Rows with missing/invalid ts sort to the front (treated as "earliest")
+    # so they are dropped first if we hit the cap.
+    def _ts_key(r: Dict) -> int:
+        try:
+            return int(r.get("ts", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    rows.sort(key=_ts_key)
+
+    if len(rows) > _MAX_LOADED_ROWS:
+        # Drop oldest, keep newest
+        rows = rows[-_MAX_LOADED_ROWS:]
+    return rows
+
+
+# Backwards-compat shim for tests / external callers that imported the
+# pre-followup name. Returns live rows only.
+def _load_all_rows() -> List[Dict]:
+    """Load the live chat history file. Backwards-compat alias for
+    `_load_live_rows()`. New callers should pick the explicit function."""
+    return _load_live_rows()
 
 
 def _fmt_ts(ts: int) -> str:
@@ -97,9 +159,12 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
     from cli.telegram_bot import tg_send
 
     arg = (args or "").strip()
-    rows = _load_all_rows()
+    live_rows = _load_live_rows()
 
-    if not rows:
+    if not live_rows and not arg.lower().startswith("search"):
+        # Search may still find archived rows even when the live file is
+        # empty (e.g. if it was just rotated by a future bug). Default and
+        # stats need at least one live row.
         tg_send(token, chat_id,
                 "💬 *Chat History*\n\n"
                 "No entries yet. The history file is empty or missing:\n"
@@ -108,7 +173,7 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
 
     # --- sub-command routing --------------------------------------------
     if arg.lower().startswith("stats"):
-        _render_stats(token, chat_id, rows)
+        _render_stats(token, chat_id, live_rows)
         return
 
     if arg.lower().startswith("search"):
@@ -117,12 +182,18 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
             tg_send(token, chat_id,
                     "💬 *Chat History — Search*\n\n"
                     "Usage: `/chathistory search <query>`\n"
-                    "Searches across all entries (case-insensitive).")
+                    "Searches across all entries — live + .bak archives "
+                    "(case-insensitive).")
             return
-        _render_search(token, chat_id, rows, query)
+        # Search uses the unioned loader so the 121 rows that live only
+        # in `.bak` / `.bak2` (manually truncated before the 2026-04-09
+        # rotation audit) are still findable. The unioned loader is
+        # hard-capped at _MAX_LOADED_ROWS per NORTH_STAR P10.
+        all_rows = _load_all_rows_unioned()
+        _render_search(token, chat_id, all_rows, query, live_count=len(live_rows))
         return
 
-    # --- default: last N -----------------------------------------------
+    # --- default: last N (from live file only) -------------------------
     n = _DEFAULT_N
     if arg:
         try:
@@ -136,7 +207,7 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
                     "  `/chathistory search <query>`\n"
                     "  `/chathistory stats`")
             return
-    _render_tail(token, chat_id, rows, n)
+    _render_tail(token, chat_id, live_rows, n)
 
 
 def _render_tail(token: str, chat_id: str, rows: List[Dict], n: int) -> None:
@@ -152,23 +223,40 @@ def _render_tail(token: str, chat_id: str, rows: List[Dict], n: int) -> None:
     tg_send(token, chat_id, "\n".join(lines))
 
 
-def _render_search(token: str, chat_id: str, rows: List[Dict], query: str) -> None:
-    """Render case-insensitive substring search results (most recent first)."""
+def _render_search(
+    token: str,
+    chat_id: str,
+    rows: List[Dict],
+    query: str,
+    live_count: int = 0,
+) -> None:
+    """Render case-insensitive substring search results (most recent first).
+
+    ``rows`` is the unioned set (live + .bak archives, capped at
+    _MAX_LOADED_ROWS). ``live_count`` is the size of the live file alone
+    so we can compute how many archived rows were searched.
+    """
     from cli.telegram_bot import tg_send
     q = query.lower()
     matches = [r for r in rows if q in (r.get("text") or "").lower()]
+    archived_searched = max(0, len(rows) - live_count)
     if not matches:
+        scope = (
+            f"Searched `{len(rows)}` rows "
+            f"(`{live_count}` live + `{archived_searched}` archived)."
+        )
         tg_send(token, chat_id,
                 f"💬 *Chat History — Search*\n\n"
-                f"No entries match `{query}`. Searched `{len(rows)}` rows.")
+                f"No entries match `{query}`. {scope}")
         return
     # Most recent first — user wants to see "how did I last talk about oil"
-    matches.reverse()
+    matches.sort(key=lambda r: int(r.get("ts") or 0), reverse=True)
     shown = matches[:_MAX_SEARCH_RESULTS]
     lines = [
         f"💬 *Chat History — Search*",
-        f"Query: `{query}` · `{len(matches)}` matches "
-        f"(showing latest `{len(shown)}`)",
+        f"Query: `{query}` · `{len(matches)}` matches across "
+        f"`{len(rows)}` rows (`{live_count}` live + `{archived_searched}` archived) "
+        f"· showing latest `{len(shown)}`",
         "",
     ]
     for row in shown:

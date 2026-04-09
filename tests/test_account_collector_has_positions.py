@@ -159,3 +159,82 @@ class TestHasPositionsUnwrap:
         # Flat → reset HWM to current equity
         assert it._high_water_mark == 500.0
         assert "Flat (no positions)" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Followup 2 (2026-04-09): ctx.prices → snapshot["prices"] for chat history
+# market_context enrichment.
+# ---------------------------------------------------------------------------
+#
+# The chat-history correlation pipeline (cli/telegram_agent.py:_log_chat ->
+# _build_market_context_snapshot) was already forward-compatible: if the
+# account snapshot dict has a `prices` key, it will pick it up. Followup 2
+# is the producer side — the account_collector iterator copies ctx.prices
+# (which ConnectorIterator populates) into the snapshot dict. Stringified
+# Decimals so the snapshot stays JSON-serializable.
+
+
+class TestSnapshotPricesEnrichment:
+    def test_ctx_prices_populate_snapshot_prices_field(self, tmp_path):
+        """When ctx.prices is non-empty, snapshot['prices'] mirrors it as
+        string values keyed by symbol."""
+        from decimal import Decimal
+
+        adapter = _FakeAdapter(
+            native_positions=[],
+            perp_value=0.0,
+            spot_usdc=100.0,
+        )
+        it = AccountCollectorIterator(adapter=adapter, snapshot_dir=str(tmp_path))
+
+        ctx = TickContext()
+        ctx.prices["BTC"] = Decimal("94250.50")
+        ctx.prices["xyz:BRENTOIL"] = Decimal("78.41")
+
+        snap = it._build_snapshot(ctx)
+        assert snap is not None
+        assert "prices" in snap
+        assert snap["prices"]["BTC"] == "94250.50"
+        assert snap["prices"]["xyz:BRENTOIL"] == "78.41"
+
+    def test_empty_ctx_prices_omits_snapshot_prices(self, tmp_path):
+        """No prices on ctx → no `prices` key on the snapshot. Downstream
+        consumers test for the key's presence so this matters."""
+        adapter = _FakeAdapter(
+            native_positions=[],
+            perp_value=0.0,
+            spot_usdc=100.0,
+        )
+        it = AccountCollectorIterator(adapter=adapter, snapshot_dir=str(tmp_path))
+
+        ctx = TickContext()  # ctx.prices is an empty dict by default
+        snap = it._build_snapshot(ctx)
+        assert snap is not None
+        # Empty ctx.prices means no prices field on snapshot
+        assert "prices" not in snap or snap["prices"] == {}
+
+    def test_snapshot_remains_json_serializable_with_prices(self, tmp_path):
+        """Decimals get stringified so json.dumps doesn't crash on the
+        snapshot. This is the critical contract — snapshot files must be
+        loadable by every downstream reader (chat history enrichment,
+        agent tools, brutal review)."""
+        import json
+        from decimal import Decimal
+
+        adapter = _FakeAdapter(
+            native_positions=[],
+            perp_value=0.0,
+            spot_usdc=100.0,
+        )
+        it = AccountCollectorIterator(adapter=adapter, snapshot_dir=str(tmp_path))
+
+        ctx = TickContext()
+        ctx.prices["BTC"] = Decimal("94250.50")
+        ctx.prices["GOLD"] = Decimal("2105.75")
+
+        snap = it._build_snapshot(ctx)
+        # Round-trip through JSON to prove serializability
+        serialized = json.dumps(snap)
+        loaded = json.loads(serialized)
+        assert loaded["prices"]["BTC"] == "94250.50"
+        assert loaded["prices"]["GOLD"] == "2105.75"

@@ -230,6 +230,22 @@ class AccountCollectorIterator:
         except Exception as e:
             log.warning("Failed to fetch xyz state: %s", e)
 
+        # Followup 2 (2026-04-09): persist tracked-instrument prices into the
+        # snapshot so the chat-history market_context enrichment can fill the
+        # `prices` field. Read from ctx.prices (populated by ConnectorIterator
+        # earlier in the tier order). Decimal → str so the snapshot stays
+        # JSON-serializable. Bounded by the tracked-symbol set on ctx — never
+        # arbitrary growth. Best-effort: any failure leaves prices unset and
+        # downstream consumers already handle None.
+        try:
+            ctx_prices = getattr(ctx, "prices", None) or {}
+            if ctx_prices:
+                snapshot["prices"] = {
+                    str(symbol): str(price) for symbol, price in ctx_prices.items()
+                }
+        except Exception as e:  # pragma: no cover — defensive
+            log.warning("Failed to attach ctx.prices to snapshot: %s", e)
+
         # Compute total equity: perps (native + xyz) + spot USDC
         # account_value may only have perps — spot USDC sits separately
         perp_equity = float(snapshot.get("account_value", 0))

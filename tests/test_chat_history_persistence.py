@@ -259,3 +259,167 @@ class TestBackwardsCompatibility:
         assert len(loaded) == 3
         assert loaded[0]["text"] == "old1"
         assert loaded[-1]["text"] == "new1"
+
+
+# ---------------------------------------------------------------------------
+# Followup 1 (2026-04-09): .bak archive union loader for /chathistory search
+# ---------------------------------------------------------------------------
+#
+# The chat history rotation audit found that 121 historical rows live ONLY
+# in `chat_history.jsonl.bak` and `.bak2` (the live file was manually
+# truncated before April 3). The user wants those rows reachable via
+# /chathistory search WITHOUT the writer ever touching them.
+#
+# These tests pin three contracts:
+# 1. The union loader returns live + .bak rows (the recovery path)
+# 2. Per NORTH_STAR P10, the union is hard-capped at _MAX_LOADED_ROWS
+#    even if the corpus grows beyond that — newest rows win, oldest
+#    are dropped
+# 3. _load_live_rows() is unchanged (the default tail listing only
+#    sees the live file, never archived rows)
+
+
+@pytest.fixture
+def patched_chathistory_path(tmp_path, monkeypatch):
+    """Redirect cli.telegram_commands.chat_history._HISTORY_PATH to tmp."""
+    from cli.telegram_commands import chat_history as ch
+    new_path = tmp_path / "chat_history.jsonl"
+    monkeypatch.setattr(ch, "_HISTORY_PATH", new_path)
+    return new_path
+
+
+class TestChatHistoryUnionLoader:
+    def test_live_only_when_no_bak_files(self, patched_chathistory_path):
+        from cli.telegram_commands.chat_history import (
+            _load_all_rows_unioned,
+            _load_live_rows,
+        )
+        rows = [
+            {"ts": 100, "role": "user", "text": "live one"},
+            {"ts": 200, "role": "assistant", "text": "live two"},
+        ]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in rows) + "\n"
+        )
+        unioned = _load_all_rows_unioned()
+        live = _load_live_rows()
+        assert len(unioned) == 2
+        assert len(live) == 2
+        assert [r["ts"] for r in unioned] == [100, 200]
+
+    def test_union_pulls_in_bak_rows(self, patched_chathistory_path):
+        from cli.telegram_commands.chat_history import (
+            _load_all_rows_unioned,
+            _load_live_rows,
+        )
+        live_rows = [{"ts": 300, "role": "user", "text": "live"}]
+        bak_rows = [{"ts": 100, "role": "user", "text": "bak1"}]
+        bak2_rows = [{"ts": 200, "role": "user", "text": "bak2"}]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in live_rows) + "\n"
+        )
+        bak_path = patched_chathistory_path.with_suffix(".jsonl.bak")
+        bak_path.write_text("\n".join(json.dumps(r) for r in bak_rows) + "\n")
+        bak2_path = patched_chathistory_path.with_suffix(".jsonl.bak2")
+        bak2_path.write_text("\n".join(json.dumps(r) for r in bak2_rows) + "\n")
+
+        unioned = _load_all_rows_unioned()
+        # Live: 1, .bak: 1, .bak2: 1 → 3 total
+        assert len(unioned) == 3
+        # Sorted chronologically
+        assert [r["ts"] for r in unioned] == [100, 200, 300]
+        # Texts present from all three sources
+        texts = {r["text"] for r in unioned}
+        assert texts == {"live", "bak1", "bak2"}
+
+        # Live loader is unchanged — only sees the live file
+        live_only = _load_live_rows()
+        assert len(live_only) == 1
+        assert live_only[0]["text"] == "live"
+
+    def test_union_hard_cap_drops_oldest(self, patched_chathistory_path, monkeypatch):
+        """Per NORTH_STAR P10: regardless of corpus size, one load returns
+        at most _MAX_LOADED_ROWS rows. Oldest are dropped, newest win."""
+        from cli.telegram_commands import chat_history as ch
+        # Squeeze the cap so the test runs in a couple hundred rows
+        monkeypatch.setattr(ch, "_MAX_LOADED_ROWS", 50)
+
+        # Plant 200 live rows ts=1..200
+        live_rows = [
+            {"ts": i, "role": "user", "text": f"live-{i}"}
+            for i in range(1, 201)
+        ]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in live_rows) + "\n"
+        )
+
+        unioned = ch._load_all_rows_unioned()
+        # Hard-capped at 50 even though 200 rows exist on disk
+        assert len(unioned) == 50
+        # Newest 50 wins (ts 151..200)
+        ts_set = {r["ts"] for r in unioned}
+        assert min(ts_set) == 151
+        assert max(ts_set) == 200
+
+    def test_backwards_compat_alias_returns_live_only(self, patched_chathistory_path):
+        from cli.telegram_commands.chat_history import _load_all_rows
+        live_rows = [{"ts": 100, "role": "user", "text": "live"}]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in live_rows) + "\n"
+        )
+        bak_path = patched_chathistory_path.with_suffix(".jsonl.bak")
+        bak_path.write_text(json.dumps({"ts": 50, "role": "user", "text": "bak"}) + "\n")
+
+        # The pre-followup name now aliases to _load_live_rows() so any
+        # caller that imported it continues to see live-only behavior.
+        result = _load_all_rows()
+        assert len(result) == 1
+        assert result[0]["text"] == "live"
+
+    def test_malformed_bak_lines_skipped(self, patched_chathistory_path):
+        from cli.telegram_commands.chat_history import _load_all_rows_unioned
+        live_rows = [{"ts": 200, "role": "user", "text": "live"}]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in live_rows) + "\n"
+        )
+        bak_path = patched_chathistory_path.with_suffix(".jsonl.bak")
+        bak_path.write_text(
+            json.dumps({"ts": 100, "role": "user", "text": "bak1"}) + "\n"
+            + "{not json\n"
+            + json.dumps({"ts": 150, "role": "user", "text": "bak2"}) + "\n"
+        )
+        unioned = _load_all_rows_unioned()
+        # 1 live + 2 valid bak rows = 3 (the malformed line is skipped)
+        assert len(unioned) == 3
+        assert {r["text"] for r in unioned} == {"live", "bak1", "bak2"}
+
+    def test_search_subcommand_uses_unioned_loader(self, patched_chathistory_path):
+        """End-to-end: /chathistory search should find a row that exists
+        only in .bak (the original recovery use case)."""
+        from cli.telegram_commands.chat_history import cmd_chathistory
+        from unittest.mock import patch
+
+        # Live file: only contains a recent unrelated row
+        live_rows = [{"ts": 9999, "role": "user", "text": "recent"}]
+        patched_chathistory_path.write_text(
+            "\n".join(json.dumps(r) for r in live_rows) + "\n"
+        )
+        # .bak: contains the historical row we want to recover
+        bak_path = patched_chathistory_path.with_suffix(".jsonl.bak")
+        bak_path.write_text(
+            json.dumps({"ts": 100, "role": "user", "text": "oil thesis from march"}) + "\n"
+        )
+
+        sent: list[str] = []
+        def fake_send(token, chat_id, text, *args, **kwargs):
+            sent.append(text)
+            return True
+
+        with patch("cli.telegram_bot.tg_send", fake_send):
+            cmd_chathistory("tok", "chat", "search march")
+
+        assert len(sent) == 1
+        assert "oil thesis from march" in sent[0]
+        # The renderer should show that the match came from the union
+        # (live + archived count visible)
+        assert "archived" in sent[0]
