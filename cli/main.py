@@ -39,6 +39,8 @@ from cli.commands.data import data_app
 from cli.commands.backtest import backtest_app
 from cli.commands.daemon import daemon_app
 from cli.commands.telegram import telegram_app
+from cli.commands.lab import lab_app
+from cli.commands.architect import architect_app
 from cli.commands.commands import commands_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
@@ -62,6 +64,8 @@ app.add_typer(data_app, name="data", help="Historical data — fetch, cache, exp
 app.add_typer(backtest_app, name="backtest", help="Backtest strategies against historical data")
 app.add_typer(daemon_app, name="daemon", help="Daemon — monitoring and trading loop")
 app.add_typer(telegram_app, name="telegram", help="Telegram bot — real-time commands, zero AI credits")
+app.add_typer(lab_app, name="lab", help="Lab — strategy development pipeline (discover → graduate)")
+app.add_typer(architect_app, name="architect", help="Architect — mechanical self-improvement (zero AI)")
 app.add_typer(commands_app, name="commands", help="List all commands (short/long form)")
 
 

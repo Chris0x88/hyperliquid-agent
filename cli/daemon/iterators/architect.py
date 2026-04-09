@@ -1,11 +1,13 @@
-"""ArchitectIterator — self-improvement loop in the daemon tick loop.
+"""ArchitectIterator — mechanical self-improvement loop in the daemon.
 
-Runs every 30 minutes (offset 15 min from autoresearch so they don't collide).
-Reads evaluation data, detects patterns, generates hypotheses, and creates
-proposals for human approval.
+ALL MECHANICAL — zero LLM calls. Pure Python pattern matching on evaluation
+data. Reads autoresearch evaluations, judge findings, and open issues.
+Applies rules to detect recurring patterns and propose config changes.
 
-This closes the loop from "detect problem" → "propose fix" that was previously
-an open gap in the system.
+Default cadence: every 12 hours (43200s). This is NOT an AI system.
+It reads JSON files and applies if/then rules. Zero API cost.
+
+For on-demand scanning, use: hl architect detect
 """
 from __future__ import annotations
 
@@ -16,12 +18,12 @@ from cli.daemon.context import Alert, TickContext
 
 log = logging.getLogger("daemon.architect")
 
-ARCHITECT_INTERVAL_S = 1800  # 30 minutes
-INITIAL_DELAY_S = 900        # Start 15 min after daemon to let autoresearch run first
+ARCHITECT_INTERVAL_S = 43200   # 12 hours (mechanical scan, zero AI cost)
+INITIAL_DELAY_S = 3600         # Wait 1h for autoresearch to accumulate data
 
 
 class ArchitectIterator:
-    """Self-improvement loop running in the daemon."""
+    """Mechanical self-improvement loop. Zero LLM calls. Zero cost."""
 
     name = "architect"
 
@@ -35,7 +37,8 @@ class ArchitectIterator:
         self._engine = ArchitectEngine()
         self._start_time = time.monotonic()
         pending = self._engine.get_pending()
-        log.info("ArchitectIterator started — %d pending proposals", len(pending))
+        log.info("ArchitectIterator started (12h cadence, zero AI) — %d pending proposals",
+                 len(pending))
 
     def on_stop(self) -> None:
         pass
@@ -43,7 +46,7 @@ class ArchitectIterator:
     def tick(self, ctx: TickContext) -> None:
         now = time.monotonic()
 
-        # Initial delay: wait for autoresearch to produce data first
+        # Wait for autoresearch to accumulate data first
         if now - self._start_time < INITIAL_DELAY_S:
             return
 

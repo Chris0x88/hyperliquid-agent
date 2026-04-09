@@ -55,6 +55,20 @@ COMMAND_REGISTRY = [
     ("hl keys migrate", None, "Migrate key between backends", "keys"),
     ("hl wallet auto", None, "Auto-detect and configure wallet", "keys"),
 
+    # ── Lab (Strategy Pipeline) ──────────────────────────────
+    ("hl lab status", "hls", "Show Lab pipeline status", "lab"),
+    ("hl lab discover", "hld", "Analyze market + auto-create experiments", "lab"),
+    ("hl lab create", None, "Manually create an experiment", "lab"),
+    ("hl lab list", None, "List all experiments by stage", "lab"),
+    ("hl lab tick", None, "Run one Lab cycle manually", "lab"),
+
+    # ── Architect (Self-Improvement) ─────────────────────────
+    ("hl architect status", "has", "Show pending proposals", "architect"),
+    ("hl architect detect", "had", "Scan for patterns (mechanical, zero AI)", "architect"),
+    ("hl architect approve", None, "Approve a proposal", "architect"),
+    ("hl architect reject", None, "Reject a proposal", "architect"),
+    ("hl architect history", None, "Show all proposals with outcomes", "architect"),
+
     # ── Infrastructure ───────────────────────────────────────
     ("hl setup check", None, "Validate environment and dependencies", "infra"),
     ("hl mcp serve", None, "Start MCP server for AI agents", "infra"),
@@ -68,6 +82,8 @@ CATEGORIES = {
     "telegram": "Telegram",
     "data": "Data & Backtesting",
     "scanning": "Scanning & Analysis",
+    "lab": "Lab (Strategy Pipeline)",
+    "architect": "Architect (Self-Improvement)",
     "keys": "Key Management",
     "infra": "Infrastructure",
 }
