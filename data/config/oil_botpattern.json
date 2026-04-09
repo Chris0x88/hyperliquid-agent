@@ -1,8 +1,13 @@
 {
-  "_comment": "Sub-system 5 of the Oil Bot-Pattern Strategy. BOTH kill switches ship OFF. Enable manually after review.",
+  "_comment": "Sub-system 5 of the Oil Bot-Pattern Strategy. BOTH kill switches ship OFF. Enable manually after review. decisions_only=true puts the iterator in SHADOW MODE: it runs the full gate chain, logs decisions, maintains paper positions with Telegram notices and a running shadow balance, but NEVER emits OrderIntents. This is the activation rung between WATCH-with-everything-off and REBALANCE-with-real-money. See docs/wiki/operations/sub_system_5_activation.md.",
   "enabled": false,
   "short_legs_enabled": false,
   "short_legs_grace_period_s": 3600,
+
+  "decisions_only": false,
+  "shadow_seed_balance_usd": 100000.0,
+  "shadow_sl_pct": 2.0,
+  "shadow_tp_pct": 5.0,
 
   "instruments": ["BRENTOIL", "CL"],
   "tick_interval_s": 60,
@@ -45,5 +50,9 @@
   "funding_tracker_jsonl": "data/daemon/funding_tracker.jsonl",
   "main_journal_jsonl": "data/research/journal.jsonl",
   "decision_journal_jsonl": "data/strategy/oil_botpattern_journal.jsonl",
-  "state_json": "data/strategy/oil_botpattern_state.json"
+  "state_json": "data/strategy/oil_botpattern_state.json",
+
+  "shadow_positions_json": "data/strategy/oil_botpattern_shadow_positions.json",
+  "shadow_trades_jsonl":   "data/strategy/oil_botpattern_shadow_trades.jsonl",
+  "shadow_balance_json":   "data/strategy/oil_botpattern_shadow_balance.json"
 }

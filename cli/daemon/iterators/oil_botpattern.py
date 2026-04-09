@@ -55,6 +55,21 @@ from modules.oil_botpattern import (
     sizing_to_dict,
     write_state_atomic,
 )
+from modules.oil_botpattern_paper import (
+    ShadowBalance,
+    ShadowPosition,
+    balance_from_dict,
+    balance_to_dict,
+    check_exit as paper_check_exit,
+    close_shadow_position,
+    new_balance,
+    open_shadow_position,
+    position_from_dict,
+    position_to_dict,
+    trade_to_dict,
+    unrealized_pnl,
+    update_balance_on_close,
+)
 
 log = logging.getLogger("daemon.oil_botpattern")
 
@@ -154,12 +169,24 @@ class BotPatternStrategyIterator:
         outcome_bias = compute_recent_outcome_bias(recent_trades)
         funding_map = self._load_funding_by_instrument()
 
+        shadow_mode = bool(self._config.get("decisions_only", False))
+
         # Step 1: manage existing positions (exit triggers, hold caps)
         for instrument in list(state.open_positions.keys()):
             try:
                 self._manage_existing(instrument, state, ctx, now, funding_map, equity)
             except Exception as e:  # noqa: BLE001
                 log.warning("oil_botpattern: manage %s failed: %s", instrument, e)
+
+        # Step 1b: manage shadow (paper) positions independently from live state.
+        # Shadow mode persists positions across tick regardless of the current
+        # decisions_only flag — this way, flipping shadow mode off doesn't orphan
+        # open paper positions; they continue to be marked and can be closed out
+        # on their own stops / tps.
+        try:
+            self._manage_shadow_positions(ctx, now)
+        except Exception as e:  # noqa: BLE001
+            log.warning("oil_botpattern: manage shadow failed: %s", e)
 
         # Step 2: evaluate each instrument for new entries
         if not brakes_blocked:
@@ -377,6 +404,34 @@ class BotPatternStrategyIterator:
         if action != "open":
             return
 
+        # Shadow / decisions-only mode: open a paper position and emit a
+        # Telegram notice instead of a real OrderIntent. The iterator never
+        # contacts the exchange in this mode.
+        if self._config.get("decisions_only", False):
+            self._open_shadow(
+                instrument=instrument,
+                direction=direction,
+                entry_price=price,
+                sizing=sizing,
+                edge=edge,
+                ctx=ctx,
+                now=now,
+            )
+            # Also update the live-state record so that /oilbot keeps showing
+            # a "current intent" for operator eyes. This does NOT cause any
+            # live trade — the OrderIntent path is skipped above.
+            state.open_positions[instrument] = {
+                "side": direction,
+                "entry_ts": now.isoformat(),
+                "entry_price": price,
+                "size": float(sizing.target_size),
+                "leverage": float(sizing.leverage),
+                "cumulative_funding_usd": 0.0,
+                "realised_pnl_today_usd": 0.0,
+                "shadow": True,
+            }
+            return
+
         # Emit the entry OrderIntent
         order_action = "buy" if direction == "long" else "sell"
         preferred_sl = float(self._config.get("preferred_sl_atr_mult", 0.8))
@@ -579,3 +634,255 @@ class BotPatternStrategyIterator:
         except OSError:
             return {}
         return latest
+
+    # ------------------------------------------------------------------
+    # Shadow / paper mode (decisions_only=true)
+    # ------------------------------------------------------------------
+
+    def _shadow_positions_path(self) -> Path:
+        return Path(self._config.get(
+            "shadow_positions_json",
+            "data/strategy/oil_botpattern_shadow_positions.json",
+        ))
+
+    def _shadow_trades_path(self) -> Path:
+        return Path(self._config.get(
+            "shadow_trades_jsonl",
+            "data/strategy/oil_botpattern_shadow_trades.jsonl",
+        ))
+
+    def _shadow_balance_path(self) -> Path:
+        return Path(self._config.get(
+            "shadow_balance_json",
+            "data/strategy/oil_botpattern_shadow_balance.json",
+        ))
+
+    def _load_shadow_positions(self) -> list[ShadowPosition]:
+        path = self._shadow_positions_path()
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return []
+        rows = data.get("positions", []) if isinstance(data, dict) else []
+        return [position_from_dict(r) for r in rows]
+
+    def _save_shadow_positions(self, positions: list[ShadowPosition]) -> None:
+        path = self._shadow_positions_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import os
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(
+            {"positions": [position_to_dict(p) for p in positions]},
+            indent=2,
+        ))
+        os.replace(tmp, path)
+
+    def _load_shadow_balance(self) -> ShadowBalance:
+        path = self._shadow_balance_path()
+        seed = float(self._config.get("shadow_seed_balance_usd", 100_000.0))
+        if not path.exists():
+            return new_balance(seed)
+        try:
+            return balance_from_dict(json.loads(path.read_text()), default_seed=seed)
+        except (OSError, json.JSONDecodeError):
+            return new_balance(seed)
+
+    def _save_shadow_balance(self, balance: ShadowBalance) -> None:
+        path = self._shadow_balance_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import os
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(balance_to_dict(balance), indent=2, sort_keys=True))
+        os.replace(tmp, path)
+
+    def _append_shadow_trade(self, trade) -> None:
+        path = self._shadow_trades_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as f:
+            f.write(json.dumps(trade_to_dict(trade)) + "\n")
+
+    def _open_shadow(
+        self,
+        instrument: str,
+        direction: str,
+        entry_price: float,
+        sizing,
+        edge: float,
+        ctx: TickContext,
+        now: datetime,
+    ) -> None:
+        """Open a new paper position and emit a Telegram notice.
+
+        No exchange contact — pure simulation + state + alert.
+        """
+        if entry_price <= 0 or sizing.target_size <= 0:
+            return
+
+        positions = self._load_shadow_positions()
+        # v1: no stacking — skip if an open position for the same instrument exists
+        for p in positions:
+            if p.instrument == instrument:
+                return
+
+        sl_pct = float(self._config.get("shadow_sl_pct", 2.0))
+        tp_pct = float(self._config.get("shadow_tp_pct", 5.0))
+        new_pos = open_shadow_position(
+            instrument=instrument,
+            side=direction,
+            entry_price=entry_price,
+            size=float(sizing.target_size),
+            leverage=float(sizing.leverage),
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            edge=edge,
+            rung=int(sizing.rung),
+            now=now,
+        )
+        positions.append(new_pos)
+        try:
+            self._save_shadow_positions(positions)
+        except OSError as e:
+            log.warning("oil_botpattern: failed to save shadow positions: %s", e)
+            return
+
+        balance = self._load_shadow_balance()
+        ctx.alerts.append(Alert(
+            severity="info", source=self.name,
+            message=(
+                f"🟡 SHADOW OPEN {direction.upper()} {instrument} @ "
+                f"{entry_price:,.2f} size={new_pos.size:,.4f} "
+                f"lev={new_pos.leverage}x notional=${new_pos.notional_usd:,.0f} "
+                f"sl={new_pos.stop_price:,.2f} tp={new_pos.tp_price:,.2f} "
+                f"edge={edge:.2f} | balance: ${balance.current_balance_usd:,.0f} "
+                f"({balance.pnl_pct:+.2f}%)"
+            ),
+            data={
+                "shadow": True,
+                "instrument": instrument,
+                "direction": direction,
+                "entry_price": entry_price,
+                "size": new_pos.size,
+                "leverage": new_pos.leverage,
+                "notional_usd": new_pos.notional_usd,
+                "stop_price": new_pos.stop_price,
+                "tp_price": new_pos.tp_price,
+                "edge": edge,
+                "balance_usd": balance.current_balance_usd,
+            },
+        ))
+
+    def _current_price(self, instrument: str, ctx: TickContext) -> float:
+        """Pull the best available mark price for an instrument.
+
+        Priority: ctx.prices (live, set by ConnectorIterator) → latest
+        bot_patterns.jsonl row → 0 (no exit decision possible).
+        """
+        price = 0.0
+        try:
+            raw = ctx.prices.get(instrument) if ctx and getattr(ctx, "prices", None) else None
+            if raw is not None:
+                price = float(raw)
+        except (TypeError, ValueError):
+            price = 0.0
+        if price > 0:
+            return price
+        # Fallback: latest classifier detection price
+        try:
+            patterns = self._load_latest_patterns_by_instrument()
+            row = patterns.get(instrument) or patterns.get(f"xyz:{instrument}")
+            if row is not None:
+                price = float(row.get("price_at_detection", 0.0) or 0.0)
+        except Exception:  # noqa: BLE001
+            price = 0.0
+        return max(0.0, price)
+
+    def _manage_shadow_positions(self, ctx: TickContext, now: datetime) -> None:
+        """Mark open shadow positions to market and close on SL/TP hits.
+
+        Runs regardless of decisions_only state — ensures existing paper
+        positions continue to be watched even if mode is flipped off.
+        """
+        positions = self._load_shadow_positions()
+        if not positions:
+            return
+
+        remaining: list[ShadowPosition] = []
+        closed_any = False
+        balance = self._load_shadow_balance()
+
+        for pos in positions:
+            price = self._current_price(pos.instrument, ctx)
+            if price <= 0:
+                # Can't mark — keep the position as-is
+                remaining.append(pos)
+                continue
+
+            pos.unrealized_pnl_usd = unrealized_pnl(pos, price)
+            pos.last_mark_ts = now.isoformat()
+            pos.last_mark_price = price
+
+            exit_reason, exit_price = paper_check_exit(pos, price)
+            if exit_reason is None:
+                remaining.append(pos)
+                continue
+
+            trade = close_shadow_position(pos, exit_price, exit_reason, now)
+            try:
+                self._append_shadow_trade(trade)
+            except OSError as e:
+                log.warning("oil_botpattern: failed to append shadow trade: %s", e)
+                # Keep the position alive; we'll retry on the next tick
+                remaining.append(pos)
+                continue
+
+            balance = update_balance_on_close(balance, trade, now)
+            closed_any = True
+
+            emoji = "🟢" if trade.realised_pnl_usd > 0 else "🔴"
+            reason_label = {
+                "tp_hit": "TP",
+                "sl_hit": "SL",
+                "manual": "manual",
+                "mode_change": "mode change",
+            }.get(exit_reason, exit_reason.upper())
+            ctx.alerts.append(Alert(
+                severity="info" if trade.realised_pnl_usd > 0 else "warning",
+                source=self.name,
+                message=(
+                    f"{emoji} SHADOW {reason_label} {pos.instrument} "
+                    f"{pos.side.upper()} @ {exit_price:,.2f} "
+                    f"{'+$' if trade.realised_pnl_usd >= 0 else '-$'}"
+                    f"{abs(trade.realised_pnl_usd):,.0f} "
+                    f"({trade.roe_pct:+.2f}% ROE) hold {trade.hold_hours:.1f}h | "
+                    f"balance: ${balance.current_balance_usd:,.0f} "
+                    f"({balance.pnl_pct:+.2f}%) | "
+                    f"{balance.closed_trades} trades, "
+                    f"WR {balance.win_rate:.0%}"
+                ),
+                data={
+                    "shadow": True,
+                    "instrument": pos.instrument,
+                    "side": pos.side,
+                    "exit_reason": exit_reason,
+                    "exit_price": exit_price,
+                    "realised_pnl_usd": trade.realised_pnl_usd,
+                    "roe_pct": trade.roe_pct,
+                    "balance_usd": balance.current_balance_usd,
+                    "closed_trades": balance.closed_trades,
+                },
+            ))
+
+        # Persist whatever remains + balance
+        if closed_any or any(p.last_mark_ts is not None for p in remaining):
+            try:
+                self._save_shadow_positions(remaining)
+            except OSError as e:
+                log.warning("oil_botpattern: failed to save shadow positions: %s", e)
+
+        if closed_any:
+            try:
+                self._save_shadow_balance(balance)
+            except OSError as e:
+                log.warning("oil_botpattern: failed to save shadow balance: %s", e)
