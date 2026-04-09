@@ -218,15 +218,11 @@ class AccountCollectorIterator:
                     snapshot["xyz_margin_summary"] = xyz.get("marginSummary", {})
                     snapshot["xyz_open_orders"] = xyz.get("open_orders", [])
 
-                    # Merge xyz account value into total if available
+                    # Keep xyz equity separate from native so total_equity can
+                    # be computed exactly once below.
                     xyz_equity = float(xyz.get("marginSummary", {}).get("accountValue", 0))
                     if xyz_equity > 0:
                         snapshot["xyz_account_value"] = xyz_equity
-                        # Combined equity (main perps + xyz + spot)
-                        native_equity = float(snapshot.get("account_value", 0))
-                        spot_usdc = float(snapshot.get("spot_usdc", 0))
-                        snapshot["total_equity"] = native_equity + xyz_equity + spot_usdc
-                        snapshot["account_value"] = snapshot["total_equity"]
         except Exception as e:
             log.warning("Failed to fetch xyz state: %s", e)
 
@@ -248,9 +244,10 @@ class AccountCollectorIterator:
 
         # Compute total equity: perps (native + xyz) + spot USDC
         # account_value may only have perps — spot USDC sits separately
-        perp_equity = float(snapshot.get("account_value", 0))
+        native_equity = float(snapshot.get("account_value", 0))
+        xyz_equity = float(snapshot.get("xyz_account_value", 0))
         spot_usdc = float(snapshot.get("spot_usdc", 0))
-        total_equity = perp_equity + spot_usdc
+        total_equity = native_equity + xyz_equity + spot_usdc
         snapshot["total_equity"] = total_equity
         # Use total_equity for HWM/drawdown (not just perps)
         snapshot["account_value"] = total_equity

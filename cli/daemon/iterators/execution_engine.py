@@ -166,7 +166,7 @@ class ExecutionEngineIterator:
 
         # Get current position
         current_pos = self._find_position(market, ctx)
-        account_equity = float(ctx.balances.get("USDC", ZERO))
+        account_equity = float(ctx.total_equity or ctx.balances.get("USDC", ZERO))
         if account_equity <= 0:
             log.debug("ExecutionEngine: no equity data yet for %s", market)
             return

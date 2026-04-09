@@ -132,73 +132,37 @@ def _get_portfolio_status(token: str, chat_id: str) -> str:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-    url = "https://api.hyperliquid.xyz/info"
-    from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
-    addr = resolve_main_wallet(required=True)
-    vault_addr = _resolve_vault(required=False) or ""
+    from common.account_state import fetch_registered_account_state
 
     lines = []
     now = datetime.now(timezone.utc)
     lines.append(f"Portfolio Status ({now.strftime('%a %H:%M UTC')})")
     lines.append("")
+    bundle = fetch_registered_account_state()
+    account = bundle.get("account", {})
 
-    # Main account
-    try:
-        resp = requests.post(url, json={"type": "spotClearinghouseState", "user": addr}, timeout=10)
-        spot = resp.json()
-        balances = spot.get("balances", [])
-        for b in balances:
-            total = float(b.get("total", 0))
-            if total > 0.01:
-                lines.append(f"  {b['coin']}: ${total:,.2f}" if b["coin"] == "USDC" else f"  {b['coin']}: {total:.4f}")
-    except Exception:
-        lines.append("  (spot data unavailable)")
+    lines.append(f"Total Equity: ${float(account.get('total_equity', 0)):,.2f}")
+    lines.append(
+        f"Native: ${float(account.get('native_equity', 0)):,.2f} | "
+        f"xyz: ${float(account.get('xyz_equity', 0)):,.2f} | "
+        f"Spot: ${float(account.get('spot_usdc', 0)):,.2f}"
+    )
 
-    # Perps positions on main
-    try:
-        resp = requests.post(url, json={"type": "clearinghouseState", "user": addr}, timeout=10)
-        state = resp.json()
-        positions = state.get("assetPositions", [])
-        if positions:
-            lines.append("")
-            lines.append("MAIN POSITIONS:")
-            for p in positions:
-                pos = p.get("position", {})
-                coin = pos.get("coin", "?")
-                size = pos.get("szi", "0")
-                entry = pos.get("entryPx", "0")
-                upnl = pos.get("unrealizedPnl", "0")
-                lev = pos.get("leverage", {})
-                lines.append(f"  {coin}: {size} @ ${entry} | uPnL: ${upnl} | lev: {lev}")
-    except Exception:
-        pass
-
-    # Open orders
-    try:
-        resp = requests.post(url, json={"type": "openOrders", "user": addr}, timeout=10)
-        orders = resp.json()
-        if orders:
-            lines.append("")
-            lines.append("OPEN ORDERS:")
-            for o in orders:
-                side = "BUY" if o.get("side") == "B" else "SELL"
-                lines.append(f"  {side} {o.get('sz')} {o.get('coin')} @ ${o.get('limitPx')}")
-    except Exception:
-        pass
-
-    # Vault
-    try:
-        resp = requests.post(url, json={"type": "clearinghouseState", "user": vault_addr}, timeout=10)
-        vstate = resp.json()
-        vmargin = vstate.get("marginSummary", {})
-        vpositions = vstate.get("assetPositions", [])
+    for row in bundle.get("accounts", []):
         lines.append("")
-        lines.append(f"VAULT: ${float(vmargin.get('accountValue', 0)):,.2f}")
-        for p in vpositions:
-            pos = p.get("position", {})
-            lines.append(f"  {pos.get('coin')}: {pos.get('szi')} @ ${pos.get('entryPx')} | uPnL: ${pos.get('unrealizedPnl')}")
-    except Exception:
-        lines.append("VAULT: (unavailable)")
+        lines.append(f"{row['label'].upper()}: ${row['total_equity']:,.2f}")
+        for bal in row.get("spot_balances", []):
+            total = float(bal.get("total", 0))
+            lines.append(f"  {bal['coin']}: ${total:,.2f}" if bal["coin"] == "USDC" else f"  {bal['coin']}: {total:.4f}")
+        wallet_positions = [p for p in bundle.get("positions", []) if p.get("address") == row.get("address")]
+        if wallet_positions:
+            for pos in wallet_positions:
+                lines.append(
+                    f"  {pos.get('coin', '?')}: {pos.get('size', 0)} @ ${float(pos.get('entry', 0)):,.2f} "
+                    f"| uPnL: ${float(pos.get('upnl', 0)):,.2f} | lev: {pos.get('leverage', '?')}"
+                )
+        else:
+            lines.append("  No open positions")
 
     # Liquidity regime
     weekday = now.weekday()

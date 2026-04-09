@@ -328,21 +328,16 @@ def _get_all_orders(addr: str) -> list:
 
 
 def _get_account_values(addr: str) -> dict:
-    """Get account values from both clearinghouses + spot USDC."""
-    result = {'native': 0.0, 'xyz': 0.0, 'spot': 0.0}
-    for dex in ['', 'xyz']:
-        payload = {'type': 'clearinghouseState', 'user': addr}
-        if dex:
-            payload['dex'] = dex
-        state = _hl_post(payload)
-        val = float(state.get('marginSummary', {}).get('accountValue', 0))
-        result[dex or 'native'] = val
-    # Spot USDC
-    spot = _hl_post({"type": "spotClearinghouseState", "user": addr})
-    for b in spot.get("balances", []):
-        if b.get("coin") == "USDC":
-            result['spot'] = float(b.get("total", 0))
-    return result
+    """Get account values for a single wallet from the shared account model."""
+    from common.account_state import fetch_wallet_state
+
+    row = fetch_wallet_state(addr, role="wallet")
+    return {
+        'native': row['native_equity'],
+        'xyz': row['xyz_equity'],
+        'spot': row['spot_usdc'],
+        'total': row['total_equity'],
+    }
 
 
 def _get_market_oi(coin: str, dex: str = '') -> str:
@@ -433,24 +428,24 @@ def _liquidity_regime() -> str:
 # ── Command handlers (fixed code, zero AI) ───────────────────
 
 def cmd_status(renderer: Renderer, _args: str) -> None:
+    from common.account_state import fetch_registered_account_state
+
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
     lines = [f"*Portfolio* — {ts}", ""]
 
-    # Spot balances (fetched via _get_account_values below, but need display here)
-    spot_total = 0.0  # populated from _get_account_values
-
-    # ALL perp positions (native + xyz clearinghouses)
-    positions = _get_all_positions(MAIN_ADDR)
+    bundle = fetch_registered_account_state()
+    account_rows = bundle.get("accounts", [])
+    positions = bundle.get("positions", [])
     if positions:
         for pos in positions:
             coin = pos.get('coin', '?')
-            size = float(pos.get('szi', 0))
-            entry = float(pos.get('entryPx', 0))
-            upnl = float(pos.get('unrealizedPnl', 0))
-            lev = pos.get('leverage', {})
-            liq = pos.get('liquidationPx')
-            lev_val = lev.get('value', '?') if isinstance(lev, dict) else lev
+            size = float(pos.get('size', 0))
+            entry = float(pos.get('entry', 0))
+            upnl = float(pos.get('upnl', 0))
+            liq = pos.get('liq')
+            lev_val = pos.get('leverage', '?')
             notional = abs(size * entry)
+            acct_label = pos.get('account_label', pos.get('account_role', 'Account'))
 
             direction = "LONG" if size > 0 else "SHORT"
             dir_dot = "🟢" if size > 0 else "🔴"
@@ -461,9 +456,9 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
             px_str = f"`${current:,.2f}`" if current else "—"
 
             # OI / volume for liquidity
-            oi_str = _get_market_oi(coin, pos.get('_dex', ''))
+            oi_str = _get_market_oi(coin, pos.get('dex', ''))
 
-            lines.append(f"{dir_dot} *{coin}* — {direction}")
+            lines.append(f"{dir_dot} *{coin}* — {direction} • _{acct_label}_")
             lines.append(f"  Entry `${entry:,.2f}` → Now {px_str}")
             lines.append(f"  Size `{abs(size):.1f}` | `{lev_val}x` | Notional `${notional:,.0f}`")
             lines.append(f"  uPnL `{pnl_sign}${upnl:,.2f}`")
@@ -493,16 +488,28 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
     else:
         lines.append("No open positions\n")
 
-    # Account values
-    values = _get_account_values(MAIN_ADDR)
-    total_perps = values['native'] + values['xyz']
-    spot_total = values.get('spot', 0)
-    grand_total = total_perps + spot_total
+    acc = bundle.get("account", {})
+    total_perps = float(acc.get("native_equity", 0)) + float(acc.get("xyz_equity", 0))
+    spot_total = float(acc.get("spot_usdc", 0))
+    grand_total = float(acc.get("total_equity", 0))
 
     lines.append(f"\n*Equity*")
     lines.append(f"  `${grand_total:,.2f}`")
     if total_perps > 0 and spot_total > 0:
         lines.append(f"  Perps `${total_perps:,.2f}` • Spot `${spot_total:,.2f}`")
+    elif total_perps > 0:
+        lines.append(f"  Perps `${total_perps:,.2f}`")
+    elif spot_total > 0:
+        lines.append(f"  Spot `${spot_total:,.2f}`")
+
+    if len(account_rows) > 1:
+        lines.append("")
+        for row in account_rows:
+            lines.append(
+                f"  {row['label']}: `${row['total_equity']:,.2f}`"
+                f" (native `${row['native_equity']:,.2f}` • xyz `${row['xyz_equity']:,.2f}`"
+                f" • spot `${row['spot_usdc']:,.2f}`)"
+            )
 
     # Orders (compact)
     orders = _get_all_orders(MAIN_ADDR)
@@ -511,20 +518,6 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
         for o in orders[:5]:
             side_dot = "🟢" if o.get("side") == "B" else "🔴"
             lines.append(f"  {side_dot} {o.get('sz')} {o.get('coin')} @ `${o.get('limitPx')}`")
-
-    # Vault (skip API call if no vault configured)
-    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR}) if VAULT_ADDR else {}
-    vmarg = vault.get("marginSummary", {})
-    vpos = vault.get("assetPositions", [])
-    val = float(vmarg.get("accountValue", 0))
-    if val > 0:
-        lines.append(f"\n*Vault*")
-        lines.append(f"  `${val:,.2f}`")
-        for p in vpos:
-            pos = p["position"]
-            vupnl = float(pos.get('unrealizedPnl', 0))
-            vpnl_sign = "+" if vupnl >= 0 else ""
-            lines.append(f"  BTC `{pos['szi']}` @ `${pos['entryPx']}` • uPnL `{vpnl_sign}${vupnl:,.2f}`")
 
     renderer.send_text("\n".join(lines))
 
@@ -3586,12 +3579,19 @@ _pending_inputs: dict = {}  # chat_id -> {type, coin, size, side, entry, current
 
 def _cached_positions() -> list:
     """Get positions with 5-second cache."""
+    from common.account_state import fetch_registered_account_state
+
     now = time.time()
     if now - _pos_cache["ts"] < 5:
         return _pos_cache["data"]
-    positions = _get_all_positions(MAIN_ADDR)
-    # Filter to non-zero size
-    result = [p for p in positions if float(p.get("szi", 0)) != 0]
+    bundle = fetch_registered_account_state(include_vault=True, include_subs=True)
+    if _active_account == "vault":
+        result = [p for p in bundle.get("positions", []) if p.get("account_role") == "vault"]
+    else:
+        result = [
+            p for p in bundle.get("positions", [])
+            if p.get("account_role") == "main" or str(p.get("account_role", "")).startswith("sub")
+        ]
     _pos_cache["ts"] = now
     _pos_cache["data"] = result
     return result
@@ -3604,11 +3604,17 @@ def _btn(text: str, data: str) -> dict:
 
 def _build_main_menu() -> tuple:
     """Build main menu text + button grid. Returns (text, rows)."""
+    from common.account_state import fetch_registered_account_state
+
     ts = datetime.now(timezone.utc).strftime('%H:%M UTC')
     positions = _cached_positions()
-    orders = _get_all_orders(MAIN_ADDR)
-    values = _get_account_values(MAIN_ADDR)
-    total = values['native'] + values['xyz'] + values.get('spot', 0)
+    orders = _get_all_orders(_get_active_addr())
+    bundle = fetch_registered_account_state()
+    active_row = next(
+        (row for row in bundle.get("accounts", []) if row["address"] == _get_active_addr()),
+        {"total_equity": 0},
+    )
+    total = float(active_row.get("total_equity", 0))
 
     acct_label = "Vault" if _active_account == "vault" else "Main"
     lines = [f"📊 *Trading Terminal* — {ts}", f"Account: *{acct_label}* | Equity: `${total:,.2f}`", ""]
@@ -3621,8 +3627,8 @@ def _build_main_menu() -> tuple:
         pos_btns = []
         for pos in positions[:6]:
             coin = pos.get("coin", "?")
-            size = float(pos.get("szi", 0))
-            upnl = float(pos.get("unrealizedPnl", 0))
+            size = float(pos.get("size", 0))
+            upnl = float(pos.get("upnl", 0))
             direction = "L" if size > 0 else "S"
             pnl_icon = "🟢" if upnl >= 0 else "🔴"
             label = f"{pnl_icon} {coin} {direction} {upnl:+.0f}"
@@ -3665,12 +3671,12 @@ def _build_position_detail(coin: str) -> tuple:
     if not pos:
         return f"No open position for `{coin}`", [[_btn("« Back", "mn:main")]]
 
-    size = float(pos.get("szi", 0))
-    entry = float(pos.get("entryPx", 0))
-    upnl = float(pos.get("unrealizedPnl", 0))
+    size = float(pos.get("size", pos.get("szi", 0)))
+    entry = float(pos.get("entry", pos.get("entryPx", 0)))
+    upnl = float(pos.get("upnl", pos.get("unrealizedPnl", 0)))
     lev = pos.get("leverage", {})
     lev_val = lev.get("value", "?") if isinstance(lev, dict) else lev
-    liq = pos.get("liquidationPx")
+    liq = pos.get("liq", pos.get("liquidationPx"))
     coin_name = pos.get("coin", coin)
 
     direction = "LONG" if size > 0 else "SHORT"
@@ -3694,7 +3700,7 @@ def _build_position_detail(coin: str) -> tuple:
             lines.append(f"Liq `${liq_f:,.2f}` ({dist:.1f}% away)")
 
     # Check SL/TP from orders — smart grouping
-    orders = _get_all_orders(MAIN_ADDR)
+    orders = _get_all_orders(_get_active_addr())
     sl_orders = []
     tp_orders = []
     pos_size = abs(size)
@@ -3821,9 +3827,9 @@ def _build_trade_side_menu(coin: str) -> tuple:
     pos = _find_position(coin)
     pos_line = ""
     if pos:
-        size = float(pos.get("szi", 0))
+        size = float(pos.get("size", pos.get("szi", 0)))
         direction = "LONG" if size > 0 else "SHORT"
-        upnl = float(pos.get("unrealizedPnl", 0))
+        upnl = float(pos.get("upnl", pos.get("unrealizedPnl", 0)))
         pos_line = f"\nExisting: {direction} `{abs(size):.1f}` | uPnL `${upnl:+,.2f}`"
 
     # Active account
@@ -3859,18 +3865,21 @@ def _get_active_addr() -> str:
 
 def _build_account_menu() -> tuple:
     """Build account switcher. Returns (text, rows)."""
+    from common.account_state import fetch_registered_account_state
+
     lines = [f"🔄 *Account Switcher*", ""]
+    bundle = fetch_registered_account_state()
 
     # Main account
-    main_vals = _get_account_values(MAIN_ADDR)
-    main_total = main_vals['native'] + main_vals['xyz'] + main_vals.get('spot', 0)
+    main_row = next((row for row in bundle.get("accounts", []) if row.get("role") == "main"), None)
+    main_total = float(main_row.get("total_equity", 0)) if main_row else 0.0
     main_check = " ✅" if _active_account == "main" else ""
     lines.append(f"Main: `${main_total:,.2f}`{main_check}")
 
     # Vault
     if VAULT_ADDR:
-        vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR})
-        vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
+        vault_row = next((row for row in bundle.get("accounts", []) if row.get("role") == "vault"), None)
+        vault_val = float(vault_row.get("total_equity", 0)) if vault_row else 0.0
         vault_check = " ✅" if _active_account == "vault" else ""
         lines.append(f"Vault: `${vault_val:,.2f}`{vault_check}")
 
@@ -4020,7 +4029,7 @@ def _handle_trade_size_prompt(token: str, chat_id: str, coin: str, side: str) ->
     pos = _find_position(coin)
     pos_line = ""
     if pos:
-        sz = float(pos.get("szi", 0))
+        sz = float(pos.get("size", pos.get("szi", 0)))
         direction = "LONG" if sz > 0 else "SHORT"
         pos_line = f"\nExisting position: {direction} `{abs(sz):.1f}`"
 
@@ -4063,12 +4072,12 @@ def _handle_close_position(token: str, chat_id: str, coin: str) -> None:
         tg_send(token, chat_id, f"No open position for `{coin}`")
         return
 
-    size = float(pos.get("szi", 0))
+    size = float(pos.get("size", pos.get("szi", 0)))
     coin_name = pos.get("coin", coin)
     close_side = "sell" if size > 0 else "buy"
     current = _get_current_price(coin_name)
 
-    args = {"coin": coin_name, "side": close_side, "size": abs(size), "dex": pos.get("_dex", "")}
+    args = {"coin": coin_name, "side": close_side, "size": abs(size), "dex": pos.get("dex", pos.get("_dex", ""))}
     action_id = store_pending("close_position", args, chat_id)
 
     direction = "LONG" if size > 0 else "SHORT"
@@ -4088,8 +4097,8 @@ def _handle_sl_prompt(token: str, chat_id: str, coin: str) -> None:
         tg_send(token, chat_id, f"No open position for `{coin}`")
         return
 
-    size = float(pos.get("szi", 0))
-    entry = float(pos.get("entryPx", 0))
+    size = float(pos.get("size", pos.get("szi", 0)))
+    entry = float(pos.get("entry", pos.get("entryPx", 0)))
     coin_name = pos.get("coin", coin)
     current = _get_current_price(coin_name)
     px_str = f"${current:,.2f}" if current else "—"
@@ -4101,7 +4110,7 @@ def _handle_sl_prompt(token: str, chat_id: str, coin: str) -> None:
         "side": "sell" if size > 0 else "buy",
         "entry": entry,
         "current": current,
-        "dex": pos.get("_dex", ""),
+        "dex": pos.get("dex", pos.get("_dex", "")),
         "ts": time.time(),
     }
 
@@ -4127,8 +4136,8 @@ def _handle_tp_prompt(token: str, chat_id: str, coin: str) -> None:
         tg_send(token, chat_id, f"No open position for `{coin}`")
         return
 
-    size = float(pos.get("szi", 0))
-    entry = float(pos.get("entryPx", 0))
+    size = float(pos.get("size", pos.get("szi", 0)))
+    entry = float(pos.get("entry", pos.get("entryPx", 0)))
     coin_name = pos.get("coin", coin)
     current = _get_current_price(coin_name)
     px_str = f"${current:,.2f}" if current else "—"
@@ -4140,7 +4149,7 @@ def _handle_tp_prompt(token: str, chat_id: str, coin: str) -> None:
         "side": "sell" if size > 0 else "buy",
         "entry": entry,
         "current": current,
-        "dex": pos.get("_dex", ""),
+        "dex": pos.get("dex", pos.get("_dex", "")),
         "ts": time.time(),
     }
 
@@ -4283,14 +4292,14 @@ def cmd_sl(token: str, chat_id: str, args: str) -> None:
         if not pos:
             tg_send(token, chat_id, f"No open position for `{resolved}`")
             return
-        size = float(pos.get("szi", 0))
+        size = float(pos.get("size", pos.get("szi", 0)))
         from cli.agent_tools import store_pending
         args_dict = {
             "coin": pos.get("coin", resolved),
             "trigger_price": price,
             "side": "sell" if size > 0 else "buy",
             "size": abs(size),
-            "dex": pos.get("_dex", ""),
+            "dex": pos.get("dex", pos.get("_dex", "")),
         }
         action_id = store_pending("set_sl", args_dict, chat_id)
         text = f"🛡 *Confirm Stop-Loss*\n\n{pos.get('coin', resolved)} @ `${price:,.2f}`\nSize: `{abs(size):.1f}`\n\nApprove or reject:"
@@ -4323,14 +4332,14 @@ def cmd_tp(token: str, chat_id: str, args: str) -> None:
         if not pos:
             tg_send(token, chat_id, f"No open position for `{resolved}`")
             return
-        size = float(pos.get("szi", 0))
+        size = float(pos.get("size", pos.get("szi", 0)))
         from cli.agent_tools import store_pending
         args_dict = {
             "coin": pos.get("coin", resolved),
             "trigger_price": price,
             "side": "sell" if size > 0 else "buy",
             "size": abs(size),
-            "dex": pos.get("_dex", ""),
+            "dex": pos.get("dex", pos.get("_dex", "")),
         }
         action_id = store_pending("set_tp", args_dict, chat_id)
         text = f"🎯 *Confirm Take-Profit*\n\n{pos.get('coin', resolved)} @ `${price:,.2f}`\nSize: `{abs(size):.1f}`\n\nApprove or reject:"

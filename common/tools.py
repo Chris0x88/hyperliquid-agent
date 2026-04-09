@@ -52,54 +52,33 @@ def _coin_matches(universe_name: str, target: str) -> bool:
 
 def status() -> dict:
     """Account equity, open positions with entry/uPnL/leverage/liq, spot balances."""
-    addr = _resolve_main_wallet()
-    if not addr:
+    from common.account_state import fetch_registered_account_state
+
+    bundle = fetch_registered_account_state()
+    if not bundle.get("accounts"):
         return {"error": "No wallet configured"}
 
-    total_equity = 0.0
-    positions = []
-
-    for dex_label, dex in [("native", ""), ("xyz", "xyz")]:
-        payload: dict = {"type": "clearinghouseState", "user": addr}
-        if dex:
-            payload["dex"] = dex
-        state = _hl_post(payload)
-        eq = float(state.get("marginSummary", {}).get("accountValue", 0))
-        total_equity += eq
-
-        for p in state.get("assetPositions", []):
-            pos = p.get("position", {})
-            size = float(pos.get("szi", 0))
-            if size == 0:
-                continue
-            lev = pos.get("leverage", {})
-            lev_val = lev.get("value", "?") if isinstance(lev, dict) else lev
-            liq = pos.get("liquidationPx")
-            positions.append({
-                "coin": pos.get("coin", "?"),
-                "direction": "LONG" if size > 0 else "SHORT",
-                "size": abs(size),
-                "entry_px": float(pos.get("entryPx", 0)),
-                "upnl": float(pos.get("unrealizedPnl", 0)),
-                "leverage": lev_val,
-                "liquidation_px": float(liq) if liq and liq != "N/A" else None,
-                "dex": dex_label,
-            })
-
-    # Spot balances
-    spot_balances = []
-    spot = _hl_post({"type": "spotClearinghouseState", "user": addr})
-    for b in spot.get("balances", []):
-        total = float(b.get("total", 0))
-        if total > 0.01:
-            spot_balances.append({"coin": b.get("coin"), "total": total})
-            if b.get("coin") == "USDC":
-                total_equity += total
-
     return {
-        "equity": round(total_equity, 2),
-        "positions": positions,
-        "spot": spot_balances,
+        "equity": round(float(bundle["account"]["total_equity"]), 2),
+        "positions": [
+            {
+                "coin": p["coin"],
+                "direction": "LONG" if float(p["size"]) > 0 else "SHORT",
+                "size": abs(float(p["size"])),
+                "entry_px": float(p["entry"]),
+                "upnl": float(p["upnl"]),
+                "leverage": p["leverage"],
+                "liquidation_px": float(p["liq"]) if p.get("liq") and p["liq"] != "N/A" else None,
+                "dex": p["dex"],
+                "account": p.get("account_label", p.get("account_role")),
+            }
+            for p in bundle.get("positions", [])
+        ],
+        "spot": [
+            {"coin": bal["coin"], "total": bal["total"], "account": row["label"]}
+            for row in bundle.get("accounts", [])
+            for bal in row.get("spot_balances", [])
+        ],
     }
 
 
@@ -154,19 +133,10 @@ def analyze_market(coin: str) -> dict:
 def market_brief(market: str) -> dict:
     """Full market context: price, technicals, position, thesis, memory."""
     try:
+        from common.account_state import fetch_registered_account_state
         from common.context_harness import build_thesis_context
 
-        addr = _resolve_main_wallet()
-        account_state = {"account": {"total_equity": 0}, "alerts": [], "escalation": "L0"}
-        if addr:
-            for dex in ['', 'xyz']:
-                payload: dict = {"type": "clearinghouseState", "user": addr}
-                if dex:
-                    payload["dex"] = dex
-                state = _hl_post(payload)
-                account_state["account"]["total_equity"] += float(
-                    state.get("marginSummary", {}).get("accountValue", 0)
-                )
+        account_state = fetch_registered_account_state()
 
         snapshot_text = None
         try:

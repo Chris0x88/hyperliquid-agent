@@ -87,83 +87,27 @@ def create_mcp_server():
         try:
             from common.context_harness import build_thesis_context
 
-            # Collect account state inline (scheduled_check.py has no extractable function)
+            # Collect account state from the shared aggregator so MCP, Telegram,
+            # and AI all describe the same account reality.
             account_state = {}
             try:
-                import requests as _req
-                from common.account_resolver import resolve_main_wallet
-                addr = resolve_main_wallet(required=True)
-                url = "https://api.hyperliquid.xyz/info"
-
-                # Native + xyz equity
-                native = _req.post(url, json={"type": "clearinghouseState", "user": addr}, timeout=10).json()
-                xyz = _req.post(url, json={"type": "clearinghouseState", "user": addr, "dex": "xyz"}, timeout=10).json()
-                spot = _req.post(url, json={"type": "spotClearinghouseState", "user": addr}, timeout=10).json()
-
-                native_eq = float(native.get("marginSummary", {}).get("accountValue", 0))
-                xyz_eq = float(xyz.get("marginSummary", {}).get("accountValue", 0))
-                spot_usdc = sum(float(b.get("total", 0)) for b in spot.get("balances", []) if b.get("coin") == "USDC")
-
-                account_state["account"] = {
-                    "total_equity": round(native_eq + xyz_eq + spot_usdc, 2),
-                    "native_equity": round(native_eq, 2),
-                    "xyz_equity": round(xyz_eq, 2),
+                from common.account_state import fetch_registered_account_state
+                bundle = fetch_registered_account_state()
+                account_state = {
+                    "account": bundle.get("account", {}),
+                    "accounts": bundle.get("accounts", []),
+                    "positions": bundle.get("positions", []),
+                    "alerts": bundle.get("alerts", []),
                 }
-
-                # Positions
-                for ap in xyz.get("assetPositions", []):
-                    p = ap.get("position", ap)
-                    coin = p.get("coin", "")
-                    if float(p.get("szi", 0)) != 0:
-                        # Get mark price from metaAndAssetCtxs
-                        current_price = float(p.get("entryPx", 0))
-                        try:
-                            meta = _req.post(url, json={"type": "metaAndAssetCtxs", "dex": "xyz"}, timeout=10).json()
-                            if isinstance(meta, list) and len(meta) >= 2:
-                                universe = meta[0].get("universe", [])
-                                for i, u in enumerate(universe):
-                                    if coin.replace("xyz:", "") in u.get("name", ""):
-                                        if i < len(meta[1]):
-                                            current_price = float(meta[1][i].get("markPx", current_price))
-                                        break
-                        except Exception:
-                            pass
-
-                        liq = float(p.get("liquidationPx") or 0)
-                        liq_dist = abs(current_price - liq) / current_price * 100 if liq > 0 and current_price > 0 else 999
-                        account_state[coin] = {
-                            "size": float(p["szi"]),
-                            "entry": float(p["entryPx"]),
-                            "current_price": current_price,
-                            "upnl": round(float(p.get("unrealizedPnl", 0)), 2),
-                            "liq_dist_pct": round(liq_dist, 1),
-                            "leverage": float((p.get("leverage") or {}).get("value", 10)),
-                        }
-
-                # Also check native positions
-                for ap in native.get("assetPositions", []):
-                    p = ap.get("position", ap)
-                    coin = p.get("coin", "")
-                    if float(p.get("szi", 0)) != 0:
-                        account_state[coin] = {
-                            "size": float(p["szi"]),
-                            "entry": float(p["entryPx"]),
-                            "upnl": round(float(p.get("unrealizedPnl", 0)), 2),
-                        }
-
-                # Alerts
-                alerts = []
-                xyz_orders = _req.post(url, json={"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}, timeout=10).json()
-                for coin_key, pos_data in account_state.items():
-                    if coin_key == "account" or not isinstance(pos_data, dict) or "size" not in pos_data:
-                        continue
-                    has_sl = any(o.get("orderType") == "Stop Market" and coin_key.replace("xyz:", "") in o.get("coin", "") for o in xyz_orders)
-                    if not has_sl and pos_data.get("size", 0) != 0:
-                        alerts.append(f"NO SL on {coin_key}")
-                    if pos_data.get("liq_dist_pct", 999) < 8:
-                        alerts.append(f"LOW LIQ DIST {coin_key}: {pos_data['liq_dist_pct']}%")
-                account_state["alerts"] = alerts
-
+                for p in bundle.get("positions", []):
+                    account_state[p.get("coin", "")] = {
+                        "size": float(p.get("size", 0)),
+                        "entry": float(p.get("entry", 0)),
+                        "current_price": float(p.get("entry", 0)),
+                        "upnl": round(float(p.get("upnl", 0)), 2),
+                        "liq_dist_pct": 999 if not p.get("liq") else 0,
+                        "leverage": p.get("leverage", 0),
+                    }
             except Exception as e:
                 account_state["account_error"] = str(e)
 

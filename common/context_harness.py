@@ -401,6 +401,18 @@ def _render_account_overview(account_state: Dict) -> str:
     if account_state.get("drawdown_pct"):
         lines[0] += f" (drawdown: {account_state['drawdown_pct']}%)"
 
+    accounts = account_state.get("accounts", [])
+    if accounts:
+        lines.append("ACCOUNTS:")
+        for row in accounts[:6]:
+            lines.append(
+                f"  {row.get('label', row.get('role', 'Account'))}: "
+                f"${row.get('total_equity', 0):,.2f} "
+                f"(native ${row.get('native_equity', 0):,.2f} | "
+                f"xyz ${row.get('xyz_equity', 0):,.2f} | "
+                f"spot ${row.get('spot_usdc', 0):,.2f})"
+            )
+
     # Positions
     positions = account_state.get("positions", [])
     if positions:
@@ -408,7 +420,8 @@ def _render_account_overview(account_state: Dict) -> str:
         for p in positions:
             direction = "LONG" if p["size"] > 0 else "SHORT"
             upnl_sign = "+" if p["upnl"] >= 0 else ""
-            line = f"  {p['coin']} {direction} {abs(p['size']):.1f} @ ${p['entry']:,.2f} | uPnL {upnl_sign}${p['upnl']:,.2f} | {p['leverage']}x"
+            prefix = p.get("account_label") or p.get("account_role")
+            line = f"  {prefix} {p['coin']} {direction} {abs(p['size']):.1f} @ ${p['entry']:,.2f} | uPnL {upnl_sign}${p['upnl']:,.2f} | {p['leverage']}x"
             if p.get("liq") and p["liq"] != "N/A":
                 line += f" | liq ${float(p['liq']):,.2f}"
             lines.append(line)

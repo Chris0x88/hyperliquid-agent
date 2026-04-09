@@ -552,21 +552,10 @@ def _tool_market_brief(args: dict) -> str:
     """Compact market brief using context harness."""
     market = args.get("market", "xyz:BRENTOIL")
     try:
+        from common.account_state import fetch_registered_account_state
         from common.context_harness import build_thesis_context
-        from common.account_resolver import resolve_main_wallet
 
-        # Fetch account state
-        main_addr = resolve_main_wallet(required=False)
-        account_state = {"account": {"total_equity": 0}, "alerts": [], "escalation": "L0"}
-        if main_addr:
-            for dex in ['', 'xyz']:
-                payload = {"type": "clearinghouseState", "user": main_addr}
-                if dex:
-                    payload["dex"] = dex
-                state = _hl_post(payload)
-                account_state["account"]["total_equity"] += float(
-                    state.get("marginSummary", {}).get("accountValue", 0)
-                )
+        account_state = fetch_registered_account_state()
 
         # Fetch snapshot
         snapshot_text = None
@@ -598,50 +587,35 @@ def _tool_market_brief(args: dict) -> str:
 
 def _tool_account_summary(args: dict) -> str:
     """Account equity + positions from both clearinghouses."""
-    from common.account_resolver import resolve_main_wallet
-    main_addr = resolve_main_wallet(required=False)
-    if not main_addr:
+    from common.account_state import fetch_registered_account_state
+
+    bundle = fetch_registered_account_state()
+    if not bundle.get("accounts"):
         return "No wallet configured."
 
     lines = []
-    total_equity = 0.0
-
-    for dex_label, dex in [("Native", ""), ("xyz", "xyz")]:
-        payload = {"type": "clearinghouseState", "user": main_addr}
-        if dex:
-            payload["dex"] = dex
-        state = _hl_post(payload)
-        eq = float(state.get("marginSummary", {}).get("accountValue", 0))
-        total_equity += eq
-
-        for p in state.get("assetPositions", []):
-            pos = p.get("position", {})
-            size = float(pos.get("szi", 0))
-            if size == 0:
-                continue
-            direction = "LONG" if size > 0 else "SHORT"
-            entry = float(pos.get("entryPx", 0))
-            upnl = float(pos.get("unrealizedPnl", 0))
-            lev = pos.get("leverage", {})
-            lev_val = lev.get("value", "?") if isinstance(lev, dict) else lev
-            liq = pos.get("liquidationPx", "N/A")
-            sign = "+" if upnl >= 0 else ""
-            lines.append(
-                f"  {pos.get('coin','?')} {direction} {abs(size):.1f} @ ${entry:,.2f} "
-                f"| uPnL {sign}${upnl:,.2f} | {lev_val}x | liq ${float(liq):,.2f}"
-                if liq and liq != "N/A" else
-                f"  {pos.get('coin','?')} {direction} {abs(size):.1f} @ ${entry:,.2f} "
-                f"| uPnL {sign}${upnl:,.2f} | {lev_val}x"
-            )
-
-    # Spot
-    spot = _hl_post({"type": "spotClearinghouseState", "user": main_addr})
-    for b in spot.get("balances", []):
-        total = float(b.get("total", 0))
-        if total > 0.01:
-            lines.append(f"  Spot {b.get('coin')}: {total:.2f}")
-            if b.get("coin") == "USDC":
-                total_equity += total
+    total_equity = float(bundle.get("account", {}).get("total_equity", 0))
+    for row in bundle.get("accounts", []):
+        lines.append(
+            f"  {row['label']}: ${row['total_equity']:,.2f} "
+            f"(native ${row['native_equity']:,.2f} | xyz ${row['xyz_equity']:,.2f} | spot ${row['spot_usdc']:,.2f})"
+        )
+    for pos in bundle.get("positions", []):
+        size = float(pos.get("size", 0))
+        direction = "LONG" if size > 0 else "SHORT"
+        entry = float(pos.get("entry", 0))
+        upnl = float(pos.get("upnl", 0))
+        lev_val = pos.get("leverage", "?")
+        liq = pos.get("liq", "N/A")
+        sign = "+" if upnl >= 0 else ""
+        prefix = pos.get("account_label", pos.get("account_role", "Account"))
+        lines.append(
+            f"  {prefix} {pos.get('coin','?')} {direction} {abs(size):.1f} @ ${entry:,.2f} "
+            f"| uPnL {sign}${upnl:,.2f} | {lev_val}x | liq ${float(liq):,.2f}"
+            if liq and liq != "N/A" else
+            f"  {prefix} {pos.get('coin','?')} {direction} {abs(size):.1f} @ ${entry:,.2f} "
+            f"| uPnL {sign}${upnl:,.2f} | {lev_val}x"
+        )
 
     header = f"ACCOUNT: ${total_equity:,.2f} equity"
     if lines:

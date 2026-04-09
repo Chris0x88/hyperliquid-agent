@@ -28,60 +28,42 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from common.account_state import fetch_registered_account_state
+
 
 def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
     """Summarise unrealized PnL across all positions (main + vault)."""
     from cli.telegram_bot import (
-        MAIN_ADDR,
-        VAULT_ADDR,
-        _get_account_values,
-        _get_all_positions,
-        _hl_post,
         tg_send,
     )
 
     lines = ["📈 *P&L Summary*", ""]
-
-    # Main — all positions (native + xyz)
-    positions = _get_all_positions(MAIN_ADDR)
-    values = _get_account_values(MAIN_ADDR)
-    main_val = values['native'] + values['xyz']
+    bundle = fetch_registered_account_state()
+    positions = bundle.get("positions", [])
+    account = bundle.get("account", {})
 
     total_upnl = 0.0
     for pos in positions:
-        upnl = float(pos.get('unrealizedPnl', 0))
+        upnl = float(pos.get('upnl', 0))
         total_upnl += upnl
         pnl_sign = "+" if upnl >= 0 else ""
         emoji = "✅" if upnl >= 0 else "🔻"
-        lines.append(f"{emoji} {pos.get('coin')}: `{pnl_sign}${upnl:,.2f}`")
-
-    # Vault (skip if no vault configured)
-    vault = _hl_post({"type": "clearinghouseState", "user": VAULT_ADDR}) if VAULT_ADDR else {}
-    vault_val = float(vault.get("marginSummary", {}).get("accountValue", 0))
-    for p in vault.get("assetPositions", []):
-        pos = p["position"]
-        vupnl = float(pos.get('unrealizedPnl', 0))
-        total_upnl += vupnl
-        pnl_sign = "+" if vupnl >= 0 else ""
-        emoji = "✅" if vupnl >= 0 else "🔻"
-        lines.append(f"{emoji} Vault {pos['coin']}: `{pnl_sign}${vupnl:,.2f}`")
+        label = pos.get("account_label", pos.get("account_role", "Account"))
+        lines.append(f"{emoji} {label} {pos.get('coin')}: `{pnl_sign}${upnl:,.2f}`")
 
     upnl_emoji = "✅" if total_upnl >= 0 else "🔻"
     upnl_sign = "+" if total_upnl >= 0 else ""
     lines.append(f"\n{upnl_emoji} *Unrealized*")
     lines.append(f"  `{upnl_sign}${total_upnl:,.2f}`")
-    spot_val = values.get('spot', 0)
-    grand_total = main_val + spot_val + vault_val
     lines.append(f"\n💎 *Balances*")
-    if main_val > 0 and spot_val > 0:
-        lines.append(f"  Perps: `${main_val:,.2f}` | Spot: `${spot_val:,.2f}`")
-    elif spot_val > 0:
-        lines.append(f"  Spot: `${spot_val:,.2f}`")
-    elif main_val > 0:
-        lines.append(f"  Perps: `${main_val:,.2f}`")
-    if vault_val > 0:
-        lines.append(f"  Vault: `${vault_val:,.2f}`")
-    lines.append(f"  Total: `${grand_total:,.2f}`")
+    lines.append(
+        f"  Native: `${float(account.get('native_equity', 0)):,.2f}`"
+        f" | xyz: `${float(account.get('xyz_equity', 0)):,.2f}`"
+        f" | Spot: `${float(account.get('spot_usdc', 0)):,.2f}`"
+    )
+    for row in bundle.get("accounts", []):
+        lines.append(f"  {row['label']}: `${row['total_equity']:,.2f}`")
+    lines.append(f"  Total: `${float(account.get('total_equity', 0)):,.2f}`")
 
     # Profit lock ledger
     ledger = Path("data/daemon/profit_locks.jsonl")
@@ -101,20 +83,17 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
     """Detailed position report with risk metrics + per-asset authority +
     SL/TP audit. Deterministic — no AI."""
     from cli.telegram_bot import (
-        MAIN_ADDR,
         _coin_matches,
-        _get_account_values,
         _get_all_orders,
-        _get_all_positions,
         _get_current_price,
         _liquidity_regime,
         tg_send,
     )
     from common.authority import get_authority
 
-    positions = _get_all_positions(MAIN_ADDR)
-    values = _get_account_values(MAIN_ADDR)
-    total_equity = values['native'] + values['xyz'] + values.get('spot', 0)
+    bundle = fetch_registered_account_state()
+    positions = bundle.get("positions", [])
+    total_equity = float(bundle.get("account", {}).get("total_equity", 0))
 
     if not positions:
         tg_send(token, chat_id, "No open positions.")
@@ -124,17 +103,17 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
     lines = [f"*Positions* — {ts}", ""]
 
     # Fetch orders once (not per-position)
-    all_orders = _get_all_orders(MAIN_ADDR)
+    all_orders = _get_all_orders(next((a["address"] for a in bundle.get("accounts", []) if a.get("role") == "main"), ""))
 
     for pos in positions:
         coin = pos.get('coin', '?')
-        size = float(pos.get('szi', 0))
-        entry = float(pos.get('entryPx', 0))
-        upnl = float(pos.get('unrealizedPnl', 0))
-        liq = pos.get('liquidationPx')
-        lev = pos.get('leverage', {})
-        lev_val = lev.get('value', '?') if isinstance(lev, dict) else lev
-        margin_used = float(pos.get('marginUsed', 0))
+        size = float(pos.get('size', 0))
+        entry = float(pos.get('entry', 0))
+        upnl = float(pos.get('upnl', 0))
+        liq = pos.get('liq')
+        lev_val = pos.get('leverage', '?')
+        margin_used = float(pos.get('margin_used', 0))
+        account_label = pos.get("account_label", pos.get("account_role", "Account"))
 
         direction = "LONG" if size > 0 else "SHORT"
         dir_dot = "🟢" if size > 0 else "🔴"
@@ -148,7 +127,7 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
         auth = get_authority(coin)
         auth_icon = {"agent": "🤖", "manual": "👤", "off": "⬛"}.get(auth, "")
 
-        lines.append(f"{dir_dot} *{coin}* — {direction} {auth_icon} {auth}")
+        lines.append(f"{dir_dot} *{coin}* — {direction} {auth_icon} {auth} • _{account_label}_")
         lines.append(f"  Entry `${entry:,.2f}` → Now {px_str}")
         lines.append(f"  Size `{abs(size):.1f}` | `{lev_val}x` | Margin `${margin_used:,.2f}`")
         lines.append(f"  uPnL `{pnl_sign}${upnl:,.2f}`")
@@ -165,7 +144,7 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
         # SL/TP check
         sl_found = False
         tp_found = False
-        for o in all_orders:
+        for o in all_orders if pos.get("account_role") == "main" else []:
             if not _coin_matches(o.get('coin', ''), coin):
                 continue
             tpsl = o.get('tpsl', '')

@@ -1501,61 +1501,11 @@ def _fetch_account_state_for_harness() -> dict:
     if "account_state" in _CACHE and now - _CACHE["account_state"].get("ts", 0) < 10:
         return _CACHE["account_state"]["data"]
 
-    from common.account_resolver import resolve_main_wallet, resolve_vault_address
+    from common.account_state import fetch_registered_account_state
 
-    main_addr = resolve_main_wallet(required=False)
-    total_equity = 0.0
-    alerts = []
-    positions = []
-
-    clearinghouse_failures = 0
-    clearinghouse_total = 0
-    if main_addr:
-        # Both clearinghouses — equity + positions
-        for dex in ['', 'xyz']:
-            clearinghouse_total += 1
-            dex_label = dex if dex else "native"
-            try:
-                payload = {"type": "clearinghouseState", "user": main_addr}
-                if dex:
-                    payload["dex"] = dex
-                r = requests.post("https://api.hyperliquid.xyz/info",
-                                  json=payload, timeout=8)
-                if r.status_code == 200:
-                    data = r.json()
-                    total_equity += float(data.get("marginSummary", {}).get("accountValue", 0))
-                    for p in data.get("assetPositions", []):
-                        pos = p.get("position", {})
-                        size = float(pos.get("szi", 0))
-                        if size != 0:
-                            positions.append({
-                                "coin": pos.get("coin", "?"),
-                                "size": size,
-                                "entry": float(pos.get("entryPx", 0)),
-                                "upnl": float(pos.get("unrealizedPnl", 0)),
-                                "leverage": pos.get("leverage", {}).get("value", "?") if isinstance(pos.get("leverage"), dict) else pos.get("leverage", "?"),
-                                "liq": pos.get("liquidationPx"),
-                                "dex": dex or "native",
-                            })
-                else:
-                    clearinghouse_failures += 1
-                    alerts.append(f"⚠️ Failed to fetch {dex_label} clearinghouse: HTTP {r.status_code}")
-            except Exception as e:
-                clearinghouse_failures += 1
-                alerts.append(f"⚠️ Failed to fetch {dex_label} clearinghouse: {e}")
-            time.sleep(0.2)
-
-        # Spot USDC
-        try:
-            r = requests.post("https://api.hyperliquid.xyz/info",
-                              json={"type": "spotClearinghouseState", "user": main_addr},
-                              timeout=8)
-            if r.status_code == 200:
-                for bal in r.json().get("balances", []):
-                    if bal.get("coin") == "USDC":
-                        total_equity += float(bal.get("total", 0))
-        except Exception as e:
-            log.warning("[account_state] spot clearinghouse fetch failed: %s", e)
+    bundle = fetch_registered_account_state()
+    alerts = list(bundle.get("alerts", []))
+    positions = bundle.get("positions", [])
 
     # Working state for escalation + alerts
     ws_path = _PROJECT_ROOT / "data" / "memory" / "working_state.json"
@@ -1595,16 +1545,14 @@ def _fetch_account_state_for_harness() -> dict:
     except Exception as e:
         log.warning("[auto-watchlist] failed: %s", e)
 
-    all_clearinghouses_failed = (
-        clearinghouse_total > 0 and clearinghouse_failures >= clearinghouse_total
-    )
     result = {
-        "account": {"total_equity": total_equity},
+        "account": bundle.get("account", {"total_equity": 0}),
+        "accounts": bundle.get("accounts", []),
         "positions": positions,
         "alerts": alerts,
         "escalation": escalation,
         "fetched_at": now,  # Audit F5: timestamp for staleness detection
-        "api_error": all_clearinghouses_failed,  # True when ALL clearinghouse calls failed
+        "api_error": False,
     }
     _CACHE["account_state"] = {"ts": now, "data": result}
     return result
