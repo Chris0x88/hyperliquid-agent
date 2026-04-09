@@ -247,7 +247,11 @@ def tg_edit_grid(token: str, chat_id: str, message_id: int, text: str, rows: lis
         return False
 
 
+_poll_fail_count = 0  # consecutive polling failures
+
+
 def tg_get_updates(token: str, offset: int) -> list:
+    global _poll_fail_count
     try:
         r = requests.get(
             f"https://api.telegram.org/bot{token}/getUpdates",
@@ -255,9 +259,22 @@ def tg_get_updates(token: str, offset: int) -> list:
             timeout=10,
         )
         data = r.json()
-        return data.get("result", []) if data.get("ok") else []
-    except Exception:
+        result = data.get("result", []) if data.get("ok") else []
+        if _poll_fail_count > 0:
+            log.info("Telegram API recovered after %d failures", _poll_fail_count)
+        _poll_fail_count = 0
+        return result
+    except Exception as e:
+        _poll_fail_count += 1
+        log.warning("Telegram poll failed (%d consecutive): %s", _poll_fail_count, e)
         return []
+
+
+def _poll_backoff_seconds() -> float:
+    """Exponential backoff: 2s → 4s → 8s → … capped at 30s."""
+    if _poll_fail_count <= 0:
+        return POLL_INTERVAL
+    return min(POLL_INTERVAL * (2 ** _poll_fail_count), 30.0)
 
 
 # ── HL API helpers (pure Python, no AI) ──────────────────────
@@ -433,9 +450,18 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%a %H:%M UTC')
     lines = [f"*Portfolio* — {ts}", ""]
 
-    bundle = fetch_registered_account_state()
+    try:
+        bundle = fetch_registered_account_state()
+    except Exception as e:
+        log.error("cmd_status: account fetch failed: %s", e)
+        bundle = {}
     account_rows = bundle.get("accounts", [])
     positions = bundle.get("positions", [])
+    # Detect fetch failure: no accounts returned means the API call failed
+    if not account_rows and not positions and not bundle.get("account"):
+        lines.append("Data unavailable — exchange API may be down. Try again shortly.\n")
+        renderer.send_text("\n".join(lines))
+        return
     if positions:
         for pos in positions:
             coin = pos.get('coin', '?')
@@ -4183,7 +4209,12 @@ def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
     try:
         value = float(text.strip().replace("$", "").replace(",", ""))
     except ValueError:
-        return False  # Not a number — let it fall through to normal routing
+        # Re-prompt instead of silently dropping — user is mid-flow
+        label = "price" if pending["type"] in ("sl", "tp") else "size"
+        tg_send(token, chat_id,
+                f"Please enter a valid {label} (number). Got: `{text}`\n"
+                f"Or type /cancel to abort.")
+        return True  # consumed the message — don't route to command handler
 
     # Clear pending state
     del _pending_inputs[chat_id]
@@ -4825,10 +4856,13 @@ def run() -> None:
                     except Exception:
                         pass
                 except Exception as e:
-                    log.error("Command %s failed: %s", cmd_key, e)
+                    log.error("Command %s failed: %s", cmd_key, e, exc_info=True)
                     if _diag:
                         _diag.log_error("telegram_cmd", f"{cmd_key} failed: {e}")
-                    tg_send(token, reply_chat_id, f"Error: {e}")
+                    tg_send(token, reply_chat_id,
+                            f"`{cmd_key}` failed: {type(e).__name__}\n"
+                            f"_{e}_\n\n"
+                            f"Try again or /help for commands.")
             else:
                 # Not a command — handle with AI agent (direct, no OpenClaw)
                 is_group = msg.get("chat", {}).get("type", "") in ("group", "supergroup")
@@ -4854,8 +4888,15 @@ def run() -> None:
             except Exception:
                 pass
 
+        # Alert user after sustained polling failure
+        if _poll_fail_count == 5:
+            try:
+                tg_send(token, chat_id, "Telegram API unreachable (5 consecutive failures). Retrying with backoff.")
+            except Exception:
+                pass
+
         if running:
-            time.sleep(POLL_INTERVAL)
+            time.sleep(_poll_backoff_seconds())
 
     # Cleanup
     PID_FILE.unlink(missing_ok=True)
