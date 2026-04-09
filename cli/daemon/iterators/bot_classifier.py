@@ -291,18 +291,46 @@ class BotPatternIterator:
 
     @staticmethod
     def _default_candles_provider(coin: str, lookback_min: int, interval_s: int) -> list[dict]:
-        """Pull candles from the live cache. 1m interval, last `lookback_min` minutes."""
+        """Pull 1m candles for the classifier window.
+
+        2026-04-09: Cache was empty for 1m because market_structure_iter
+        only caches 1h/4h/1d. The classifier's 300s poll interval is
+        tolerant of a direct HL API fetch per poll. Fetch first, try
+        cache as fallback.
+        """
+        now_ms = int(time.time() * 1000)
+        start_ms = now_ms - lookback_min * 60_000
+
+        # Primary: direct HL public API fetch. Matches the endpoint used
+        # by market_structure_iter._refresh_candles.
+        try:
+            import requests
+            payload = {
+                "type": "candleSnapshot",
+                "req": {
+                    "coin": coin, "interval": "1m",
+                    "startTime": start_ms, "endTime": now_ms,
+                },
+            }
+            r = requests.post(
+                "https://api.hyperliquid.xyz/info",
+                json=payload, timeout=10,
+            )
+            if r.status_code == 200:
+                candles = r.json()
+                if isinstance(candles, list) and candles:
+                    return candles
+        except Exception as e:  # noqa: BLE001
+            log.debug("bot_classifier: HL 1m fetch failed for %s: %s", coin, e)
+
+        # Fallback: check the cache (will usually be empty until a
+        # future wedge extends market_structure_iter to cache 1m).
         try:
             from modules.candle_cache import CandleCache
-        except ImportError:
-            return []
-        try:
             cache = CandleCache()
-            now_ms = int(time.time() * 1000)
-            start_ms = now_ms - lookback_min * 60_000
             rows = cache.get_candles(coin, "1m", start_ms, now_ms)
             cache.close()
             return rows
         except Exception as e:  # noqa: BLE001
-            log.debug("bot_classifier: candle fetch failed for %s: %s", coin, e)
+            log.debug("bot_classifier: cache fallback failed for %s: %s", coin, e)
             return []
