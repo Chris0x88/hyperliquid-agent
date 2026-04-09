@@ -477,4 +477,162 @@ def create_mcp_server():
             args.extend(["--max-ticks", str(max_ticks)])
         return _run_hl(*args, timeout=max(60, (max_ticks or 5) * 60 + 30))
 
+    # ------------------------------------------------------------------
+    # Lab tools — strategy development pipeline
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def lab_status() -> str:
+        """Get Lab status — active experiments, graduated strategies, pipeline progress."""
+        from modules.lab_engine import LabEngine
+        engine = LabEngine()
+        return json.dumps(engine.status(), indent=2)
+
+    @mcp.tool()
+    def lab_create(market: str, strategy: str) -> str:
+        """Create a new Lab experiment — tests a strategy on a market.
+
+        The experiment progresses: hypothesis → backtest → paper_trade → graduated.
+        Graduated experiments are flagged as ready for live production.
+
+        Args:
+            market: Market to test (e.g., BTC-PERP, xyz:BRENTOIL)
+            strategy: Strategy name from registry
+        """
+        from modules.lab_engine import LabEngine
+        engine = LabEngine()
+        exp = engine.create_experiment(market, strategy)
+        return json.dumps({
+            "created": exp.experiment_id,
+            "market": market,
+            "strategy": strategy,
+            "stage": exp.stage,
+            "message": "Experiment created. Will auto-progress through backtest → paper_trade → graduated.",
+        }, indent=2)
+
+    @mcp.tool()
+    def lab_discover(market: str, days: int = 90) -> str:
+        """Discover a market's characteristics and auto-create matching experiments.
+
+        Analyzes volatility, trend strength, mean reversion, volume profile,
+        then creates experiments for all matching strategy archetypes.
+
+        Args:
+            market: Market to analyze (e.g., BTC-PERP, xyz:BRENTOIL)
+            days: Days of historical data to analyze (default: 90)
+        """
+        import time as _time
+        from modules.lab_engine import LabEngine
+        from modules.candle_cache import CandleCache
+        from modules.data_fetcher import DataFetcher
+
+        coin = market.replace("-PERP", "").replace("xyz:", "")
+        cache = CandleCache()
+        end_ms = int(_time.time() * 1000)
+        start_ms = end_ms - (days * 86_400_000)
+
+        candles = cache.get_candles(coin, "1h", start_ms, end_ms)
+        if not candles:
+            try:
+                fetcher = DataFetcher(cache=cache, testnet=False)
+                fetcher.backfill(coin, "1h", days)
+                candles = cache.get_candles(coin, "1h", start_ms, end_ms)
+            except Exception as e:
+                return json.dumps({"error": f"Failed to fetch data: {e}"})
+
+        engine = LabEngine()
+        profile = engine.discover_market(market, candles)
+        experiments = engine.create_experiments_from_profile(market, profile)
+
+        return json.dumps({
+            "market": market,
+            "profile": profile,
+            "experiments_created": len(experiments),
+            "experiments": [
+                {"id": e.experiment_id, "strategy": e.strategy, "stage": e.stage}
+                for e in experiments
+            ],
+        }, indent=2)
+
+    # ------------------------------------------------------------------
+    # Architect tools — self-improvement loop
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def architect_status() -> str:
+        """Get Architect status — pending proposals, detected patterns, improvement history."""
+        from modules.architect_engine import ArchitectEngine
+        engine = ArchitectEngine()
+        return json.dumps(engine.status(), indent=2)
+
+    @mcp.tool()
+    def architect_detect() -> str:
+        """Run Architect detection — scan evaluations for actionable patterns and generate proposals."""
+        from modules.architect_engine import ArchitectEngine
+        engine = ArchitectEngine()
+        events = engine.tick()
+        status = engine.status()
+        return json.dumps({
+            "events": events,
+            "status": status,
+        }, indent=2)
+
+    @mcp.tool()
+    def architect_approve(proposal_id: str, notes: str = "") -> str:
+        """Approve an Architect proposal for implementation.
+
+        Args:
+            proposal_id: ID of the proposal to approve
+            notes: Optional reviewer notes
+        """
+        from modules.architect_engine import ArchitectEngine
+        engine = ArchitectEngine()
+        success = engine.approve_proposal(proposal_id, notes)
+        return json.dumps({
+            "approved": success,
+            "proposal_id": proposal_id,
+            "message": "Proposal approved — will be applied on next config reload" if success
+                       else "Proposal not found",
+        })
+
+    @mcp.tool()
+    def architect_reject(proposal_id: str, notes: str = "") -> str:
+        """Reject an Architect proposal.
+
+        Args:
+            proposal_id: ID of the proposal to reject
+            notes: Reason for rejection
+        """
+        from modules.architect_engine import ArchitectEngine
+        engine = ArchitectEngine()
+        success = engine.reject_proposal(proposal_id, notes)
+        return json.dumps({
+            "rejected": success,
+            "proposal_id": proposal_id,
+        })
+
+    # ------------------------------------------------------------------
+    # Context Engine tool — for debugging/testing context assembly
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def context_preview(message: str) -> str:
+        """Preview what context would be assembled for a message.
+
+        Shows what the LLM would see before answering a Telegram message.
+        Useful for debugging the context engine's intent classification
+        and data assembly.
+
+        Args:
+            message: The message to analyze (as if sent via Telegram)
+        """
+        from modules.context_engine import assemble_context, classify_intent
+        intent = classify_intent(message)
+        context = assemble_context(message)
+        return json.dumps({
+            "intent": intent,
+            "context_length": len(context),
+            "context": context[:3000],  # cap for readability
+        }, indent=2)
+
     return mcp

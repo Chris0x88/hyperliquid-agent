@@ -548,21 +548,36 @@ def run() -> None:
             else:
                 # Not a command — silently ignore in group chats
                 # (OpenClaw bot handles free text)
-                # In DMs, queue for Claude's scheduled check-in
+                # In DMs, assemble rich context and queue for Claude
                 is_group = msg.get("chat", {}).get("type", "") in ("group", "supergroup")
                 if is_group:
                     log.debug("Ignoring free text in group (OpenClaw handles): %s", text[:50])
                 else:
                     COMMAND_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+
+                    # --- Context Engine: enrich message before queueing ---
+                    # Instead of raw text, we assemble all relevant data
+                    # so the LLM is FORCED to see positions, thesis, market
+                    # data, learnings, etc. before answering.
+                    assembled_context = ""
+                    try:
+                        from modules.context_engine import assemble_context
+                        assembled_context = assemble_context(text)
+                        log.info("Context assembled for: %s (intent detected, %d chars)",
+                                 text[:50], len(assembled_context))
+                    except Exception as e:
+                        log.warning("Context assembly failed: %s — queueing raw", e)
+
                     entry = {
                         "timestamp": int(time.time()),
                         "message_id": msg.get("message_id"),
                         "text": text,
                         "user": msg.get("from", {}).get("first_name", ""),
+                        "assembled_context": assembled_context,
                     }
                     with open(COMMAND_QUEUE, "a") as f:
                         f.write(json.dumps(entry) + "\n")
-                    log.info("Queued for Claude: %s", text[:80])
+                    log.info("Queued for Claude (enriched): %s", text[:80])
 
         if running:
             time.sleep(POLL_INTERVAL)

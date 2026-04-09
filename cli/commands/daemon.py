@@ -134,6 +134,8 @@ def daemon_start(
     from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
     from cli.daemon.iterators.exchange_protection import ExchangeProtectionIterator
     from cli.daemon.iterators.autoresearch import AutoresearchIterator
+    from cli.daemon.iterators.architect import ArchitectIterator
+    from cli.daemon.iterators.lab import LabIterator
     try:
         from cli.daemon.iterators.funding_tracker import FundingTrackerIterator
         _has_funding = True
@@ -162,6 +164,8 @@ def daemon_start(
     if _has_catalyst:
         clock.register(CatalystDeleverageIterator(data_dir=data_dir))
     clock.register(AutoresearchIterator())
+    clock.register(ArchitectIterator())
+    clock.register(LabIterator())
     clock.register(JournalIterator(data_dir=data_dir))
     clock.register(TelegramIterator(data_dir=data_dir))
 

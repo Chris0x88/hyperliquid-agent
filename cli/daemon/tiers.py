@@ -9,6 +9,8 @@ TIER_ITERATORS = {
         "liquidity",
         "risk",
         "autoresearch",        # learning loop
+        "architect",           # self-improvement loop (reads autoresearch, proposes fixes)
+        "lab",                 # strategy development pipeline (discovery → graduation)
         "journal",
         "telegram",
     ],
@@ -26,6 +28,8 @@ TIER_ITERATORS = {
         "funding_tracker",
         "catalyst_deleverage",
         "autoresearch",
+        "architect",
+        "lab",
         "journal",
         "telegram",
     ],
@@ -45,6 +49,8 @@ TIER_ITERATORS = {
         "funding_tracker",
         "catalyst_deleverage",
         "autoresearch",
+        "architect",
+        "lab",
         "journal",
         "telegram",
     ],
