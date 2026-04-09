@@ -1180,6 +1180,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /shadoweval [id] — L4 counterfactual shadow eval results\n"
         "  /sim — shadow (paper) account state + positions + recent trades\n"
         "  /readiness — sub-system 5 activation preflight checklist\n"
+        "  /activate — guided activation walkthrough (next / confirm / back / rollback)\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2817,6 +2818,7 @@ from cli.telegram_commands.patternlib import (  # noqa: E402
 from cli.telegram_commands.shadow import cmd_shadoweval  # noqa: E402
 from cli.telegram_commands.sim import cmd_sim  # noqa: E402
 from cli.telegram_commands.readiness import cmd_readiness  # noqa: E402
+from cli.telegram_commands.activate import cmd_activate  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2877,6 +2879,11 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/shadoweval 42` — detailed shadow eval for proposal #42\n"
         "`/sim` — shadow (paper) account for sub-system 5 — balance, open positions, recent trades. Lit up when `decisions_only=true`.\n"
         "`/readiness` — activation preflight for sub-system 5: catalyst/supply/heatmap/classifier/thesis/risk-caps/brakes freshness + master-switch state. Run before flipping shadow → live.\n"
+        "`/activate` — guided activation walkthrough. Shows current rung + readiness + next-step hint.\n"
+        "`/activate next` — preview the next-rung advance (what patch will be applied).\n"
+        "`/activate confirm` — execute the pending advance (within 10 minutes).\n"
+        "`/activate back` — soft rollback one rung.\n"
+        "`/activate rollback` — hard rollback: immediately set enabled=false.\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -4391,6 +4398,7 @@ HANDLERS = {
     "/shadoweval": cmd_shadoweval,
     "/sim": cmd_sim,
     "/readiness": cmd_readiness,
+    "/activate": cmd_activate,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -4464,6 +4472,7 @@ HANDLERS = {
     "shadoweval": cmd_shadoweval,
     "sim": cmd_sim,
     "readiness": cmd_readiness,
+    "activate": cmd_activate,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4552,6 +4561,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "shadoweval", "description": "Shadow counterfactual eval results (sub-system 6 L4)"},
         {"command": "sim", "description": "Shadow (paper) account state — balance, open positions, recent trades"},
         {"command": "readiness", "description": "Sub-system 5 activation preflight checklist"},
+        {"command": "activate", "description": "Guided sub-system 5 activation walkthrough (rung advances + rollback)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
