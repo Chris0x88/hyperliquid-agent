@@ -199,6 +199,16 @@ def daemon_start(
         clock.register(OilBotPatternReflectIterator())  # sub-system 6 L2: weekly reflect proposals (kill switch OFF at ship)
     except ImportError:
         pass
+    try:
+        from cli.daemon.iterators.oil_botpattern_patternlib import OilBotPatternPatternLibIterator
+        clock.register(OilBotPatternPatternLibIterator())  # sub-system 6 L3: pattern library growth (kill switch OFF at ship)
+    except ImportError:
+        pass
+    try:
+        from cli.daemon.iterators.oil_botpattern_shadow import OilBotPatternShadowIterator
+        clock.register(OilBotPatternShadowIterator())  # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
+    except ImportError:
+        pass
     clock.register(PulseIterator())
     clock.register(ProfitLockIterator(data_dir=data_dir))
     if _has_funding:
