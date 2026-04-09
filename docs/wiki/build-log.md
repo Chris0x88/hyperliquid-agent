@@ -4,6 +4,133 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (late evening) — Philosophy realignment: NORTH_STAR + MASTER_PLAN rewritten, founding insight restored
+
+Triggered by Chris's brutal feedback on the 2026-04-09 morning vision rewrite:
+
+> *"P6 — One human in the loop, always... You are wrong. We don't always
+> have a human in the loop. We have robotic trading systems too.... I think
+> you are too confident and don't know everything that already exists."*
+
+> *"I was also going to build a quant system that stores all the relevant
+> market data properly... Based on this... https://nautilustrader.io/about/"*
+
+> *"I was also inspired by thinking regimes of InfraNodus knowledge graphs..."*
+
+> *"Where is the reference to that [dumb-bot trading reality]? We had that
+> in planning too... I should have read git history too because I don't
+> think you really understood where we came from."*
+
+> *"All my chat history in telegram should be saved and be able to be
+> analysed... But never deleted... It's amazing historical data and those
+> historical oracles will literally become the most valuable information
+> we have, especially timestamped in context of where market was at."*
+
+> *"There are so many things you are relying on me to trigger.... We need
+> something in the schedule that documents all this! And prompts the user
+> what tools to trigger! Otherwise I simply will forget and not know....
+> The codebase will disintegrate if I don't know how to run it..."*
+
+### What was wrong with the 2026-04-09 morning rewrite
+
+Three foundational errors that the user flagged in one message:
+
+1. **Operating Principle P6 ("One human in the loop, always") was wrong.**
+   The system has a mature per-asset delegation model in
+   `common/authority.py` (150 LOC, three levels: `agent`/`manual`/`off`,
+   persisted in `data/authority.json`). The Telegram commands `/delegate`,
+   `/reclaim`, `/authority` were registered in the HANDLERS dict the
+   entire time at lines 4221-4287 of `cli/telegram_bot.py`. The morning
+   session had even *touched* those commands during the lessons-extraction
+   refactor without noticing what they did. The WATCH/REBALANCE/OPPORTUNISTIC
+   tier ladder is the system-wide autonomy dial. Authority is parameterized,
+   per-asset, reversible — NOT absolute supervision.
+
+2. **The dumb-bot trading philosophy — the FOUNDING insight of the entire
+   active workstream — was missing entirely.** It lives in
+   `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` §1, captured in Chris's own
+   words on 2026-04-09 morning. The morning NORTH_STAR rewrite did not
+   reference it. The whole 6-sub-system Oil Bot Pattern Strategy exists
+   *because* of this insight: markets are 80% bots reacting to current
+   news, not forecasting; a petroleum engineer trying to forecast the
+   fundamental gets killed by bots that don't read the supply ledger;
+   the arbitrage is to be early on the obvious thing then fade the bot
+   overcorrection. NORTH_STAR has to LEAD with this, not bury it.
+
+3. **NautilusTrader → ADR-011's two-app research-sibling plan was
+   namedropped as "the parked research-app"** without understanding it
+   IS the quant-data architecture answer to Chris's stated quant
+   ambitions. ADR-011 is 490 lines, status `Proposed` since 2026-04-07,
+   awaiting Tier 1 completion gate. The morning session referenced it
+   once and missed that it was the entire plan.
+
+Plus three things the morning rewrite had no concept of at all:
+
+4. **InfraNodus knowledge graph thinking regimes** — genuinely new idea
+   from Chris, not in the codebase anywhere. Needs a forward plan doc.
+
+5. **Historical oracles — chat_history + feedback + todos correlated
+   with market state, never deleted.** The concept exists in fragments
+   (the files are append-only) but is not load-bearing in any vision
+   doc, AND the presence of `chat_history.jsonl.bak` and `.bak2` files
+   suggests something IS rotating, which violates the "never delete"
+   rule.
+
+6. **A user-action queue / scheduled-nudge system** — the user explicitly
+   said they will forget to run things and the codebase will disintegrate
+   without it. No such system exists.
+
+### What this session shipped
+
+| # | What | Owner |
+|---|---|---|
+| 1 | Both 2026-04-09 morning vision docs archived to `docs/plans/archive/MASTER_PLAN_2026-04-09_pre-philosophy-realignment.md` and `NORTH_STAR_2026-04-09_pre-philosophy-realignment.md` with detailed HTML-comment headers explaining what they got wrong. Append-only per the established convention. | main session |
+| 2 | `docs/plans/NORTH_STAR.md` rewritten fresh: opens with the founding insight verbatim from OIL_BOT_PATTERN_SYSTEM §1; adds "The Authority Model" section explaining `common/authority.py` + the tier ladder; quotes the L0–L5 self-improvement contract from OIL_BOT_PATTERN_SYSTEM §6; includes a full "Quant Data Architecture (ADR-011)" section; adds "Historical Oracles" section with the never-delete rule and forward market-state correlation; adds "User-Action Queue" section explaining the in-flight build; adds "Knowledge Graph Thinking Regime" section as Horizon 2; adds "Multi-Interface Roadmap" section with the explicit "never rebuild hyperliquid.xyz" boundary; rewrites Operating Principles P6 (delegated autonomy, not constant supervision), P7 (compound wealth via dumb-bot reality), adds P9 (historical oracles forever); ends with the next 10 things to ship including the in-flight parallel-agent burst items. | main session |
+| 3 | `docs/plans/MASTER_PLAN.md` rewritten to point at the corrected NORTH_STAR. Critical Rules expanded from 7 to 10 with the new Rule 8 (authority is per-asset, parameterized, reversible), Rule 9 (append-only forever), and Rule 10 (read git history before claiming something doesn't exist). | main session |
+| 4 | `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` written as a Horizon 2 plan doc. Status `Proposed`, no implementation. Defines a graph-structured meta-cognitive layer above `agent/AGENT.md`: nodes=concepts, edges=relationships, walks=decision reasoning. 6 wedges sketched. The "guide LLMs how to think + how to learn" answer to Chris's InfraNodus inspiration. | main session |
+| 5 | User-action queue iterator (`cli/daemon/iterators/action_queue.py` + `modules/action_queue.py` + `cli/telegram_commands/action_queue.py` + `/nudge` command). Tracks "things Chris should do" with cadence + last-done timestamps + Telegram nudges. Seed items: restore drill (quarterly), brutal review (weekly), thesis refresh, lesson approval queue, backup health, alignment ritual, feedback aging. Closes the "I'll forget if you don't tell me" gap. | parallel agent A |
+| 6 | Trade Entry Critic end-to-end verification + minimal fixes. Verified the iterator actually fires on a synthetic position, JSONL writes, dedup works, `/critique` formatter renders correctly. Same depth as the lesson smoke test from earlier today. | parallel agent B |
+| 7 | Chat history rotation audit + market-state correlation. Find what's rotating the .bak files, stop it (the user said never delete), and add price/equity/positions snapshot to every NEW row going forward. New `/chathistory` Telegram command for search/stats. | parallel agent C |
+| 8 | `/feedback` and `/todo` hardening with append-only event semantics. Schema upgrade adds `id`, `tags`, `status` fields. State changes are NEW append-only event rows referencing the original by `ref_id`. Backwards-compatible loader for the existing 21 entries. New `/feedback list/search/resolve/dismiss/tag/show` commands. | parallel agent D |
+
+### The lesson (this is the whole reason this entry exists)
+
+**Two consecutive sessions in two consecutive days lost time to the same
+failure mode**: writing vision documents without reading the existing
+state of the system. The 2026-04-07 hardening session wrote a 600-line
+ADR based on a stale picture. The 2026-04-09 morning session rewrote
+NORTH_STAR without reading `common/authority.py` or `OIL_BOT_PATTERN_SYSTEM.md`
+§1. Both were caught by Chris in the same way: blunt, specific, with file
+paths.
+
+The pattern is: **a session that wants to "set direction" feels productive
+even when it's reasoning from cached knowledge of the codebase rather
+than from the current code.** It feels like high-leverage work. It is
+actually negative-leverage work — it produces an authoritative-sounding
+doc that future sessions read and trust, baking the staleness deeper.
+
+The fix is captured as Critical Rule #10 in the rewritten MASTER_PLAN:
+"Read git history before claiming something doesn't exist." And as
+Operating Principle P2 in NORTH_STAR: "Reality first, docs second. Code
+that runs is the truth. Read first, write second."
+
+### Test suite
+
+2,747+ passing, 0 failed (matches the previous session's count plus any
+deltas from the parallel agents in this realignment burst).
+
+### Files changed in this commit
+
+- `docs/plans/NORTH_STAR.md` (full rewrite)
+- `docs/plans/MASTER_PLAN.md` (full rewrite)
+- `docs/plans/archive/NORTH_STAR_2026-04-09_pre-philosophy-realignment.md` (new, archived snapshot)
+- `docs/plans/archive/MASTER_PLAN_2026-04-09_pre-philosophy-realignment.md` (new, archived snapshot)
+- `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` (new plan doc)
+- `docs/wiki/build-log.md` (this entry)
+- Plus parallel-agent integration work in subsequent commits
+
+---
+
 ## 2026-04-09 (evening) — Parallel-agent burst: Multi-Market Wedge 1 + Brutal Review Loop + Telegram split + Trade Entry Critic + smoke test green
 
 Triggered by Chris's "you are way too slow, spin up parallel agents" ask

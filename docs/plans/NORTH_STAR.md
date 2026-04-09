@@ -1,263 +1,528 @@
 # NORTH STAR
 
 > The single document that says **what we are building, why, and what good looks like**.
-> Read this once, then anchor every decision against it.
-> When this document changes, archive the prior version like MASTER_PLAN.md.
+> Read this before any session that touches strategy, scope, or vision.
+> Past versions: see `docs/plans/archive/NORTH_STAR_*.md` (append-only snapshots).
 
 ---
 
-## Why this exists
+## The founding insight
 
-Chris is a petroleum engineer with deep, real-world commodity expertise.
-He has **strong ideas** and the ability to **make a lot of money**, and a
-clear-eyed view of his own weakness:
+> *Markets are dumb. ~80% of trades are bots reacting to known information,
+> not forecasting. Ahead of major scheduled catalysts (e.g. Trump's 8 PM Iran
+> deadline), oil drifted up to the minute, then violently over-corrected ~20%
+> on the no-deal-yet-then-deal pattern, despite Russian/Iranian refinery damage
+> and Middle East supply disruptions remaining offline.*
+>
+> *A petroleum engineer trying to forecast the fundamental gets killed by bots
+> that don't read the supply ledger. **The arbitrage: be early on the obvious
+> thing, then fade the bot overcorrection when it lands.***
+>
+> — Chris, 2026-04-09. The triggering observation that defined the entire
+> active workstream. Source: `docs/plans/OIL_BOT_PATTERN_SYSTEM.md` §1.
 
-> *"I am terrible at executing and staying disciplined."*
+This is the project's reason to exist. Every other principle below cascades
+from it. The market is no longer a discounting mechanism. It is a slow
+overreaction machine driven by bots that react to events as they land, not
+ahead of them. The user is a petroleum engineer with real fundamental edge
+on oil supply. **That edge is worthless if it gets steamrolled by bots that
+don't read it.** So the system trades *with* the bot reality — anticipating
+the obvious move, then fading the overshoot — instead of betting on
+fundamentals being respected by counterparties who don't read fundamentals.
 
-That sentence is the entire reason this system exists. Most retail traders
-fail at execution and discipline; what makes this project tractable is that
-the *ideas* are not the problem. The system's job is to be **the discipline
-Chris cannot reliably supply by hand**, while letting his actual edge — the
-ideas — flow through unimpeded.
-
-This is not a trading bot. It's a **prosthetic for execution discipline**
-that happens to trade on HyperLiquid.
-
----
-
-## The Three Promises
-
-The system makes three promises to Chris and is judged against them:
-
-### 1. Capture every good idea before it evaporates
-Ideas surface during reading, calls, market events, the shower. The system
-must make it trivial to write a thesis, log a catalyst, or note a pattern
-*in the moment*, with zero friction. Telegram is the catch surface today;
-multi-modal capture (voice, OCR, screenshot) is on the roadmap.
-
-**Test of success**: when Chris has a thought at 11pm, can he turn it
-into a structured input the system understands within 60 seconds, without
-opening a laptop?
-
-### 2. Execute the idea with discipline a human can't sustain
-Once an idea is captured, the system enforces:
-- Mandatory exchange-side stop loss + take profit on every position
-- Conviction-based sizing (more conviction → more risk, less conviction → less risk)
-- Drawdown circuit breakers (3% daily / 8% weekly / 15% monthly) as ruin floors
-- Catalyst-driven deleveraging when invalidating events occur
-- Auto-clamping when thesis becomes stale
-
-**Test of success**: when Chris is asleep / busy / emotional, the system
-behaves identically to when he is watching. The only difference is reaction
-time on novel events, which the alert system handles.
-
-### 3. Learn from every trade, automatically
-Every closed position becomes a structured post-mortem. The corpus is
-searchable. The next decision is informed by the most relevant past lessons.
-Bad reasoning gets caught by future-Chris reading past-Chris's lessons.
-
-**Test of success**: in 12 months, the agent should be quoting specific
-lesson IDs in its reasoning ("Lesson #142 says supply-driven longs work
-when entry is >24h ahead of the catalyst — this setup is late, sizing
-down").
+This insight was not in the previous NORTH_STAR. The previous NORTH_STAR
+was archived precisely because it missed this. Read
+`docs/plans/archive/NORTH_STAR_2026-04-09_pre-philosophy-realignment.md` for
+the contrast and the lesson.
 
 ---
 
-## What This Project Is NOT
+## What this system is
 
-A clear no-list prevents scope creep:
+A **personal trading instrument** for one petroleum engineer, evolving toward
+a **multi-market discipline-execution platform** that:
 
-- **Not a strategy marketplace.** No selling signals, no Discord, no public alpha.
-- **Not a paper-trading sandbox.** Real capital from day one. Mock mode exists for testing only.
-- **Not a generic algo platform.** It is shaped around Chris's specific edge and weaknesses.
-- **Not a fully autonomous bot.** Chris is in the loop on every WRITE tool call. The system is *autonomous in execution discipline*, *human-in-the-loop on strategic direction*.
-- **Not free to evolve unchecked.** Mandatory tests, mandatory backups, mandatory ADRs for architectural decisions. Discipline applies to the codebase too.
-- **Not coupled to any cloud provider.** Local-first by design. Session-token auth means zero ongoing API cost. Data lives on disk.
+1. **Captures** Chris's ideas the moment he has them, with zero friction
+2. **Encodes** his domain edge (oil now, all HL markets eventually) as
+   structured data the bots cannot read but the system can
+3. **Trades** that edge using the dumb-bot reality (anticipate obvious moves,
+   fade overshoot) rather than betting against it
+4. **Protects** real capital with mandatory exchange-side stops, drawdown
+   circuit breakers, and a per-asset autonomy ladder
+5. **Learns** from every closed trade, every conversation, every catalyst,
+   storing the corpus as historical oracles forever
+6. **Improves itself** within bounded parameters, but never changes its
+   own structure without one human tap
+
+The user has the ideas. The system has the discipline. The system trades
+the bot reality. **The system never bets on the market being smart.**
 
 ---
 
-## The Three Horizons
+## The Five Promises
 
-### Horizon 1 — 0 to 12 months: **Multi-market discipline platform**
+The system makes five promises and is judged against each.
 
-Today the system trades BTC + oil with mature scaffolding. By the 12-month
-mark it should:
+### 1. Capture every idea before it evaporates
+Telegram is the catch surface today. Voice + screenshot + multi-interface
+capture is the roadmap. When Chris has a thought at 11pm, it must become
+structured input the system understands inside 60 seconds, without opening
+a laptop.
 
-- Trade any HL market (perp or spot) Chris promotes to thesis-driven, via
-  config + thesis JSON, with zero code changes per market. (See `MULTI_MARKET_EXPANSION_PLAN.md`.)
-- Carry market-shape metadata (long-only / long-short / no-direction-bias)
-  per instrument so the oil-only rule generalises.
-- Have a populated lessons corpus of 100+ real post-mortems with Chris-reviewed approval flags.
-- Run a brutal weekly review loop that grades the codebase, the trading
-  performance, and the decision quality, surfaced as a Telegram report.
-  (See `BRUTAL_REVIEW_LOOP.md`.)
-- Have first-class voice and screenshot capture for thesis input.
-- Be running 24/7 on dedicated hardware (not Chris's laptop).
+### 2. Encode petroleum-engineering edge as data the bots can't read
+The supply disruption ledger, the bot-pattern classifier, the heatmap, the
+catalyst ingestion — all of these exist to convert Chris's domain knowledge
+into structured signals the system can act on. The dumb bots are not
+reading them. That asymmetry IS the edge.
 
-### Horizon 2 — 12 to 24 months: **Edge compounding**
+### 3. Trade with the bot reality, not against it
+Forecasting is dead as a thesis defense. Every position the system opens
+asks "what are the bots about to do" first, then "is the fundamental
+correct" second. Long-horizon thesis positions live in the existing
+conviction engine path. Tactical positions exploiting bot overshoot live
+in the `oil_botpattern` strategy engine path with a hard 24h cap on
+shorts. Two writers, one shared safety net (mandatory SL+TP).
 
-By month 24:
+### 4. Learn from everything, forget nothing
+Every closed trade → lesson. Every Telegram message → chat history (NEVER
+deleted). Every `/feedback` entry → append-only event log (NEVER deleted).
+Every `/todo` → same. Every catalyst → news ledger. Every supply event →
+disruption ledger. Going forward, every chat row will also record market
+state at the moment (price, equity, positions) so the corpus becomes a
+**timestamped historical oracle** — the most valuable data the system has.
 
-- The lessons corpus has trained at least one local LoRA adapter on
-  Gemma-3 (or successor) that meaningfully improves recall of Chris's
-  reasoning style on held-out replay tests.
-- A structured backtest harness can replay any thesis against historical
-  data to estimate forward edge before promoting.
-- A "shadow trade" mode runs proposed strategies on live data without
-  real capital, building a track record before promotion.
-- The bot_classifier (currently heuristic) is augmented with a real
-  classifier trained on labelled data from the supply ledger + cascade
-  history.
-- Drawdown circuit breakers have prevented at least one ruin event
-  (and the post-mortem is a lesson Chris quotes regularly).
-- Realised compounding rate has cleared a clearly-defined target the
-  system itself tracks against.
+### 5. Improve within bounds, never restructure without permission
+The L0–L5 self-improvement contract from `OIL_BOT_PATTERN_SYSTEM.md` §6
+is non-negotiable: the system is allowed to LEARN automatically (auto-tune
+parameters, grow the lesson corpus, refine catalyst rules) but is NOT
+allowed to CHANGE STRUCTURE (new strategies, new sub-systems, new gates)
+without one human tap. **Crossing that line is how trading systems blow
+up overnight.**
 
-### Horizon 3 — 24 to 36+ months: **Quietly excellent**
+---
 
-By month 36 the system should be the kind of personal infrastructure most
-traders never build: invisible when working, indispensable when needed.
+## What this project is NOT
 
-- Multi-instrument, multi-strategy, multi-timeframe, single human in the loop.
-- Auto-tunes its own gate thresholds within Chris-approved bounds.
-- Self-audits weekly via the brutal review loop and produces an action list.
-- Surfaces market opportunities Chris hasn't thought of yet, ranked by
-  thesis-fit and sized by conviction proxies.
-- Runs on dedicated hardware that Chris does not have to babysit.
-- Has a clean separation between "personal infrastructure" and "potentially
-  shareable framework" — if Chris ever decides to extract a public
-  framework or hand pieces to other traders, the boundary is clear.
+A clear no-list to prevent scope creep:
+
+- **NOT** a forecasting system. We do not predict where the market should
+  go and bet on it being right. The market is not a forecasting tool
+  anymore — it's a slow overreaction machine.
+- **NOT** an "always human in the loop" bot. The handoff system in
+  `common/authority.py` lets Chris set per-asset authority to `agent`,
+  `manual`, or `off`. The WATCH/REBALANCE/OPPORTUNISTIC tier ladder is the
+  system-wide autonomy dial. The default is safe (`manual`), but the
+  system CAN run autonomously on delegated assets.
+- **NOT** a rebuild of hyperliquid.xyz. That platform is excellent for
+  manual trading and watching. We do not duplicate it. The bot consumes
+  HL data and posts decisions; the user uses hyperliquid.xyz directly when
+  they want to look at charts manually.
+- **NOT** a strategy marketplace, signal-sharing service, or anything
+  user-facing beyond Chris.
+- **NOT** a paper-trading sandbox. Real capital from day one. Mock mode
+  exists for testing only.
+- **NOT** dependent on any cloud LLM provider for trading decisions.
+  Session-token auth means zero ongoing API cost for the agent. The
+  trading core is pure Python and runs without an LLM at all.
+- **NOT** free to evolve unchecked. Mandatory tests, mandatory backups,
+  mandatory ADRs for architectural decisions. Discipline applies to the
+  codebase the same way it applies to the trading.
+
+---
+
+## The Authority Model (per-asset, parameterized)
+
+The single biggest correction from the previous NORTH_STAR. **The bot is
+not always supervised.** The handoff system in `common/authority.py`
+defines three per-asset levels:
+
+| Level | What the bot can do | Where it lives |
+|---|---|---|
+| **`agent`** | Bot manages entries, exits, sizing, dip-adds, profit-takes. User gets reports. | `data/authority.json` per asset, set via `/delegate <ASSET>` |
+| **`manual`** (default) | User trades. Bot is safety-net only — ensures SL/TP exist, alerts on dangerous leverage. Never enters or exits. | Default for any unregistered asset |
+| **`off`** | Not watched at all. No alerts, no stops, nothing. | Set via `/authority <ASSET> off` |
+
+Above the per-asset authority, there is the **system-wide tier ladder** in
+`cli/daemon/tiers.py`:
+
+| Tier | Iterators active | Bot behavior |
+|---|---|---|
+| **WATCH** (current production) | Read-only iterators only — no `execution_engine`, no `rebalancer`, no `oil_botpattern` | Reports + alerts only. Cannot place trades. |
+| **REBALANCE** | All WATCH + `execution_engine`, `rebalancer`, `oil_botpattern`, `oil_botpattern_tune`, `oil_botpattern_reflect`, `catalyst_deleverage` | Trades on delegated assets only |
+| **OPPORTUNISTIC** | All REBALANCE | Same as REBALANCE — full autonomy on delegated assets |
+
+The promotion path is **explicit, reversible, per-asset, tier-gated, and
+kill-switched**. Every risky subsystem ships with `enabled: false` by
+default. Promotion requires deliberate action.
+
+This is what "human in the loop" actually means in this codebase: the
+human chooses which assets the bot owns, which tier the daemon runs in,
+and which subsystems are enabled. After those choices are made, the bot
+can operate autonomously on the scope it was granted. **It is a
+*delegated* autonomy model, not a *supervised* one.**
+
+---
+
+## The L0–L5 Self-Improvement Contract
+
+Verbatim from `OIL_BOT_PATTERN_SYSTEM.md` §6 — load-bearing across the
+entire system, not just oil_botpattern:
+
+| Layer | What it does | Cadence | Human in loop |
+|---|---|---|---|
+| **L0 — Hard contracts** | Tests fail before bad code ships. Verification before completion. SL+TP enforced. JSON schemas on every data file. | Per commit / per tick | None — automatic |
+| **L1 — Bounded auto-tune** | Strategy params have hard min/max in YAML. Journal-replay nudges them within bounds after every closed trade. Audit-logged. | Per closed trade | None — automatic |
+| **L2 — Reflect proposals** | Existing autoresearch reflect loop reads journal weekly, posts STRUCTURAL changes (new patterns, new bounds, new market) to Telegram. | Weekly digest | Chris — one tap promote/reject |
+| **L3 — Pattern library growth** | Classifier auto-adds new bot-pattern signatures to versioned catalog. Catalog grows freely; live signal set requires one tap to promote. | Per new pattern | Chris — one tap |
+| **L4 — Shadow trading** | Every L2/L3 proposal runs in shadow (paper) mode for ≥ N closed trades before being eligible for promotion. The system collects its own evidence. | Per proposal | None — automatic |
+| **L5 — ML overlay (deferred)** | A small model on top of L4 evidence. **ONLY after ≥100 closed trades.** Until then: not implemented. Dumb-bot pattern detection is heuristic until the data justifies otherwise. | Deferred | Chris — model gating |
+
+**The contract**: the system is allowed to LEARN automatically. The system
+is not allowed to CHANGE STRUCTURE without one human tap. Crossing that
+line is how trading systems blow up overnight.
+
+L5 deserves emphasis: **we are wary of overfitting**. The data is too
+sparse (low-hundreds of trades/year) for gradient learning to beat
+classical heuristics with bounded auto-tune. ML may be added at L5 once
+≥100 closed trades exist to train against; until then it is fairy dust.
+
+---
+
+## The Quant Data Architecture (ADR-011)
+
+Approved planning: `docs/wiki/decisions/011-two-app-architecture-research-sibling.md`
+
+The user explicitly asked for "a quant system that stores all the relevant
+market data properly... based on NautilusTrader." That plan is **already
+written** as ADR-011 (490 lines, status `Proposed`, dated 2026-04-07).
+
+**Architecture summary:**
+- New sibling app `quant/` alongside `agent-cli/` in the same repo
+- NautilusTrader-style **Parquet data catalog** at `quant/catalog/`
+  (Hive-partitioned by instrument / interval / year / month)
+- Stores: candles, snapshots, fills, signals, features, predictions
+- Bot keeps: execution, risk management, Telegram I/O
+- Quant app owns: data ingestion, signal computation, backtesting, ML, reports
+- Communication via file-based contract (Parquet signals + PDF reports)
+- **Nautilus is the data + research engine. NOT the live execution engine.**
+  The existing `parent/hl_proxy.py` continues to handle HyperLiquid I/O.
+- Strategies migrate from autonomous traders to signal generators (Freqtrade-style)
+
+**Why a sibling app, not embedding:** Nautilus is opinionated. Embedding
+inside the existing daemon means fighting its `MessageBus` and `Actor`
+model for ownership of the event loop. As a sibling app it is a joy. As a
+guest it is a war. (ADR-011 §1.3)
+
+**Status:** Proposed, awaiting Tier 1 completion gate per ADR-011 §8:
+> Tier 1 wins ship before any new app is built. Snapshot bleeding fix,
+> daily report made data-driven, and Phase 3 REFLECT loop wiring all
+> happen first, on the existing bot, with zero dependency on the new app.
+> This banks safe value before architectural risk.
+
+**When to greenlit `quant/` build:** when Chris is ready to commit a
+multi-week dedicated build cycle, the ADR is the entry point. Read ADR-011
+end-to-end before starting.
+
+---
+
+## Historical Oracles — the data the system never deletes
+
+The user said: *"All my chat history in telegram should be saved and be
+able to be analysed... But never deleted... It's amazing historical data
+and those historical oracles will literally become the most valuable
+information we have, especially timestamped in context of where market was
+at and where it subsequently went."*
+
+**The vision**: every Telegram message, every `/feedback`, every `/todo`,
+every closed trade, every catalyst, every supply disruption — all
+timestamped, all enriched with market state at the moment, all append-only,
+all forever, all searchable.
+
+**What exists today:**
+
+| Source | File | Status |
+|---|---|---|
+| Telegram chat | `data/daemon/chat_history.jsonl` | Append-only, 299+ rows. **Going forward**: market_context (price + equity + positions) added per row. |
+| User feedback | `data/feedback.jsonl` | Append-only, 21+ rows since 2026-04-02. Status managed via append-only event rows (never edits the original). |
+| User todos | `data/todos.jsonl` | Same pattern. |
+| Closed trades | `data/research/journal.jsonl` | Append-only. Feeds the lesson layer. |
+| Lessons (verbatim post-mortems) | `data/memory/memory.db` `lessons` table + FTS5 | Append-only. BM25 retrieval. Top-5 auto-injected into every agent decision. |
+| News catalysts | `data/news/catalysts.jsonl` | Append-only. |
+| Supply disruptions | `data/supply/state.json` + ledger files | Append-only. |
+| Agent memory | `data/agent_memory/` | Append-only with rolling trim (the only file with rotation, and only for the agent's working set, not the corpus). |
+
+**Critical rules**:
+- NEVER delete rows from any of the above
+- NEVER rotate-and-truncate; if archival is needed, copy to `*-YYYYMM.jsonl.archive` and KEEP the live file intact
+- Every NEW row gets timestamped market state when it's cheap to gather
+- The corpus is searchable (BM25 for lessons, substring for chat/feedback/todo today, FTS5 follow-up wedge for the latter)
+- The corpus is referenced by the agent on every decision
+
+**What's being built right now** (parallel agents in the 2026-04-09 evening
+realignment session): chat history market-state correlation + rotation
+audit + `/chathistory` search + `/feedback` and `/todo` hardening with
+append-only event semantics.
+
+---
+
+## The User-Action Queue (the "I'll forget if you don't tell me" fix)
+
+The user said: *"There are so many things you are relying on me to
+trigger... We need something in the schedule that documents all this! And
+prompts the user what tools to trigger! Otherwise I simply will forget and
+not know.... The codebase will disintegrate if I don't know how to run
+it..."*
+
+**The fix**: a new daemon iterator that maintains a queue of "things Chris
+should do" with cadence + last-done timestamps + Telegram nudges. Items
+include:
+
+- Memory.db restore drill (quarterly)
+- `/brutalreviewai` weekly deep audit
+- Thesis refresh check per market
+- Lesson approval queue
+- Backup health check
+- `/alignment` ritual reminder (start + end of session)
+- Unresolved feedback aging review
+
+**Status**: being built right now in the same realignment session as this
+NORTH_STAR rewrite. Will land as `cli/daemon/iterators/action_queue.py` +
+`/nudge` Telegram command + 5-surface registration. After this lands,
+**the user no longer has to remember which manual rituals are due.** The
+system tells them.
+
+---
+
+## The Knowledge Graph Thinking Regime (NEW — Horizon 2)
+
+The user was inspired by **InfraNodus knowledge graphs** for thinking
+regimes that guide LLMs in *how to think*, *how to learn*, what style and
+considerations matter. This is genuinely new — there is no equivalent in
+the codebase today. Current agent guidance is flat markdown in
+`agent/AGENT.md` and `agent/SOUL.md`.
+
+**The proposal** (Horizon 2 — needs its own plan doc):
+
+A graph-structured "thinking regime" config that the agent reads on every
+decision. Nodes = concepts (e.g. "supply disruption", "bot overshoot",
+"funding cost", "thesis age", "liquidation cushion"). Edges = relationships
+(e.g. "supply disruption → upgrades long bias on related instrument",
+"bot overshoot → fades the dominant move", "thesis age > 14 days →
+auto-clamp conviction"). The agent walks the relevant subgraph for the
+current decision context and produces its reasoning anchored to those
+explicit concepts and relationships.
+
+This is *not* a knowledge base for the agent to query — it's a *thinking
+regime*. A meta-cognitive layer that says "when you're considering an oil
+short, here are the concepts that should be active, here are the
+relationships between them, here's the order to consider them in." It
+makes the agent's reasoning legible, auditable, and tunable.
+
+**Where it fits**: between `agent/AGENT.md` (which says WHO the agent is)
+and the LIVE CONTEXT injection (which says WHAT is true right now). The
+thinking regime says HOW to reason about the current context.
+
+**Plan doc**: `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` (to be written this
+session as a forward-pointing plan, not implemented).
+
+---
+
+## The Multi-Interface Roadmap
+
+Telegram is the primary interface today and will be for Horizon 1. Beyond
+that:
+
+**Today (Horizon 0):** Telegram bot. Hyperliquid.xyz for manual trading
+and chart watching. Claude Code sessions for development.
+
+**Horizon 1 (0-12 months):**
+- Voice capture in Telegram for hands-free thesis input
+- Screenshot OCR for chart sharing
+- Web dashboard for *display* (not trading) — the bot stays as the
+  trading authority; the web is read-only views into account state,
+  lessons corpus, action queue, brutal review reports
+- ⚠️ **EXPLICIT BOUNDARY**: never rebuild hyperliquid.xyz. That platform
+  is the best in the space for manual trading and watching. The user uses
+  it directly. We do not duplicate it.
+
+**Horizon 2 (12-24 months):**
+- The web dashboard becomes a real workspace for thesis editing, lesson
+  review, and brutal review action triage
+- A possible Mac menubar app for at-a-glance equity / position state
+- The quant `quant/` sibling app from ADR-011 ships, with notebook-based
+  research workflow
+
+**Horizon 3 (24-36+ months):**
+- Quietly excellent personal infrastructure
+- Multi-instrument, multi-strategy, multi-timeframe
+- Self-tuning within bounds, structurally stable, reviewable in one
+  weekly session
 
 ---
 
 ## Operating Principles (the rules behind the rules)
 
-These are the principles every architectural decision should be checked against.
+These are the principles every architectural decision is checked against.
 
 ### P1 — Discipline is the product, not a constraint
 Every protection (mandatory SL+TP, drawdown brakes, conviction clamps,
-kill switches) exists because Chris explicitly asked for it after losing
-something to its absence. Removing a protection requires a stronger
-argument than "it's annoying." The annoyance IS the value.
+kill switches, the per-asset authority model, the tier ladder, the
+L0–L5 contract) exists because Chris explicitly asked for it. Removing a
+protection requires a stronger argument than "it's annoying." The
+annoyance IS the value.
 
 ### P2 — Reality first, docs second
 Code that runs is the truth. Docs that describe what the code USED to do
-are worse than no docs at all. The Brutal Review Loop and Guardian
-drift detection enforce this.
+are worse than no docs at all. **Read git history before claiming
+something doesn't exist.** The 2026-04-07 hardening session lost time
+writing a 600-line ADR based on a stale picture; the 2026-04-09 morning
+rewrote NORTH_STAR without reading `common/authority.py` and got most of
+P6 wrong; the 2026-04-09 evening rewrote it again to fix that. Each
+mistake costs a session. The Brutal Review Loop and Guardian drift
+detection enforce reality-first checking, but the discipline starts
+in the session: **read first, write second.**
 
 ### P3 — Local-first, no rent
-Session-token auth, SQLite storage, launchd-managed daemons, no cloud
-services. The system runs forever for free. The day it stops being
+Session-token auth, SQLite + JSONL + Parquet (when ADR-011 lands)
+storage, launchd-managed daemons, no cloud services for trading
+decisions. The system runs forever for free. The day it stops being
 local-first is the day it starts costing money you don't see.
 
 ### P4 — Additive over destructive
 When in doubt, disable rather than delete. Quarantine rather than
-overwrite. Archive rather than rewrite-in-place. CLAUDE.md "no destructive
-overreach" rule exists for a reason.
+overwrite. Archive rather than rewrite-in-place. CLAUDE.md's "no
+destructive overreach" rule exists for a reason. Append-only event logs
+for `/feedback`, `/todo`, lessons, journal, chat history. State changes
+are NEW events, never edits to old rows.
 
 ### P5 — Confirm before building, commit per logical unit
-The 2026-04-07 hardening session wasted time writing a 600-line ADR based
-on a stale picture. The 2026-04-09 sub-system 5 plan was rejected and
-rewritten in 2 minutes — saving 2 hours of code. Plans are cheap; rewrites
-of working code are expensive.
+Plans are cheap; rewrites of working code are expensive. The 2026-04-09
+sub-system 5 plan was rejected and rewritten in 2 minutes — saving 2
+hours of code. The 2026-04-09 evening realignment session would have
+been avoided if the morning session had read `common/authority.py`
+before asserting. **State your plan in 3-5 bullets. Get a nod. Then
+build.**
 
-### P6 — One human in the loop, always
-WRITE tools require approval. Position-touching commands require
-confirmation. Even when fully trusted, the bot does not act on its own
-authority on trade actions. The day Chris removes the approval gate is
-the day a typo costs an account.
+### P6 — Delegated autonomy, not constant supervision
+The bot is not always supervised. The bot can run autonomously on
+delegated assets at REBALANCE or OPPORTUNISTIC tier. The human's
+authority is in the *granting* of that scope (`/delegate`, tier
+selection, kill switch flips), not in the moment-by-moment execution.
+**The human chooses what the bot owns. The bot owns it.** The L0–L5
+contract is what makes this safe: structural changes require a tap;
+parameter tuning within bounds does not.
 
-### P7 — Compounding wealth is the only goal
+### P7 — Compound wealth via the dumb-bot reality
 Per Chris's verbatim framing in build-log 2026-04-09 sub-system 5:
 > Compound wealth as fast as possible (without tanking the account).
 > Put me under pressure to perform and take risk to make big money when
 > I have a high edge, and bet less money when my edge is small.
 
-Every sizing decision, every gate, every conviction band cascades from
-this. Caps are bad; conviction-driven dynamic sizing is good. Drawdown
-brakes are the floor that makes aggressive sizing safe.
+Combined with the founding insight at the top of this doc: aggressive
+sizing on high-conviction setups that exploit dumb-bot patterns,
+defensive sizing on low-conviction setups, **and never bet on the market
+being smart enough to discount fundamentals correctly**. Drawdown brakes
+are the floor that makes aggressive sizing safe. The 80% bot reality is
+the input that makes "high conviction" mean "I see a bot pattern about
+to land," not "I see an undervalued asset."
 
 ### P8 — Honest feedback over comfortable consensus
-The system must be **brutally honest** in its self-reporting. A weekly
-review that grades the codebase a C+ is more valuable than one that grades
-it an A- to make Chris feel good. The Brutal Review Loop is the formal
-mechanism for this; the spirit applies to every PR comment, every wiki
-update, every alignment run.
+The system must be brutally honest in its self-reporting. A weekly
+review that grades the codebase a C+ is more valuable than one that
+grades it an A- to make Chris feel good. The Brutal Review Loop is the
+formal mechanism for this; the spirit applies to every PR comment,
+every wiki update, every alignment run, **every NORTH_STAR rewrite**.
+
+### P9 — Historical oracles are forever
+Append-only. Never delete. Every chat row, every feedback entry, every
+trade, every catalyst, every supply event lives forever. The system
+accumulates wealth-of-knowledge linearly with time. After 5 years, the
+corpus IS the moat. Today's fix to stop chat history rotation is in
+service of P9.
 
 ---
 
-## What "Startup-Quality" Means For This Project
+## What "startup-quality" means for this project
 
-Chris asked for the system to be "fucking amazing… startup-quality." That
-phrase needs unpacking because *startup* implies things this project
-explicitly is NOT (multi-tenant, customer-facing, growth-optimized).
-
-The right reading: **the engineering hygiene of a well-run early-stage
-fund's internal trading desk.** Specifically:
-
-| Dimension | What good looks like |
-|---|---|
-| **Test coverage** | >90% on trade-touching code; deterministic tests for every gate; ✅ already at ~52% test:code ratio (2,500+ tests) |
-| **Backups** | Hourly automated, integrity-checked, restore-drilled. ✅ shipped 2026-04-09 |
-| **Audit trail** | Every order, every decision, every reasoning step in append-only logs ✅ |
-| **Kill switches** | Every subsystem has one. Default-off for new risky things ✅ |
-| **Drawdown protection** | Hard floors that auto-trigger before Chris knows there's a problem ✅ |
-| **Documentation** | Wiki + ADRs + build-log + plans + memory ✅ |
-| **Drift detection** | Continuous (Guardian) + periodic deep audit (Brutal Review Loop, planned) |
-| **Disaster recovery** | Restore drill is documented and runs at least quarterly. **GAP — needs runbook** |
-| **Observability** | Metrics for funding cost, equity curve, win rate, lesson approval rate. **GAP — partial** |
-| **Reproducibility** | Mock mode for any iterator, replay harness for any past trade. **GAP — partial** |
-| **Security** | Session token auth, dual-write secrets, no API keys. ✅ |
-| **Code review** | Every meaningful change gets a brutal review pass before merge. **GAP — see Brutal Review Loop** |
-
-The four GAPs above are the next 90 days of work alongside the active
-sub-systems.
+| Dimension | What good looks like | Current state |
+|---|---|---|
+| Test coverage | >90% on trade-touching code; deterministic tests for every gate | ✅ ~52% test:code ratio (2,700+ tests) |
+| Backups | Hourly automated, integrity-checked, restore-drilled | ✅ memory.db hourly snapshots shipped 2026-04-09; restore drill runbook shipped same day; user-action queue (pending) will nudge quarterly drill |
+| Audit trail | Every order, every decision, every reasoning step in append-only logs | ✅ Already in place — chat history, journal, lessons, feedback, todos all append-only (rotation audit underway) |
+| Kill switches | Every subsystem has one. Default-off for risky things | ✅ Convention enforced — every iterator has a kill switch file in `data/config/` |
+| Drawdown protection | Hard floors that auto-trigger | ✅ 3% daily / 8% weekly / 15% monthly in `oil_botpattern.json` |
+| Documentation | Wiki + ADRs + build-log + plans + memory + archived snapshots | ✅ Living wiki, 14 ADRs, append-only build-log, plan archive convention |
+| Drift detection | Continuous (Guardian) + periodic deep audit (Brutal Review Loop) | ✅ Guardian shipped; Brutal Review Loop wedge 1 shipped 2026-04-09 |
+| Disaster recovery | Restore drill documented and run quarterly | ⚠️ Documented (`docs/wiki/operations/memory-restore-drill.md`); user-action queue will nudge for quarterly run (in build) |
+| Observability | Metrics for funding cost, equity curve, win rate, lesson approval rate | ⚠️ Partial — needs the daily report from ADR-011 to be data-driven |
+| Reproducibility | Mock mode for any iterator, replay harness for any past trade | ⚠️ Partial — mock mode exists; replay harness deferred to ADR-011 quant app |
+| Security | Session token auth, dual-write secrets, no API keys | ✅ |
+| Code review | Brutal review pass on every meaningful change | ⚠️ Brutal Review Loop wedge 1 (on-demand) shipped; weekly cadence pending wedge 3 |
+| Versioned vision docs | Archive + rewrite, never silently mutate | ✅ Convention shipped 2026-04-09; THIS realignment is the second use of it |
 
 ---
 
-## The "Idea Funnel"
+## The Idea Funnel (revised for the dumb-bot reality)
 
-How a Chris idea becomes a money-making position, in 5 stages:
+How a Chris insight becomes a money-making position, in 5 stages:
 
 ```
-   1. CAPTURE                    2. SHARPEN                 3. SIZE
-      ───────                       ───────                   ─────
-   Telegram /thesis              Agent challenges          Conviction
-   Voice memo (planned)          via tools + lessons       0.0 → 1.0
-   Screenshot OCR (planned)      Brutal review Q&A         Druckenmiller
-                                                            ladder
+   1. CAPTURE                    2. STRUCTURE                 3. SIZE
+      ───────                       ─────────                   ─────
+   Telegram /thesis              Encode as supply ledger     Conviction
+   Voice memo (planned)          Encode as catalyst rule     0.0 → 1.0
+   Screenshot (planned)          Encode as bot pattern       Druckenmiller
+   /feedback (now)               Encode as thesis JSON       ladder
 
          ↓                            ↓                        ↓
 
-   4. EXECUTE                    5. LEARN
-      ────────                      ─────
-   Heartbeat + execution_engine  Journal closes
-   Mandatory exchange SL + TP    Lesson candidate
-   Drawdown brakes               Dream cycle authors
-   Catalyst deleverage           BM25 retrieval at next decision
-                                 Approve/reject feedback loop
+   4. EXECUTE                                  5. LEARN
+      ────────                                  ─────
+   Two writers, one safety net:                Journal closes
+   ┌─ thesis_engine path (long horizon)        Lesson candidate
+   │  Druckenmiller conviction sizing          Dream cycle authors via Haiku
+   │  Holds through corrections                FTS5 BM25 retrieval at next decision
+   │                                           Approve/reject feedback loop
+   └─ oil_botpattern path (tactical, ≤24h)
+      Exploits bot overshoot                   Entry critic auto-fires per
+      Hard 24h cap on shorts                   new position with deterministic
+      Drawdown circuit breakers                grade + suggestions + lesson recall
+      Both writers obey: SL+TP on exchange,
+      authority check, tier check
 ```
 
-Today: stages 1, 4, 5 are mature. Stages 2, 3 are partial (the agent
-*can* challenge, the conviction engine *can* size, but stage 2 needs
-more structure — see Brutal Review Loop). The 12-month target is to
-make all 5 stages first-class.
+The novel part vs the previous NORTH_STAR: **stage 3 is now informed by
+the bot reality, not by forecasting confidence**. "High conviction" means
+"I see a bot pattern about to land," not "I see a fundamental being
+ignored." Stages 1, 2, 4, 5 are mature. Stage 3 needs the bot classifier
+(sub-system 4, shipped) feeding the conviction band (in progress via
+sub-system 6 self-tune harness, partially shipped).
 
 ---
 
-## Direction-Setting Decisions Already Made
+## Direction-setting decisions already made
 
 Pinned here so they don't need to be re-litigated:
 
-- **Markets**: BTC + oil to start, expand to all HL via config (no code).
-- **Authentication**: session token only, no API keys, ever.
-- **Storage**: local SQLite + JSONL, no cloud DBs.
-- **LLM**: Anthropic via session token now, optional local Gemma later.
-- **Strategy style**: Druckenmiller-inspired conviction sizing, not mean reversion or grid trading.
-- **Risk philosophy**: hard floors + dynamic sizing, not per-trade caps.
-- **Dev stance**: human in the loop on every WRITE, autonomous on every READ.
-- **Documentation**: living wiki + archived plan snapshots + build log.
-- **Self-improvement**: lessons corpus + reflect engine + (eventually) local LoRA on real trades.
+- **Markets**: BTC + oil first, expand to all HL via config (Multi-Market
+  Wedge 1 shipped 2026-04-09 — `data/config/markets.yaml` + MarketRegistry)
+- **Authentication**: session token only, no API keys, ever
+- **Storage today**: SQLite + JSONL + Markdown
+- **Storage future (ADR-011)**: Parquet catalog via NautilusTrader sibling app
+- **LLM**: Anthropic via session token for the agent, no LLM for trading core,
+  optional local Gemma later via fine-tune on the lesson corpus
+- **Strategy style**: Druckenmiller conviction sizing for long horizon +
+  bot-pattern exploitation for tactical
+- **Risk philosophy**: hard floors + dynamic sizing, not per-trade caps
+- **Authority**: per-asset delegation (`agent` / `manual` / `off`), system-wide
+  tier ladder (WATCH / REBALANCE / OPPORTUNISTIC), kill switches per subsystem
+- **Self-improvement**: L0–L5 contract — learn within bounds, never restructure
+  without one tap
+- **Documentation**: living wiki + archived plan snapshots + append-only build-log
+- **Multi-interface**: Telegram now, web display + voice + screenshot Horizon 1,
+  workspace web Horizon 2. **Never rebuild hyperliquid.xyz.**
+- **Historical data**: append-only forever, market-correlated going forward,
+  searchable
 
 ---
 
@@ -265,31 +530,45 @@ Pinned here so they don't need to be re-litigated:
 
 The next ten things to ship, in priority order:
 
-1. **End-to-end smoke test** of the lesson layer with one real $50 trade
-   (or a synthetic-but-schema-correct journal entry). Verify journal →
-   candidate → dream cycle → memory.db row → BM25 retrieval → prompt injection.
-2. **Sub-system 6** of the Oil Bot Pattern System (self-tune harness).
-3. **Multi-market expansion Wedge 1** — extract the long-only-oil rule
-   into config so other markets can have different direction bias.
-4. **Brutal Review Loop wedge 1** — write the cron + agent invocation
-   that produces the first weekly report.
-5. **Voice / screenshot capture** in Telegram for lower-friction thesis input.
-6. **Restore drill runbook** for `data/memory/memory.db` (the iterator
-   ships, the drill is undocumented).
-7. **`telegram_bot.py` incremental split** into `cli/telegram_commands/`
-   submodules (one warmup task per session).
-8. **Equity curve + win rate Telegram report** (`/equity`, deterministic).
-9. **Replay harness** that takes a frozen account snapshot and lets the
-   agent re-decide — the prerequisite for any LoRA training.
+1. **Land the parallel-agent burst from this realignment session** —
+   user-action queue iterator, entry critic verification, chat history
+   correlation + rotation stop, /feedback hardening with FTS5-ready event
+   semantics.
+2. **Real $50 BTC vault smoke test** — your finger on the button;
+   validates lesson_author + entry_critic in production simultaneously.
+3. **Sub-system 6 final wedges** — reflect proposals (L2) auto-promotion
+   gates, pattern library growth (L3 — manual today, automated in next wedge).
+4. **Multi-Market Wedge 2** — thesis JSON schema generalisation (any HL market).
+5. **Brutal Review Loop Wedge 2-3** — scheduled cadence (weekly) +
+   action queue parser (so the brutal report's recommendations land in
+   the user-action queue automatically).
+6. **Knowledge Graph Thinking Regime — Wedge 1** — write the plan doc
+   (`docs/plans/KNOWLEDGE_GRAPH_THINKING.md`) and prototype a concept
+   graph for one decision context (e.g. "considering an oil short").
+7. **Telegram monolith Wedge 2** — extract `cli/telegram_commands/portfolio.py`
+   (cmd_status, cmd_position, cmd_pnl).
+8. **ADR-011 Tier 1 wins** — snapshot bleeding fix, daily report data-driven,
+   Phase 3 REFLECT loop wiring. These unlock the `quant/` sibling app build.
+9. **Voice / screenshot capture in Telegram** — the lower-friction thesis
+   input promised in Horizon 1.
 10. **Refresh or formally park** the GOLD + SILVER theses.
+
+After these ten land, the next NORTH_STAR rewrite will be at the natural
+boundary of "Horizon 1 substantially shipped." Until then, this version
+holds.
 
 ---
 
-## Versioning of This Document
+## Versioning of this document
 
 Same convention as MASTER_PLAN.md. When the vision shifts meaningfully,
-archive the old version to `docs/plans/archive/NORTH_STAR_YYYY-MM-DD_<slug>.md`
-(append-only) and rewrite this file fresh. The vision should not need to
-move often — when it does, the move is worth recording.
+archive to `docs/plans/archive/NORTH_STAR_YYYY-MM-DD_<slug>.md` (append-only,
+HTML-comment header explaining WHY it was archived and what it got wrong)
+and rewrite this file fresh. The vision should not need to move often —
+when it does, the move is worth recording.
 
-> Past versions: see `docs/plans/archive/`.
+> Past versions: see `docs/plans/archive/` (oldest first by filename sort).
+> The 2026-04-09 morning version was archived because it missed the
+> founding philosophy, the authority model, and the L0–L5 contract. Read
+> it for the lesson on what happens when you write vision docs without
+> reading git history first.
