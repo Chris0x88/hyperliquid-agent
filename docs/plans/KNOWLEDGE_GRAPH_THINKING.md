@@ -141,10 +141,10 @@ it in the walk. **No code change. No prompt rewrite. No model retrain.**
 ## Architecture sketch
 
 ### Storage
-- `data/thinking_graphs/<context_id>.yaml` — one file per decision context
-- `data/thinking_graphs/_concepts.yaml` — shared concept definitions
+- `docs/plans/thinking_graphs/<context_id>.yaml` — one file per decision context
+- `docs/plans/thinking_graphs/_concepts.yaml` — shared concept definitions
   (re-used across contexts)
-- `data/thinking_graphs/_relationships.yaml` — shared edge templates
+- `docs/plans/thinking_graphs/_relationships.yaml` — shared edge templates
 
 ### Module
 - `modules/thinking_regime.py` — pure logic
@@ -167,7 +167,7 @@ it in the walk. **No code change. No prompt rewrite. No model retrain.**
 - `/regime trace <decision_id>` — show the agent's last walk for a decision
 
 ### Storage of walks
-Every walk gets persisted to `data/thinking_graphs/walks.jsonl` (append-only,
+Every walk gets persisted to `docs/plans/thinking_graphs/walks.jsonl` (append-only,
 naturally — per NORTH_STAR P9). Future analysis: which walks correlated
 with profitable trades? Which nodes were most predictive? Which edges
 should be reweighted?
@@ -183,11 +183,11 @@ itself, not just for the agent's decisions.
 This is a Horizon 2 plan. Not implemented yet. Wedge plan when greenlit:
 
 ### Wedge 1 — Concept catalog + one decision context
-- Write `data/thinking_graphs/_concepts.yaml` with 20-40 concepts covering
+- Write `docs/plans/thinking_graphs/_concepts.yaml` with 20-40 concepts covering
   the existing oil reasoning surface (catalyst proximity, supply state,
   bot classification, liquidity zones, lesson recall, conviction sizing,
   drawdown brakes, etc.)
-- Write `data/thinking_graphs/oil_short_decision.yaml` as the first
+- Write `docs/plans/thinking_graphs/oil_short_decision.yaml` as the first
   context graph
 - Pure data, no code
 

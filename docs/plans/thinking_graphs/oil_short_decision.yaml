@@ -1,0 +1,210 @@
+# Knowledge Graph: Oil Short Decision
+#
+# Wedge 1 of docs/plans/KNOWLEDGE_GRAPH_THINKING.md. The first concrete
+# decision context. When the agent considers shorting CL or BRENTOIL,
+# it walks this graph in topologically sorted order, checks each node
+# against live data, and produces a structured reasoning trace.
+#
+# The graph IS the reasoning shape — not the prompt. The agent still
+# produces narrative reasoning when it responds; this checklist just
+# ensures it covered the right concepts and traversed them in the
+# right order.
+#
+# Status: Wedge 1 — pure data. No loader yet (Wedge 2). When the
+# loader ships, this graph becomes the first decision context the
+# agent uses.
+#
+# Concept references must exist in _concepts.yaml. The Wedge 2
+# loader will validate this on load and refuse to dispatch if any
+# concept is missing.
+
+context_id: oil_short_decision
+label: "Oil Short Decision"
+description: |
+  Walk this graph when the user (or the agent itself) is considering
+  opening a SHORT position on CL or BRENTOIL. Per the long-only-oil
+  rule, shorts are ONLY legal inside the oil_botpattern subsystem,
+  AND only when bot_classification is bot_driven_overextension with
+  confidence ≥ 0.7, AND only when no high-severity bullish catalyst
+  is pending in 24h, AND only when the supply ledger doesn't have a
+  recent disruption upgrade that fundamentals would fight, AND only
+  when the short-legs kill switch is enabled.
+
+  This graph encodes that gate chain plus the sizing + lesson recall
+  steps. Failures in early gates short-circuit the rest of the walk
+  and produce a NO_GO with the failed gate as the reason.
+
+triggers:
+  - "user message contains: short oil, short CL, short brent, short brentoil"
+  - "user message contains: bot overshoot + oil"
+  - "agent considering position with direction=short and instrument in (CL, BRENTOIL)"
+
+# Walk order is depth-first through gates first, then sizing, then output.
+# A failure at any gate node terminates the walk early.
+
+nodes:
+
+  # ── Phase 1: hard gates (must pass before any sizing math) ─────────
+  - id: gate_oil_long_only_rule
+    concept: oil_long_only_rule
+    phase: gate
+    on_fail: "NO_GO — oil long-only rule. Shorts are blocked unless inside oil_botpattern subsystem."
+
+  - id: gate_short_legs_enabled
+    concept: short_legs_enabled
+    phase: gate
+    on_fail: "NO_GO — short_legs kill switch is OFF. Flip data/config/oil_botpattern.json:short_legs_enabled=true to enable."
+
+  - id: gate_drawdown_brakes
+    concept: drawdown_brake_state
+    phase: gate
+    on_fail: "NO_GO — a drawdown brake is tripped. Daily auto-clears at UTC midnight; weekly/monthly require manual brake_cleared_at flip."
+
+  - id: gate_tier
+    concept: tier_state
+    phase: gate
+    on_fail: "NO_GO — daemon is in WATCH tier. Auto-execution requires REBALANCE or OPPORTUNISTIC."
+
+  - id: gate_authority
+    concept: asset_authority
+    phase: gate
+    on_fail: "NO_GO — asset authority is not 'agent'. Run /delegate <ASSET> to hand control to the bot, or accept this is a manual decision."
+
+  # ── Phase 2: bot-pattern qualification ─────────────────────────────
+  - id: check_bot_classification
+    concept: bot_classification
+    phase: qualification
+    on_fail: "NO_GO — most recent move is not classified as bot_driven_overextension."
+    expected: "bot_driven_overextension"
+
+  - id: check_classification_confidence
+    concept: bot_classification_confidence
+    phase: qualification
+    on_fail: "NO_GO — bot classification confidence < 0.7."
+    threshold: 0.7
+
+  # ── Phase 3: fundamental fight check ───────────────────────────────
+  - id: check_upcoming_catalyst
+    concept: upcoming_catalyst
+    phase: fundamental_check
+    on_fail: "NO_GO — high-severity bullish catalyst (severity ≥ 4) pending in 24h. Bot overshoot is likely the START of a move, not the end."
+
+  - id: check_supply_state
+    concept: supply_disruption_state
+    phase: fundamental_check
+    on_fail: "NO_GO — supply ledger has a recent (≤72h) disruption upgrade. Shorting fights the fundamental — wait for resolution."
+
+  # ── Phase 4: liquidity & cascade context ───────────────────────────
+  - id: check_nearest_wall
+    concept: nearest_liquidity_wall
+    phase: liquidity_context
+    inform_only: true
+    note: "Wall on the same side as the entry → cascade target. Wall against → resistance to overcome."
+
+  - id: check_recent_cascade
+    concept: recent_cascade_against
+    phase: liquidity_context
+    inform_only: true
+    note: "If a cascade just landed against the proposed direction, the bot move may already be exhausted."
+
+  # ── Phase 5: lesson recall (BOUNDED per NORTH_STAR P10) ────────────
+  - id: recall_past_lessons
+    concept: relevant_past_lessons
+    phase: lesson_recall
+    inform_only: true
+    note: |
+      Top 5 lessons MAX. Hard cap at the source per p10_bounded tag in
+      the concept catalog. The agent must read and reference at least
+      one lesson by id in its reasoning, OR explicitly note "no relevant
+      lesson found" if the BM25 search returned nothing.
+
+  # ── Phase 6: sizing math (only reached if all gates pass) ──────────
+  - id: compute_target_size
+    concept: target_size_pct
+    phase: sizing
+    note: "Conviction-band sizing. For shorts in oil_botpattern, the cap is 50% of the long-side budget for the same instrument."
+
+  - id: compute_liquidation_cushion
+    concept: liquidation_cushion_pct
+    phase: sizing
+    on_warn: "Cushion < 8% — abnormal leverage for a tactical short. Reduce size or skip."
+
+  # ── Phase 7: outputs ──────────────────────────────────────────────
+  - id: output_recommendation
+    concept: entry_recommendation
+    phase: output
+
+  - id: output_sizing
+    concept: sizing_recommendation
+    phase: output
+
+  - id: output_alternatives
+    concept: suggested_alternatives
+    phase: output
+    note: "If NO_GO, suggest a concrete alternative — wait for catalyst, watch a different instrument, scale into the long side instead."
+
+# Edges define order — earlier nodes must be evaluated before later
+# ones. The Wedge 2 loader does a topological sort to derive the
+# walk order. Failures at any gate node short-circuit the walk and
+# jump straight to the output phase with NO_GO.
+
+edges:
+  # Phase 1 gates (sequential)
+  - from: gate_oil_long_only_rule
+    to: gate_short_legs_enabled
+  - from: gate_short_legs_enabled
+    to: gate_drawdown_brakes
+  - from: gate_drawdown_brakes
+    to: gate_tier
+  - from: gate_tier
+    to: gate_authority
+
+  # Phase 2 qualification
+  - from: gate_authority
+    to: check_bot_classification
+  - from: check_bot_classification
+    to: check_classification_confidence
+
+  # Phase 3 fundamental check
+  - from: check_classification_confidence
+    to: check_upcoming_catalyst
+  - from: check_upcoming_catalyst
+    to: check_supply_state
+
+  # Phase 4 liquidity (informational, both can run in parallel)
+  - from: check_supply_state
+    to: check_nearest_wall
+  - from: check_supply_state
+    to: check_recent_cascade
+
+  # Phase 5 lesson recall (after liquidity context so the agent has
+  # the live numbers when it reads the lessons)
+  - from: check_nearest_wall
+    to: recall_past_lessons
+  - from: check_recent_cascade
+    to: recall_past_lessons
+
+  # Phase 6 sizing
+  - from: recall_past_lessons
+    to: compute_target_size
+  - from: compute_target_size
+    to: compute_liquidation_cushion
+
+  # Phase 7 outputs
+  - from: compute_liquidation_cushion
+    to: output_recommendation
+  - from: output_recommendation
+    to: output_sizing
+  - from: output_sizing
+    to: output_alternatives
+
+# When the Wedge 2 loader walks this graph, it produces a structured
+# ReasoningTrace dict that lands in data/thinking_graphs/walks.jsonl
+# (append-only forever per NORTH_STAR P9). The walk record has:
+#   - graph_id, walked_at_ts, decision_context (the user message)
+#   - per_node: {concept_id, value, evaluation, on_fail/on_warn fired}
+#   - terminal_phase: which phase the walk reached
+#   - outcome: GO / NO_GO / WAIT
+#   - human_visible_reasoning: what the agent told the user
+# Wedge 6 (the meta-learning loop) will analyze these walks for
+# correlation with closed-trade outcomes.

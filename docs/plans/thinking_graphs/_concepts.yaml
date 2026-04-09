@@ -1,0 +1,230 @@
+# Knowledge Graph Thinking Regime — Concept Catalog
+#
+# Wedge 1 of the plan in docs/plans/KNOWLEDGE_GRAPH_THINKING.md.
+# This is PURE DATA. No loader yet (that's Wedge 2). The catalog
+# defines reusable concepts that can be referenced by per-context
+# decision graphs (e.g. oil_short_decision.yaml).
+#
+# Each concept has:
+#   id            unique snake_case identifier
+#   label         human-readable display name
+#   kind          fact | check | rule | input | output
+#   description   one-sentence what-this-means
+#   data_source   where to get the live value (path | tool | "manual")
+#   bound         retrieval cap when this concept is sourced (per
+#                 NORTH_STAR P10 — every read path is hard-bounded)
+#   tags          freeform tags for graph traversal filtering
+#
+# When the agent walks a graph that references a concept, it pulls the
+# live value via data_source, applies the bound, and feeds it into
+# the reasoning step. The graph itself (oil_short_decision.yaml etc)
+# defines edges between these concepts.
+#
+# This file is APPEND-ONLY in the same spirit as the lessons corpus.
+# When a concept is wrong, write a NEW concept and update the graph
+# to reference the new id. Don't edit old concept rows in place — they
+# may still be referenced by historical reasoning traces in
+# data/thinking_graphs/walks.jsonl (Wedge 4).
+
+version: 1
+last_updated: "2026-04-09"
+
+concepts:
+
+  # ── Position & sizing concepts ──────────────────────────────────────
+
+  - id: thesis_conviction
+    label: "Thesis Conviction"
+    kind: input
+    description: "Druckenmiller-style conviction value 0.0–1.0 from the asset's thesis JSON."
+    data_source: "data/thesis/{market}_state.json:conviction"
+    bound: "single value, no array"
+    tags: [thesis, sizing, oil, btc]
+
+  - id: thesis_age_days
+    label: "Thesis Age (days)"
+    kind: input
+    description: "Days since the thesis JSON was last updated. >14 days auto-clamps conviction."
+    data_source: "data/thesis/{market}_state.json:last_updated"
+    bound: "single value"
+    tags: [thesis, staleness, sizing]
+
+  - id: target_size_pct
+    label: "Target Size %"
+    kind: rule
+    description: "Conviction-band-derived target % of equity for the position."
+    data_source: "common.conviction_engine.conviction_to_target_pct(conviction, bands)"
+    bound: "single value"
+    tags: [sizing, druckenmiller]
+
+  - id: actual_size_pct
+    label: "Actual Size %"
+    kind: input
+    description: "Current notional as % of equity at entry time."
+    data_source: "computed: position.notional_usd / account.total_equity"
+    bound: "single value"
+    tags: [sizing, position]
+
+  - id: liquidation_cushion_pct
+    label: "Liquidation Cushion %"
+    kind: input
+    description: "Distance from current price to liquidation, expressed as % of position value."
+    data_source: "computed: (current - liq_price) / current * 100"
+    bound: "single value"
+    tags: [risk, leverage, ruin]
+
+  # ── Bot pattern / market regime concepts ───────────────────────────
+
+  - id: bot_classification
+    label: "Bot Classification"
+    kind: input
+    description: "Recent move tagged by sub-system 4 — bot_driven_overextension / informed_move / mixed / unclear."
+    data_source: "data/research/bot_patterns.jsonl:tail(10)"
+    bound: "10 most recent rows max"
+    tags: [bot_pattern, sub_system_4]
+
+  - id: bot_classification_confidence
+    label: "Bot Classification Confidence"
+    kind: input
+    description: "Sub-system 4's confidence in the current classification (0.0–1.0). Short trades require >=0.7."
+    data_source: "data/research/bot_patterns.jsonl:tail(1).confidence"
+    bound: "single value"
+    tags: [bot_pattern, gate]
+
+  - id: nearest_liquidity_wall
+    label: "Nearest Liquidity Wall"
+    kind: input
+    description: "Distance + side of the nearest liquidity zone (heatmap sub-system 3) to entry price."
+    data_source: "data/heatmap/zones.jsonl:filter(instrument).nearest"
+    bound: "single nearest wall + side"
+    tags: [heatmap, sub_system_3, cascade]
+
+  - id: recent_cascade_against
+    label: "Recent Cascade Against Direction"
+    kind: input
+    description: "Was a liquidation cascade detected in the past 4h on this instrument against the proposed direction?"
+    data_source: "data/heatmap/cascades.jsonl:filter(instrument, last_4h).count"
+    bound: "boolean + count"
+    tags: [heatmap, cascade]
+
+  # ── Catalyst / fundamental concepts ────────────────────────────────
+
+  - id: upcoming_catalyst
+    label: "Upcoming Catalyst (24h)"
+    kind: input
+    description: "Highest-severity catalyst scheduled in the next 24h that affects this instrument."
+    data_source: "data/news/catalysts.jsonl:filter(market, next_24h).max(severity)"
+    bound: "single highest-severity row"
+    tags: [news, catalyst, sub_system_1]
+
+  - id: catalyst_proximity_hours
+    label: "Catalyst Proximity (hours)"
+    kind: rule
+    description: "Hours until next major catalyst. <2h = LATE entry, >24h = LEAD entry, between = NEUTRAL."
+    data_source: "computed from upcoming_catalyst"
+    bound: "single value"
+    tags: [news, timing]
+
+  - id: supply_disruption_state
+    label: "Supply Disruption State"
+    kind: input
+    description: "Current physical-supply disruption aggregate from sub-system 2 (offline bbl/day for oil)."
+    data_source: "data/supply/state.json:summary"
+    bound: "summary fields only, no individual disruption rows"
+    tags: [supply, sub_system_2, oil]
+
+  # ── Funding / cost concepts ────────────────────────────────────────
+
+  - id: funding_bps_annualized
+    label: "Funding (bps annualized)"
+    kind: input
+    description: "Current funding rate annualized in basis points. Negative = pays you to be long."
+    data_source: "common.market_snapshot.build_snapshot:funding"
+    bound: "single value"
+    tags: [funding, cost]
+
+  - id: open_interest_delta_4h
+    label: "OI Delta (4h)"
+    kind: input
+    description: "Open interest change over the last 4 hours. Used to detect bot piling-on vs distribution."
+    data_source: "data/heatmap/oi_history.jsonl:tail(4h)"
+    bound: "single delta value"
+    tags: [oi, bot_pattern]
+
+  # ── Hard rules / gate concepts ─────────────────────────────────────
+
+  - id: oil_long_only_rule
+    label: "Oil Long-Only Rule"
+    kind: rule
+    description: "BRENTOIL is direction_bias=long_only in markets.yaml. Shorts are blocked unless inside oil_botpattern subsystem."
+    data_source: "data/config/markets.yaml:BRENTOIL.direction_bias"
+    bound: "boolean"
+    tags: [rule, oil, hard_constraint]
+
+  - id: drawdown_brake_state
+    label: "Drawdown Brake State"
+    kind: input
+    description: "Has the daily/weekly/monthly drawdown brake been tripped? Tripped brakes block new entries."
+    data_source: "data/strategy/oil_botpattern_state.json:brakes"
+    bound: "3 booleans (daily/weekly/monthly)"
+    tags: [risk, brake, ruin]
+
+  - id: short_legs_enabled
+    label: "Short Legs Enabled"
+    kind: rule
+    description: "Master kill switch — if false, sub-system 5 cannot open shorts at all, regardless of bot classification."
+    data_source: "data/config/oil_botpattern.json:short_legs_enabled"
+    bound: "boolean"
+    tags: [kill_switch, oil, oil_botpattern]
+
+  - id: tier_state
+    label: "Daemon Tier"
+    kind: input
+    description: "Current tier (WATCH/REBALANCE/OPPORTUNISTIC). REBALANCE+ required for any auto-execution."
+    data_source: "data/daemon/state.json:tier"
+    bound: "single enum value"
+    tags: [tier, autonomy]
+
+  - id: asset_authority
+    label: "Asset Authority"
+    kind: input
+    description: "Per-asset delegation level — agent / manual / off. Only `agent` allows autonomous execution."
+    data_source: "data/authority.json:assets.{market}.authority"
+    bound: "single enum value"
+    tags: [authority, delegation, P6]
+
+  # ── Lesson recall concepts ─────────────────────────────────────────
+
+  - id: relevant_past_lessons
+    label: "Top BM25 Lessons"
+    kind: input
+    description: "Top 5 lessons from the FTS5 corpus matching this market + direction. Per NORTH_STAR P10 — bounded at 5."
+    data_source: "common.memory.search_lessons(market, direction, limit=5)"
+    bound: "5 rows max — HARD CAP"
+    tags: [lesson, retrieval, p10_bounded]
+
+  # ── Output / decision concepts ─────────────────────────────────────
+
+  - id: entry_recommendation
+    label: "Entry Recommendation"
+    kind: output
+    description: "GO / NO_GO / WAIT_FOR_X with concrete reasoning."
+    data_source: "computed from graph walk"
+    bound: "single output"
+    tags: [decision]
+
+  - id: sizing_recommendation
+    label: "Sizing Recommendation"
+    kind: output
+    description: "Recommended position size as % of equity, derived from conviction band + brake state + catalyst proximity."
+    data_source: "computed from graph walk"
+    bound: "single output"
+    tags: [decision, sizing]
+
+  - id: suggested_alternatives
+    label: "Suggested Alternatives"
+    kind: output
+    description: "If entry is NO_GO, what setup would the system prefer instead? E.g. 'wait for catalyst at +6h then re-evaluate'."
+    data_source: "computed from graph walk"
+    bound: "max 5 alternatives"
+    tags: [decision]
