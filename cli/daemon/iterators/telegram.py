@@ -107,13 +107,21 @@ class TelegramIterator:
                 icon = "ℹ️"
                 prefix = ""
 
-            # BUG-FIX 2026-04-08 (alert-format): emit a labelled section
-            # block instead of ``source: message`` so the operator can read
-            # alerts at a glance. Markdown formatting (parse_mode set in
-            # _send below) makes the source bold and the message body
-            # clean. Multi-line alerts (e.g. journal trade close) keep
-            # their newline structure.
-            self._queue(f"{icon} {prefix}*{alert.source}*\n{alert.message}")
+            # Human-readable source labels for Telegram display
+            _SOURCE_LABELS = {
+                "account_collector": "Account",
+                "liquidation_monitor": "Liquidation",
+                "risk": "Risk",
+                "apex_advisor": "Advisor",
+                "liquidity": "Liquidity",
+                "brent_rollover_monitor": "Brent Rollover",
+                "protection_audit": "Protection Check",
+                "exchange_protection": "Exchange Protection",
+                "journal": "Trade Journal",
+                "funding_tracker": "Funding",
+            }
+            label = _SOURCE_LABELS.get(alert.source, alert.source)
+            self._queue(f"{icon} {prefix}*{label}*\n{alert.message}")
 
         # Prune old dedup entries (keep last 24h)
         self._sent_alerts = {k: v for k, v in self._sent_alerts.items() if now - v < 86400}

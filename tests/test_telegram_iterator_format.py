@@ -124,8 +124,8 @@ class TestAlertSectionFormat:
 
         assert sent
         payload = sent[0]
-        # Source rendered as bold header
-        assert "*liquidation_monitor*" in payload
+        # Source rendered as human-readable bold header
+        assert "*Liquidation*" in payload
         # The message body is preserved (with its own markdown)
         assert "$94.93" in payload
         # Critical severity prepends the right icon

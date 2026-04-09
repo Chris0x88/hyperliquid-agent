@@ -80,21 +80,29 @@ class RiskIterator:
         # with a labelled markdown block so the gate state, reasons, and
         # market context each get their own line.
         if triggered:
-            reasons = " | ".join(t.reason for t in triggered)
             worst_severity = "critical" if chain_gate == RiskGate.CLOSED else "warning"
             # C4: append calendar regime tags so the operator knows the
             # market context the protection chain fired in
             from cli.daemon.calendar_tags import get_current_tags
+            from cli.daemon.iterators._format import humanize_tags
             cal = get_current_tags()
             tag_line = (
-                f"\n  Context: _{', '.join(cal['tags'])}_" if cal["tags"] else ""
+                f"\n  Market: _{humanize_tags(cal['tags'])}_" if cal["tags"] else ""
             )
+            # Human-readable gate label
+            gate_label = {
+                "CLOSED": "All entries blocked",
+                "COOLDOWN": "Cooling down — reduced activity",
+                "OPEN": "Normal",
+            }.get(chain_gate.value, chain_gate.value)
+            # Format reasons as bullet points
+            reason_lines = "\n".join(f"  - {t.reason}" for t in triggered)
             ctx.alerts.append(Alert(
                 severity=worst_severity,
                 source=self.name,
                 message=(
-                    f"*Protection chain* — `{chain_gate.value}`\n"
-                    f"  {reasons}{tag_line}"
+                    f"*Risk status — {gate_label}*\n"
+                    f"{reason_lines}{tag_line}"
                 ),
                 data={
                     "calendar_tags": cal["tags"],

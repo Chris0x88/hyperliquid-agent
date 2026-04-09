@@ -77,15 +77,14 @@ class LiquidityIterator:
                 ctx.alerts.append(Alert(
                     severity="warning",
                     source="liquidity",
-                    message=f"Liquidity regime: {self._last_regime.value} -> {regime.value}. "
-                            f"Size mult: {REGIME_SIZE_MULT[regime]:.0%}, "
-                            f"Stop mult: {REGIME_STOP_MULT[regime]:.1f}x",
+                    message=f"Liquidity dropped to _{regime.value.replace('_', ' ')}_\n"
+                            f"  Sizes reduced to {REGIME_SIZE_MULT[regime]:.0%}, stops widened {REGIME_STOP_MULT[regime]:.1f}x",
                 ))
             elif self._last_regime in (LiquidityRegime.WEEKEND, LiquidityRegime.DANGEROUS):
                 ctx.alerts.append(Alert(
                     severity="info",
                     source="liquidity",
-                    message=f"Liquidity improving: {self._last_regime.value} -> {regime.value}",
+                    message=f"Liquidity improving — back to _{regime.value.replace('_', ' ')}_",
                 ))
 
         self._last_regime = regime
@@ -95,7 +94,7 @@ class LiquidityIterator:
         ctx.alerts.append(Alert(
             severity="info",
             source="liquidity",
-            message=f"regime={regime.value}",
+            message=f"Liquidity: {regime.value.replace('_', ' ').title()}",
             data={
                 "regime": regime.value,
                 "size_mult": REGIME_SIZE_MULT[regime],

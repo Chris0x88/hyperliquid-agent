@@ -220,12 +220,17 @@ class ApexAdvisorIterator:
         self._last_proposal[key] = proposal
 
         verb = action.action.upper()
+        inst = action.instrument or "?"
+        direction = (action.direction or "").upper()
+        reason = action.reason or "no reason given"
+        # Translate code-style reasons into readable text
+        if reason.startswith("hard_stop:"):
+            detail = reason.split(":", 1)[1].strip()
+            reason = f"Hard stop triggered ({detail})"
         msg = (
-            f"APEX ADVISOR (dry run): {verb} {action.instrument or '?'} "
-            f"{action.direction or ''} "
-            f"source={action.source or '?'} "
-            f"score={action.signal_score:.1f} "
-            f"reason={action.reason or '?'}"
+            f"*Trade suggestion* (not executed)\n"
+            f"  {verb} {inst} {direction}\n"
+            f"  {reason}"
         )
         ctx.alerts.append(Alert(
             severity="info",  # advisor is informational; user makes the call

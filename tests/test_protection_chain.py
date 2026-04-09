@@ -172,7 +172,7 @@ class TestRuinProtection:
         result = self.prot.check(**_base_kwargs(drawdown_pct=40.0, has_positions=True))
         assert result.lock is True
         assert result.gate == RiskGate.CLOSED
-        assert "RUIN" in result.reason
+        assert "Emergency" in result.reason
 
     def test_triggers_above_40_pct(self):
         result = self.prot.check(**_base_kwargs(drawdown_pct=75.0, has_positions=True))

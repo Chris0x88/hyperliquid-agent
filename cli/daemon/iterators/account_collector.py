@@ -166,10 +166,9 @@ class AccountCollectorIterator:
                 severity="critical",
                 source=self.name,
                 message=(
-                    f"*DRAWDOWN HALT*\n"
-                    f"  Equity `${equity:,.2f}` is `{drawdown_pct:.0f}%` "
-                    f"below peak `${self._high_water_mark:,.2f}`\n"
-                    f"  → halting new entries"
+                    f"*Account drawdown — entries halted*\n"
+                    f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
+                    f"  Down `{drawdown_pct:.0f}%` — no new trades until recovery"
                 ),
                 data={"drawdown_pct": drawdown_pct, "hwm": self._high_water_mark, "equity": equity},
             ))
@@ -179,9 +178,8 @@ class AccountCollectorIterator:
                 source=self.name,
                 message=(
                     f"*Drawdown warning*\n"
-                    f"  Equity `${equity:,.2f}` is `{drawdown_pct:.0f}%` "
-                    f"below peak `${self._high_water_mark:,.2f}`\n"
-                    f"  → reduce risk"
+                    f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
+                    f"  Down `{drawdown_pct:.0f}%` — consider reducing risk"
                 ),
                 data={"drawdown_pct": drawdown_pct, "equity": equity},
             ))

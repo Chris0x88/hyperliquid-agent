@@ -483,13 +483,13 @@ class MaxDrawdownProtection(BaseProtection):
             return ProtectionReturn(
                 lock=True,
                 gate=RiskGate.CLOSED,
-                reason=f"Drawdown {drawdown_pct:.0f}% ≥ {self.halt_pct:.0f}% — entries halted",
+                reason=f"Drawdown at {drawdown_pct:.0f}% — new entries halted",
             )
         if drawdown_pct >= self.warn_pct:
             return ProtectionReturn(
                 lock=True,
                 gate=RiskGate.COOLDOWN,
-                reason=f"Drawdown {drawdown_pct:.0f}% ≥ {self.warn_pct:.0f}% — reduce risk",
+                reason=f"Drawdown at {drawdown_pct:.0f}% — consider reducing risk",
             )
         return ProtectionReturn()
 
@@ -506,7 +506,7 @@ class StoplossGuardProtection(BaseProtection):
             return ProtectionReturn(
                 lock=True,
                 gate=RiskGate.COOLDOWN,
-                reason=f"{consecutive_losses} consecutive losses — cooling down",
+                reason=f"{consecutive_losses} losses in a row — pausing for 30 min",
                 lock_until=time.time() + 1800,  # 30min cooldown
             )
         return ProtectionReturn()
@@ -528,7 +528,7 @@ class DailyLossProtection(BaseProtection):
             return ProtectionReturn(
                 lock=True,
                 gate=RiskGate.CLOSED,
-                reason=f"Daily loss {daily_loss_pct:.1f}% ≥ {self.max_daily_loss_pct:.0f}% limit",
+                reason=f"Daily loss at {daily_loss_pct:.1f}% — limit reached, entries halted",
             )
         return ProtectionReturn()
 
@@ -546,7 +546,7 @@ class RuinProtection(BaseProtection):
             return ProtectionReturn(
                 lock=True,
                 gate=RiskGate.CLOSED,
-                reason=f"RUIN PREVENTION: {drawdown_pct:.0f}% drawdown — close ALL positions",
+                reason=f"Emergency: {drawdown_pct:.0f}% drawdown — close all positions immediately",
             )
         return ProtectionReturn()
 

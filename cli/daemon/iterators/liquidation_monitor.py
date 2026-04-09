@@ -123,7 +123,7 @@ class LiquidationMonitorIterator:
                 if prev_tier != "warning":
                     should_alert = True
                     severity = "warning"
-                    prefix = "Liquidation cushion warning "
+                    prefix = "Approaching liquidation "
 
             elif tier == "safe":
                 if prev_tier in ("warning", "critical"):
@@ -138,9 +138,9 @@ class LiquidationMonitorIterator:
                 # C4: append calendar regime tags so the operator knows what
                 # market context this alert fired in
                 from cli.daemon.calendar_tags import get_current_tags
-                from cli.daemon.iterators._format import dir_dot, fmt_price
+                from cli.daemon.iterators._format import dir_dot, fmt_price, humanize_tags as _humanize_tags
                 cal = get_current_tags()
-                tag_suffix = f"  _{', '.join(cal['tags'])}_" if cal["tags"] else ""
+                tag_suffix = f"\n  _{_humanize_tags(cal['tags'])}_" if cal["tags"] else ""
                 # BUG-FIX 2026-04-08 (alert-format): replaced
                 # ``cushion=3.6% mark=112.1900 liq=108.1349 lev=20.0x``
                 # with a labelled markdown block the operator can read

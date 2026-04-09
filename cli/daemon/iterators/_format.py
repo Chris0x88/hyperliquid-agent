@@ -13,7 +13,8 @@ from any iterator without circular dependency risk.
 """
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, List
 
 
 def fmt_price(value: Any) -> str:
@@ -97,3 +98,33 @@ def dir_dot(net_qty_or_direction: Any) -> str:
     if n < 0:
         return "🔴"
     return "⚪"
+
+
+def humanize_tags(tags: List[str]) -> str:
+    """Convert machine-readable calendar tags to plain English.
+
+    ``["US", "EVENT<24H:US CPI (MARCH)"]`` → ``US session, US CPI (March) in <24h``
+    ``["WEEKEND"]`` → ``Weekend``
+    ``["THIN"]`` → ``Thin liquidity``
+    """
+    parts: List[str] = []
+    for tag in tags:
+        t = tag.strip()
+        # EVENT<24H:Name → "Name in <24h"
+        m = re.match(r"EVENT<(\d+)H:(.+)", t, re.IGNORECASE)
+        if m:
+            hours, name = m.group(1), m.group(2).strip()
+            # Title-case the event name instead of ALL CAPS
+            name = name.title()
+            parts.append(f"{name} in <{hours}h")
+            continue
+        upper = t.upper()
+        if upper == "WEEKEND":
+            parts.append("Weekend")
+        elif upper == "THIN":
+            parts.append("Thin liquidity")
+        elif upper in ("US", "EU", "ASIA"):
+            parts.append(f"{upper} session")
+        else:
+            parts.append(t)
+    return ", ".join(parts)
