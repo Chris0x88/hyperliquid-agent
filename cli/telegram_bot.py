@@ -1181,6 +1181,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /sim — shadow (paper) account state + positions + recent trades\n"
         "  /readiness — sub-system 5 activation preflight checklist\n"
         "  /activate — guided activation walkthrough (next / confirm / back / rollback)\n"
+        "  /adaptlog [N|filter] — query adaptive evaluator decisions (exits/trails/live/shadow/SYM)\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2819,6 +2820,7 @@ from cli.telegram_commands.shadow import cmd_shadoweval  # noqa: E402
 from cli.telegram_commands.sim import cmd_sim  # noqa: E402
 from cli.telegram_commands.readiness import cmd_readiness  # noqa: E402
 from cli.telegram_commands.activate import cmd_activate  # noqa: E402
+from cli.telegram_commands.adaptlog import cmd_adaptlog  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2884,6 +2886,8 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/activate confirm` — execute the pending advance (within 10 minutes).\n"
         "`/activate back` — soft rollback one rung.\n"
         "`/activate rollback` — hard rollback: immediately set enabled=false.\n"
+        "`/adaptlog` — last 10 adaptive evaluator decisions with action, reason, and progress/time/velocity metrics.\n"
+        "`/adaptlog 25 exits live BRENTOIL` — filter: last 25 EXIT actions in live mode for BRENTOIL (args combine freely).\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -4399,6 +4403,7 @@ HANDLERS = {
     "/sim": cmd_sim,
     "/readiness": cmd_readiness,
     "/activate": cmd_activate,
+    "/adaptlog": cmd_adaptlog,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -4473,6 +4478,7 @@ HANDLERS = {
     "sim": cmd_sim,
     "readiness": cmd_readiness,
     "activate": cmd_activate,
+    "adaptlog": cmd_adaptlog,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4562,6 +4568,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "sim", "description": "Shadow (paper) account state — balance, open positions, recent trades"},
         {"command": "readiness", "description": "Sub-system 5 activation preflight checklist"},
         {"command": "activate", "description": "Guided sub-system 5 activation walkthrough (rung advances + rollback)"},
+        {"command": "adaptlog", "description": "Query the adaptive evaluator decision log (filters: exits/trails/live/shadow/SYM)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
