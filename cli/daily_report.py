@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
+from common.account_state import fetch_registered_account_state
 
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
@@ -148,6 +149,7 @@ def generate_report(mechanical: bool = False) -> Path:
     pdf_path = REPORT_DIR / f"report_{aest.strftime('%Y%m%d_%H%M')}_{suffix}.pdf"
 
     # Gather data
+    account_bundle = fetch_registered_account_state()
     spot = _hl({"type": "spotClearinghouseState", "user": ADDR})
     xyz_state = _hl({"type": "clearinghouseState", "user": ADDR, "dex": "xyz"})
     native_state = _hl({"type": "clearinghouseState", "user": ADDR})
@@ -196,14 +198,13 @@ def generate_report(mechanical: bool = False) -> Path:
     # Extract position data
     xyz_positions = xyz_state.get("assetPositions", [])
     vault_positions = vault_state.get("assetPositions", [])
-    xyz_val = float(xyz_state.get("marginSummary", {}).get("accountValue", 0))
-    vault_val = float(vault_state.get("marginSummary", {}).get("accountValue", 0))
-
-    # Spot balances
-    usdc = 0
-    for b in spot.get("balances", []):
-        if b["coin"] == "USDC":
-            usdc = float(b.get("total", 0))
+    acc = account_bundle.get("account", {})
+    xyz_val = float(acc.get("xyz_equity", 0))
+    usdc = float(acc.get("spot_usdc", 0))
+    total = float(acc.get("total_equity", 0))
+    account_rows = account_bundle.get("accounts", [])
+    vault_row = next((row for row in account_rows if row.get("role") == "vault"), None)
+    vault_val = float(vault_row.get("total_equity", 0)) if vault_row else 0.0
 
     # Build PDF
     with PdfPages(pdf_path) as pdf:
@@ -225,8 +226,16 @@ def generate_report(mechanical: bool = False) -> Path:
             fig.text(0.5, y, f"xyz margin: ${xyz_val:,.2f} (transfer to spot)", fontsize=9, color="#f0883e")
         y -= 0.02
         fig.text(0.05, y, f"Vault: ${vault_val:,.2f}", fontsize=10, color="#c9d1d9")
-        total = usdc + xyz_val + vault_val
         fig.text(0.5, y, f"TOTAL: ${total:,.2f}", fontsize=10, fontweight="bold", color="#3fb950")
+        if len(account_rows) > 1:
+            y -= 0.02
+            for row in account_rows[:4]:
+                fig.text(
+                    0.05, y,
+                    f"{row['label']}: ${row['total_equity']:,.2f}",
+                    fontsize=8, color="#8b949e"
+                )
+                y -= 0.015
 
         # Positions
         y -= 0.04
