@@ -28,8 +28,37 @@ _MAX_RESPONSE_CHARS = 12000
 # Write tools that require user approval before execution
 WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash"}
 
-# In-memory pending actions (action_id -> action dict). TTL 5 min.
+# Durable pending actions — file-backed so approvals survive bot restarts.
+_PENDING_FILE = _PROJECT_ROOT / "data" / "state" / "pending_actions.json"
 _pending_actions: Dict[str, dict] = {}
+
+
+def _load_pending() -> None:
+    """Hydrate in-memory cache from durable store on startup."""
+    global _pending_actions
+    try:
+        if _PENDING_FILE.exists():
+            raw = json.loads(_PENDING_FILE.read_text())
+            now = time.time()
+            # Only load non-expired entries
+            _pending_actions = {k: v for k, v in raw.items() if now - v.get("ts", 0) <= 300}
+    except Exception:
+        _pending_actions = {}
+
+
+def _persist_pending() -> None:
+    """Atomically write pending actions to disk."""
+    try:
+        _PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _PENDING_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_pending_actions))
+        tmp.replace(_PENDING_FILE)
+    except Exception:
+        log.warning("Failed to persist pending actions", exc_info=True)
+
+
+# Hydrate on import
+_load_pending()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1504,7 +1533,10 @@ def is_write_tool(name: str) -> bool:
 
 
 def store_pending(tool: str, arguments: dict, chat_id: str) -> str:
-    """Store a pending write action. Returns action_id."""
+    """Store a pending write action. Returns action_id.
+
+    Persists to disk so approvals survive bot restarts.
+    """
     action_id = uuid.uuid4().hex[:8]
     _pending_actions[action_id] = {
         "tool": tool,
@@ -1512,12 +1544,15 @@ def store_pending(tool: str, arguments: dict, chat_id: str) -> str:
         "chat_id": chat_id,
         "ts": time.time(),
     }
+    _persist_pending()
     return action_id
 
 
 def pop_pending(action_id: str) -> Optional[dict]:
     """Retrieve and remove a pending action. Returns None if expired or missing."""
     action = _pending_actions.pop(action_id, None)
+    if action is not None:
+        _persist_pending()
     if action is None:
         return None
     # 5 minute TTL
@@ -1579,6 +1614,7 @@ def cleanup_expired_pending() -> int:
     for k in expired:
         _pending_actions.pop(k, None)
     if expired:
+        _persist_pending()
         log.info("Cleaned up %d expired pending actions", len(expired))
     return len(expired)
 
