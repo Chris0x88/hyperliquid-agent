@@ -231,6 +231,18 @@ def daemon_start(
         clock.register(ActionQueueIterator())  # daily operator-ritual nudge sweep
     except ImportError:
         pass
+    try:
+        # Hourly atomic snapshots of data/memory/memory.db. The iterator was
+        # listed in tiers.py from commit 996bf6f but its registration here was
+        # missed at the time — caught by the action_queue agent's audit on
+        # 2026-04-09 late evening. Without this line, the daemon never
+        # instantiates the iterator and snapshots never accumulate, leaving
+        # the memory.db SPOF that the iterator was built to close still open
+        # in production.
+        from cli.daemon.iterators.memory_backup import MemoryBackupIterator
+        clock.register(MemoryBackupIterator())
+    except ImportError:
+        pass
     clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")
