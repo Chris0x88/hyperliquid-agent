@@ -101,17 +101,7 @@ top-5 validation.
 
 **Spec**: `docs/plans/BRUTAL_REVIEW_LOOP.md`.
 
-### 5. Knowledge Graph Thinking Regime (NEW — proposed Horizon 2)
-
-Inspired by InfraNodus knowledge graphs. A meta-cognitive layer above
-`agent/AGENT.md` that defines HOW the agent should reason about a given
-context — concepts as nodes, relationships as edges, decision walks as
-graph traversals. Makes agent reasoning legible, auditable, tunable.
-
-**Status**: plan doc being written this session (`KNOWLEDGE_GRAPH_THINKING.md`).
-No implementation until plan is approved.
-
-### 6. ADR-011 Two-App Quant Architecture (proposed, gated)
+### 5. ADR-011 Two-App Quant Architecture (proposed, gated)
 
 The NautilusTrader-inspired sibling app (`quant/` alongside `agent-cli/`)
 with Parquet data catalog. **Approved as ADR-011** (490 lines, status
@@ -120,6 +110,31 @@ with Parquet data catalog. **Approved as ADR-011** (490 lines, status
 wiring).
 
 **Spec**: `docs/wiki/decisions/011-two-app-architecture-research-sibling.md`.
+
+---
+
+## Parked Plans (considered, deferred, may resume)
+
+Plans that were authored but explicitly parked because the value case
+is not strong enough to invest in implementation today. Each parked
+plan has a documented **resume condition** in its plan doc — when that
+condition is met, revisit. Until then, do not build.
+
+### Knowledge Graph Thinking Regime (parked 2026-04-09 evening)
+
+InfraNodus-inspired meta-cognitive layer above `agent/AGENT.md`. The
+plan + Wedge 1 YAML files (concept catalog + oil_short_decision graph)
+were shipped earlier in the same session, then immediately re-evaluated
+when Chris pushed back: *"I don't think we've thought through the
+knowledge graph concept... I want it evaluated for value."* The honest
+evaluation found that none of the three claimed problems are
+user-reported failures, and a markdown checklist in `AGENT.md` would
+be a much cheaper test of the same hypothesis. Wedge 2 was NOT built.
+
+**Spec**: `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` (status: PARKED).
+**On-disk artifacts** (preserved, not wired): `docs/plans/thinking_graphs/_concepts.yaml`, `docs/plans/thinking_graphs/oil_short_decision.yaml`.
+**Resume condition**: a specific reasoning failure observed in production
+that a markdown checklist in `AGENT.md` fails to fix.
 
 ---
 

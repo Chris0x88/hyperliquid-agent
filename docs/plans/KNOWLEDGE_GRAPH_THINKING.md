@@ -1,12 +1,37 @@
 # Knowledge Graph Thinking Regime — Plan
 
-> **Status:** Proposed. Plan only — no code yet.
-> **Date:** 2026-04-09
-> **Trigger:** Chris asked: *"I was inspired by thinking regimes of InfraNodus
-> knowledge graphs.... I think we should incorporate and manage systems like
-> that too, that at least guide LLMs for how to think etc.. How to learn....
-> What our style and considerations are etc..."*
-> **Horizon:** Horizon 2 (12-24 months) per `NORTH_STAR.md`
+> **Status:** **PARKED — awaiting demonstrated need** (2026-04-09 evening)
+> **Date authored:** 2026-04-09
+> **Date parked:** 2026-04-09 (same day)
+> **Trigger to author:** Chris asked: *"I was inspired by thinking regimes of
+> InfraNodus knowledge graphs.... I think we should incorporate and manage
+> systems like that too, that at least guide LLMs for how to think etc..
+> How to learn.... What our style and considerations are etc..."*
+> **Reason for parking:** This plan was written and Wedge 1 (the YAML
+> concept catalog + first decision graph) was shipped without first
+> validating that the graph structure solves a real problem better than
+> alternatives. When asked to evaluate the value, the honest answer is:
+> none of the three claimed problems (flat reasoning, implicit domain
+> knowledge, missing thinking shape) are user-reported failures —
+> they're architectural aesthetics projected onto the InfraNodus
+> inspiration. The cheaper alternative (a markdown checklist in
+> `agent/AGENT.md`) was never compared.
+>
+> **Resume condition**: a specific reasoning failure that a checklist
+> would have caught is observed in production AND a markdown checklist
+> in `AGENT.md` fails to fix it. Until then, the right time to build
+> a hammer is after a specific nail has been identified.
+>
+> **What's still on disk** (not deleted, per CLAUDE.md "additive over
+> destructive"):
+> - This plan doc — preserved as a record of considered-and-deferred direction
+> - `docs/plans/thinking_graphs/_concepts.yaml` — 23 concepts as design artifact
+> - `docs/plans/thinking_graphs/oil_short_decision.yaml` — 18-node graph as design artifact
+>
+> Both YAML files cost nothing to leave in place and may be useful as
+> a starting point IF the resume condition is ever met. They are NOT
+> wired into any code path. Wedge 2 (the loader) was never built and
+> will not be built without explicit reauthorization.
 
 ---
 

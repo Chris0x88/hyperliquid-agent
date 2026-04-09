@@ -293,37 +293,36 @@ system tells them.
 
 ---
 
-## The Knowledge Graph Thinking Regime (NEW — Horizon 2)
+## The Knowledge Graph Thinking Regime — PARKED 2026-04-09
 
 The user was inspired by **InfraNodus knowledge graphs** for thinking
-regimes that guide LLMs in *how to think*, *how to learn*, what style and
-considerations matter. This is genuinely new — there is no equivalent in
-the codebase today. Current agent guidance is flat markdown in
-`agent/AGENT.md` and `agent/SOUL.md`.
+regimes that guide LLMs in *how to think*, *how to learn*, what style
+and considerations matter. A plan doc + Wedge 1 YAML files (concept
+catalog + first decision graph) were authored and shipped earlier in
+the same session.
 
-**The proposal** (Horizon 2 — needs its own plan doc):
+**Status**: **PARKED** the same day. When asked to evaluate the value,
+the honest answer was: none of the three claimed problems (flat
+reasoning, implicit domain knowledge, missing thinking shape) are
+user-reported failures. They were architectural aesthetics projected
+onto the InfraNodus inspiration. A markdown checklist in `agent/AGENT.md`
+would be a much cheaper test of the same hypothesis.
 
-A graph-structured "thinking regime" config that the agent reads on every
-decision. Nodes = concepts (e.g. "supply disruption", "bot overshoot",
-"funding cost", "thesis age", "liquidation cushion"). Edges = relationships
-(e.g. "supply disruption → upgrades long bias on related instrument",
-"bot overshoot → fades the dominant move", "thesis age > 14 days →
-auto-clamp conviction"). The agent walks the relevant subgraph for the
-current decision context and produces its reasoning anchored to those
-explicit concepts and relationships.
+**Resume condition**: a specific reasoning failure observed in
+production that a markdown checklist in `AGENT.md` fails to fix.
 
-This is *not* a knowledge base for the agent to query — it's a *thinking
-regime*. A meta-cognitive layer that says "when you're considering an oil
-short, here are the concepts that should be active, here are the
-relationships between them, here's the order to consider them in." It
-makes the agent's reasoning legible, auditable, and tunable.
+**On-disk artifacts** (preserved per CLAUDE.md "additive over destructive"):
+- `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` — plan doc with parking note
+- `docs/plans/thinking_graphs/_concepts.yaml` — 23 concepts
+- `docs/plans/thinking_graphs/oil_short_decision.yaml` — 18-node graph
 
-**Where it fits**: between `agent/AGENT.md` (which says WHO the agent is)
-and the LIVE CONTEXT injection (which says WHAT is true right now). The
-thinking regime says HOW to reason about the current context.
+These are NOT wired into any code path. Wedge 2 (the loader) was never
+built and will not be built without explicit reauthorization.
 
-**Plan doc**: `docs/plans/KNOWLEDGE_GRAPH_THINKING.md` (to be written this
-session as a forward-pointing plan, not implemented).
+**The lesson**: this entry stays in NORTH_STAR as a record of a
+considered-and-deferred direction, and as a marker for the meta-lesson
+captured in P5 below — *a feature that came up in passing in a
+brainstorming feedback dump is NOT pre-validated*.
 
 ---
 
@@ -402,6 +401,28 @@ hours of code. The 2026-04-09 evening realignment session would have
 been avoided if the morning session had read `common/authority.py`
 before asserting. **State your plan in 3-5 bullets. Get a nod. Then
 build.**
+
+**Sub-rule (added 2026-04-09 evening, after the Knowledge Graph parking)**:
+**A feature that came up in passing in a brainstorming feedback dump
+is NOT pre-validated.** Treat it as a hypothesis to test, not a spec
+to implement. Before authoring a plan doc or shipping code:
+1. Identify the specific user-reported failure the feature would fix
+2. Compare against the cheapest possible alternative (often a markdown
+   note in an existing file)
+3. State the resume condition explicitly: "I will build this if X
+   happens" — and if you can't articulate X, you don't have a problem
+4. If no specific failure exists yet, file the idea as "deferred,
+   awaiting demonstrated need" instead of starting work
+
+This sub-rule exists because in 24 hours I (Claude) made the same
+mistake twice: rewrote NORTH_STAR.md without reading git history
+(morning), then wrote a 250-line plan + shipped Wedge 1 YAML for the
+Knowledge Graph Thinking Regime without evaluating value (afternoon).
+Both were caught by Chris with one pointed message. Both stem from
+treating "the user mentioned it once" as equivalent to "the user has
+validated it as worth building." The Knowledge Graph plan is now
+parked in MASTER_PLAN's "Parked Plans" section as the load-bearing
+example of this failure mode.
 
 ### P6 — Delegated autonomy, not constant supervision
 The bot is not always supervised. The bot can run autonomously on
