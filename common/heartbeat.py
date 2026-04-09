@@ -1651,13 +1651,37 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
         except Exception as e:
             log.warning("Failed to fetch vault state: %s", e)
 
-    if not all_positions and main_equity == 0 and vault_equity == 0:
+    # Override account totals from the shared account model so heartbeat uses
+    # the same equity numbers as Telegram commands, AI context, and reports.
+    sub_equity = 0.0
+    account_rows: list[dict] = []
+    try:
+        from common.account_state import fetch_registered_account_state
+        bundle = fetch_registered_account_state()
+        account_rows = bundle.get("accounts", [])
+        main_row = next((row for row in account_rows if row.get("role") == "main"), None)
+        vault_row = next((row for row in account_rows if row.get("role") == "vault"), None)
+        main_equity = float(main_row.get("total_equity", main_equity)) if main_row else main_equity
+        vault_equity = float(vault_row.get("total_equity", vault_equity)) if vault_row else vault_equity
+        sub_equity = sum(
+            float(row.get("total_equity", 0))
+            for row in account_rows
+            if str(row.get("role", "")).startswith("sub")
+        )
+        total_equity = float(bundle.get("account", {}).get("total_equity", main_equity + vault_equity + sub_equity))
+    except Exception as e:
+        log.debug("Shared account-state override failed in heartbeat: %s", e)
+        total_equity = main_equity + vault_equity + sub_equity
+
+    if not all_positions and total_equity == 0:
         raise RuntimeError("Empty account state from both HL wallets")
 
     return {
-        "equity": main_equity + vault_equity,
+        "equity": total_equity,
         "main_equity": main_equity,
         "vault_equity": vault_equity,
+        "sub_equity": sub_equity,
+        "accounts": account_rows,
         "positions": all_positions,
         "trigger_orders": all_triggers,
         "funding_rates": {**default_rates, **xyz_rates},
