@@ -68,6 +68,24 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
 - `lesson_author` — Trade Lesson Layer (wedge 5). Detects closed positions and
   writes lesson candidate files for agent-authored post-mortems. Output feeds
   the FTS5 lessons table in `common/memory.py`. See build-log 2026-04-09 for context.
+- `oil_botpattern_tune` — sub-system 6 L1 of the Oil Bot-Pattern Strategy. Bounded
+  auto-tune wrapped around sub-system 5. Watches closed `oil_botpattern` trades +
+  the per-decision journal, nudges a whitelist of five params in
+  `oil_botpattern.json` within hard YAML bounds (max ±5% per nudge, 24h rate
+  limit, min sample 5). Zero structural changes — structural tuning lives in L2.
+  Kill switch: `data/config/oil_botpattern_tune.json`. Audit trail at
+  `data/strategy/oil_botpattern_tune_audit.jsonl`. Registered REBALANCE +
+  OPPORTUNISTIC only. Spec:
+  `agent-cli/docs/plans/OIL_BOT_PATTERN_06_SELF_TUNE_HARNESS.md`.
+- `oil_botpattern_reflect` — sub-system 6 L2. Runs once per 7 days. Reads the
+  closed-trade + decision journals, detects structural patterns (gate overblock,
+  instrument dead, thesis_conflict_frequent, funding_exit_expensive), writes
+  `StructuralProposal` records to
+  `data/strategy/oil_botpattern_proposals.jsonl`, and fires a Telegram warning
+  alert with new proposal IDs. **NEVER auto-applies** — every proposal requires a
+  `/selftuneapprove <id>` tap. Kill switch:
+  `data/config/oil_botpattern_reflect.json`. Registered REBALANCE + OPPORTUNISTIC
+  only. Same spec.
 
 ## Gotchas
 
