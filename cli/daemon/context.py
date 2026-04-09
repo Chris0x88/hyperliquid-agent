@@ -100,6 +100,7 @@ class TickContext:
     # Clock metadata
     timestamp: int = 0
     tick_number: int = 0
+    daemon_tier: str = "watch"
 
     # Market data (populated by ConnectorIterator)
     balances: Dict[str, Decimal] = field(default_factory=dict)

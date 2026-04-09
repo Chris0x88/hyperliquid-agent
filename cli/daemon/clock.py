@@ -205,6 +205,7 @@ class Clock:
         return TickContext(
             timestamp=int(time.time() * 1000),
             tick_number=self.state.tick_count,
+            daemon_tier=self.state.tier,
             active_strategies={
                 name: slot for name, slot in self.roster.slots.items()
                 if not slot.paused

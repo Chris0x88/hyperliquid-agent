@@ -61,7 +61,7 @@ class TelegramIterator:
         if self._bot_token and self._chat_id:
             self._enabled = True
             self._send("Daemon started\n"
-                       f"Tier: {ctx.active_strategies and 'rebalance' or 'watch'}\n"
+                       f"Tier: {ctx.daemon_tier}\n"
                        f"Strategies: {len(ctx.active_strategies)}")
             log.info("TelegramIterator enabled")
         else:
@@ -145,7 +145,7 @@ class TelegramIterator:
         # Falls back to ctx.balances["USDC"] (native-only) if connector
         # has not yet populated total_equity (tick 0 / mock mode).
         if ctx.tick_number > 0 and ctx.tick_number % 30 == 0:
-            tier = "WATCH" if not ctx.active_strategies else "REBALANCE"
+            tier = (ctx.daemon_tier or "watch").upper()
             if ctx.total_equity > 0:
                 equity_val = ctx.total_equity
             else:

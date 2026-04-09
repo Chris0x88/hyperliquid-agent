@@ -79,6 +79,7 @@ class TestPeriodicEquityAlert:
         it._send = lambda text: sent.append(text)  # type: ignore[assignment]
 
         ctx = TickContext(tick_number=30)
+        ctx.daemon_tier = "opportunistic"
         ctx.total_equity = 1234.56
 
         it.tick(ctx)
@@ -86,6 +87,7 @@ class TestPeriodicEquityAlert:
         msg = sent[0]
         # The "Daemon alive" header is bold-marked
         assert "*Daemon alive*" in msg
+        assert "_OPPORTUNISTIC_" in msg
         # The equity figure is in backtick-quoted code style
         assert "`$1,234.56`" in msg
 
