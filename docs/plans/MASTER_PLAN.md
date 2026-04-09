@@ -224,6 +224,16 @@ wiring).
 10. **Read git history before claiming something doesn't exist.** Per
     NORTH_STAR P2. Two sessions in two days lost time to this — don't
     make it three.
+11. **Preserve everything, retrieve sparingly, bound every read path.**
+    Per NORTH_STAR P10. Rule 9 (append-only forever) and Rule 11 are
+    a pair: the corpus grows without limit, the working set per
+    decision does not. Every code path that reads from a historical
+    store and feeds the result into an agent prompt, a Telegram message,
+    or a tool result MUST have a hard upper cap (parameter default +
+    hardcoded ceiling that clamps user input). The failure mode is
+    silent and asymmetric — an unbounded read that returns 21 rows
+    today returns 21,000 rows in three years. See NORTH_STAR P10 for
+    the per-surface retrieval contract table.
 
 ---
 

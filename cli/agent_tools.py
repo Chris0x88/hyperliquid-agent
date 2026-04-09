@@ -108,14 +108,16 @@ TOOL_DEFS: List[dict] = [
         "type": "function",
         "function": {
             "name": "trade_journal",
-            "description": "Get recent trade history and journal entries.",
+            "description": "Get recent trade history and journal entries. Hard-capped at 25 per call (NORTH_STAR P10).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "description": "Max entries to return",
+                        "description": "Max entries to return (1-25). Default 10.",
                         "default": 10,
+                        "minimum": 1,
+                        "maximum": 25,
                     },
                 },
             },
@@ -378,11 +380,17 @@ TOOL_DEFS: List[dict] = [
         "type": "function",
         "function": {
             "name": "get_feedback",
-            "description": "Get recent user feedback submitted via /feedback. Helps you understand what to improve.",
+            "description": "Get recent user feedback submitted via /feedback. Hard-capped at 25 per call (NORTH_STAR P10). Each entry's text is truncated at 500 chars.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max feedback entries to return", "default": 10},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max feedback entries to return (1-25). Default 10.",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 25,
+                    },
                 },
             },
         },
@@ -708,11 +716,24 @@ def _tool_get_orders(args: dict) -> str:
 
 
 def _tool_trade_journal(args: dict) -> str:
-    """Recent trade journal entries from both trade files and journal JSONL."""
-    limit = args.get("limit", 10)
+    """Recent trade journal entries from both trade files and journal JSONL.
+
+    Hard-bounded per NORTH_STAR P10 / MASTER_PLAN Critical Rule 11:
+    the corpus may grow forever, but a single agent prompt sees at most
+    25 trades, with each row's narrative fields truncated. The 12KB
+    final _cap() in the tool dispatcher is the safety net; this is the
+    primary cap.
+    """
+    # Hard ceiling: clamp the agent's requested limit. Default 10. Max 25.
+    raw_limit = args.get("limit", 10)
+    try:
+        limit = max(1, min(25, int(raw_limit)))
+    except (TypeError, ValueError):
+        limit = 10
+
     trades = []
 
-    # Source 1: Individual trade JSON files
+    # Source 1: Individual trade JSON files (already capped via slice)
     trades_path = _PROJECT_ROOT / "data" / "research" / "trades"
     if trades_path.exists():
         for f in sorted(trades_path.glob("*.json"), reverse=True)[:limit]:
@@ -721,13 +742,24 @@ def _tool_trade_journal(args: dict) -> str:
             except Exception:
                 pass
 
-    # Source 2: Journal JSONL (auto-logged by daemon on position close)
+    # Source 2: Journal JSONL (auto-logged by daemon on position close).
+    # Streaming tail-read: only the last 5*limit lines are JSON-decoded so
+    # an enormous historical journal doesn't get fully parsed every call.
     journal_path = _PROJECT_ROOT / "data" / "research" / "journal.jsonl"
     if journal_path.exists():
         try:
-            for line in journal_path.read_text().strip().split("\n"):
-                if line.strip():
-                    trades.append(json.loads(line))
+            from collections import deque
+            tail = deque(maxlen=max(50, limit * 5))
+            with journal_path.open("r") as fh:
+                for line in fh:
+                    tail.append(line)
+            for line in tail:
+                line = line.strip()
+                if line:
+                    try:
+                        trades.append(json.loads(line))
+                    except Exception:
+                        continue
         except Exception:
             pass
 
@@ -1098,8 +1130,23 @@ def _tool_get_errors(args: dict) -> str:
     return f"{result['count']} recent errors:\n" + "\n".join(lines)
 
 def _tool_get_feedback(args: dict) -> str:
+    """Read recent /feedback entries.
+
+    Hard-bounded per NORTH_STAR P10 / MASTER_PLAN Critical Rule 11:
+    the corpus may grow forever, but a single agent prompt sees at most
+    25 entries with each entry's text capped. The 12KB final _cap() in
+    the tool dispatcher is the safety net; this is the primary cap.
+    """
     from common.tools import get_feedback
-    result = get_feedback(args.get("limit", 10))
+
+    # Hard ceiling: clamp the agent's requested limit. Default 10. Max 25.
+    raw_limit = args.get("limit", 10)
+    try:
+        limit = max(1, min(25, int(raw_limit)))
+    except (TypeError, ValueError):
+        limit = 10
+
+    result = get_feedback(limit)
     if "error" in result:
         return result["error"]
     feedback = result.get("feedback", [])
@@ -1107,8 +1154,12 @@ def _tool_get_feedback(args: dict) -> str:
         return "No feedback recorded."
     lines = []
     for f in feedback:
-        lines.append(f"[{f['time']}] {f['text']}")
-    return f"{result['count']} feedback entries:\n" + "\n".join(lines)
+        # Per-row truncation — a /feedback entry can be a pasted article.
+        text = f.get("text") or ""
+        if len(text) > 500:
+            text = text[:497] + "..."
+        lines.append(f"[{f['time']}] {text}")
+    return f"{result['count']} feedback entries (showing {len(lines)}):\n" + "\n".join(lines)
 
 
 def _tool_introspect_self(args: dict) -> str:

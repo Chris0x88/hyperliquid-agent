@@ -440,6 +440,45 @@ accumulates wealth-of-knowledge linearly with time. After 5 years, the
 corpus IS the moat. Today's fix to stop chat history rotation is in
 service of P9.
 
+### P10 — Preserve everything, retrieve sparingly, bound every read path
+**P9 says preserve forever. P10 says use sparingly.** The corpus is
+allowed to grow to gigabytes. The working set per agent prompt or per
+Telegram response is bounded. Every code path that reads from a
+historical-oracle store and feeds the result into either (a) an agent
+prompt, (b) a Telegram message, or (c) a tool result the agent will
+see MUST have a hard upper cap. The cap may be a parameter default
+*plus* a hardcoded ceiling that clamps user input — both, not either.
+
+This rule exists because the failure mode is silent and asymmetric:
+- An unbounded read path that returns 500 lessons one day will blow
+  the agent's context window the next day with 5,000 lessons after
+  the corpus grows.
+- A `/feedback list` command that returns ALL entries today (21 rows)
+  will return all 21,000 entries in 3 years.
+- A chat history search that unions `.bak` files (followup 1) without
+  a cap will return everything matching a common substring.
+
+The retrieval contract per surface:
+
+| Surface | Reaches | Default cap | Hard ceiling | Per-row truncation |
+|---|---|---|---|---|
+| Agent tool that returns rows (`search_lessons`, `get_feedback`) | Agent context window | 5-10 | 25 | Yes — body fields cap at ~3000 chars |
+| Prompt injection section (`build_lessons_section`) | Agent system prompt | 5 | 5 | Yes — summary only, full body via separate tool |
+| Telegram list commands (`/lessons`, `/feedback list`, `/chathistory`) | Telegram message | 10-15 | 25-50 | Yes — text fields cap at ~80-200 chars |
+| Telegram detail commands (`/lesson <id>`, `/feedback show <id>`) | Telegram message | 1 row | 1 row | Yes — body cap at ~3000 chars to fit Telegram limit |
+| Iterator alerts (entry critic, action queue) | Telegram message | 1 alert per detected event | N/A | Yes — message body bounded |
+
+**The principle in one sentence**: data lives forever, but no single
+read returns more than what fits cleanly in a Telegram message or in
+the agent's context budget for one decision.
+
+The 2026-04-09 late-evening realignment session shipped four new
+historical-oracle surfaces (chat history correlation, `/chathistory`,
+`/feedback list/search`, `/nudge`) and an audit was dispatched to
+verify each one obeys this rule. Findings + minimal fixes were
+applied in the integration commit. Future surfaces are required to
+follow the contract above.
+
 ---
 
 ## What "startup-quality" means for this project
