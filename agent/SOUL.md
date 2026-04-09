@@ -45,3 +45,10 @@ When data seems stale or missing, say so: "Last data shows X but this may be out
 - **Tool result "No result provided" or synthetic error** = compaction boundary artifact. DO NOT retry the tool. Instead: (1) read the file directly to verify current state, (2) assume prior work succeeded unless evidence contradicts, (3) tell the user and ask to confirm before re-doing anything.
 - **After compaction fires**: STOP all tool work. Re-read SOUL.md + today's memory file. Verify what was actually completed by reading files directly (not from context). Only then continue.
 - **Identical Edit/Write operations**: if attempting the same file edit twice, halt and verify the file state first. Never write the same change twice.
+
+**Tool Error Recovery:**
+- If a tool returns an error, DO NOT show the raw error to Chris. Summarize what failed and try an alternative.
+- Retry sequence: tool call → read data file directly → use LIVE CONTEXT → state what's unavailable
+- Auth errors (401/403): say "API auth issue — using cached data" and work with LIVE CONTEXT
+- Never return 3+ consecutive error messages. After 2 failures, stop and work with available data.
+- "No result provided" = compaction artifact. Read the actual file, don't retry the tool.

@@ -441,6 +441,410 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     return response
 
 
+# ── Intent-based pre-fetch ───────────────────────────────────────────────
+
+# Market keyword → canonical coin key (as used in thesis filenames / watchlist)
+_PREFETCH_MARKET_KEYWORDS: dict[str, str] = {
+    "oil": "BRENTOIL",
+    "brent": "BRENTOIL",
+    "brentoil": "BRENTOIL",
+    "wti": "BRENTOIL",
+    "cl": "BRENTOIL",
+    "crude": "BRENTOIL",
+    "btc": "BTC",
+    "bitcoin": "BTC",
+    "gold": "GOLD",
+    " au ": "GOLD",   # space-padded to avoid matching "auto", "australia" etc.
+    "silver": "SILVER",
+    " ag ": "SILVER",  # space-padded to avoid matching "agent" etc.
+}
+
+# Topic keyword → short tag used internally
+_PREFETCH_TOPIC_KEYWORDS: dict[str, str] = {
+    "position": "positions",
+    "pnl": "positions",
+    "trade": "positions",
+    "entry": "positions",
+    "exit": "positions",
+    "portfolio": "positions",
+    "fund": "funding",
+    "funding": "funding",
+    "thesis": "thesis",
+    "conviction": "thesis",
+    "signal": "signals",
+    "technical": "signals",
+    "rsi": "signals",
+    "macd": "signals",
+    "catalyst": "catalysts",
+    "news": "catalysts",
+    "event": "catalysts",
+    "heatmap": "zones",
+    "liquidity": "zones",
+    "wall": "zones",
+    "lesson": "lessons",
+    "review": "lessons",
+    "risk": "risk",
+    "liq": "risk",
+    "liquidation": "risk",
+    "status": "health",
+    "health": "health",
+    "daemon": "health",
+}
+
+# Thesis filename mapping: coin key → data/thesis/<filename>
+_THESIS_FILE_MAP: dict[str, str] = {
+    "BRENTOIL": "xyz_brentoil_state.json",
+    "BTC": "btc_perp_state.json",
+    "GOLD": "xyz_gold_state.json",
+    "SILVER": "xyz_silver_state.json",
+}
+
+_PREFETCH_MAX_CHARS = 2000  # hard cap on total pre-fetch output
+
+
+def _prefetch_for_message(user_text: str, account_state: dict, market_snapshots: dict) -> str:
+    """Deterministic keyword-driven pre-fetch: inject relevant data before the LLM sees the message.
+
+    Reads ONLY from local cached files and the already-fetched account_state /
+    market_snapshots dicts — NO new API calls, NO agent tool invocations.
+    Every data source is individually try/except'd; any failure is silently
+    skipped so this function can never crash handle_ai_message.
+
+    Returns a formatted string ready to inject as context, or "" if nothing
+    was detected / fetched.
+    """
+    msg_lower = " " + user_text.lower() + " "  # pad so word-boundary checks work
+
+    # ── 1. Detect markets ────────────────────────────────────────────────
+    detected_markets: list[str] = []
+    for kw, coin in _PREFETCH_MARKET_KEYWORDS.items():
+        if kw in msg_lower and coin not in detected_markets:
+            detected_markets.append(coin)
+
+    # ── 2. Detect topics ─────────────────────────────────────────────────
+    detected_topics: set[str] = set()
+    for kw, tag in _PREFETCH_TOPIC_KEYWORDS.items():
+        if kw in msg_lower:
+            detected_topics.add(tag)
+
+    # If nothing at all was detected, return empty — don't inject noise
+    if not detected_markets and not detected_topics:
+        return ""
+
+    parts: list[str] = ["--- PRE-FETCHED DATA (programmatic, not AI-generated) ---"]
+
+    # ── 3. Per-market blocks ─────────────────────────────────────────────
+    for coin in detected_markets:
+        coin_parts: list[str] = []
+
+        # 3a. Live price + snapshot (from already-built market_snapshots)
+        try:
+            # market_snapshots keys may be display names like "BRENTOIL" or
+            # "xyz:BRENTOIL". Search case-insensitively.
+            bare = coin.replace("xyz:", "")
+            snap_text = None
+            for k, v in market_snapshots.items():
+                k_bare = k.replace("xyz:", "")
+                if k_bare.upper() == bare.upper():
+                    snap_text = v
+                    break
+            if snap_text:
+                coin_parts.append(f"[SNAPSHOT {coin}]\n{snap_text[:600]}")
+        except Exception:
+            pass
+
+        # 3b. Current position (from account_state)
+        try:
+            positions = account_state.get("positions", [])
+            for pos in positions:
+                pos_coin = pos.get("coin", "").replace("xyz:", "")
+                if pos_coin.upper() == coin.replace("xyz:", "").upper():
+                    size = pos.get("size", 0)
+                    direction = "LONG" if size > 0 else "SHORT"
+                    entry = pos.get("entry", 0)
+                    upnl = pos.get("upnl", 0)
+                    lev = pos.get("leverage", "?")
+                    liq = pos.get("liq")
+                    pos_line = (
+                        f"[POSITION {coin}] {direction} size={abs(size):.4f} "
+                        f"entry=${entry:,.2f} uPnL=${upnl:,.2f} lev={lev}x"
+                    )
+                    if liq:
+                        pos_line += f" liq=${float(liq):,.2f}"
+                    coin_parts.append(pos_line)
+                    break
+            else:
+                coin_parts.append(f"[POSITION {coin}] No open position")
+        except Exception:
+            pass
+
+        # 3c. Thesis (always include for detected markets unless only "signals" topic)
+        if not detected_topics or "thesis" in detected_topics or not detected_topics.isdisjoint(
+            {"signals", "catalysts", "positions", "funding", "risk", "lessons", "zones", "health"}
+        ):
+            try:
+                tf_name = _THESIS_FILE_MAP.get(coin.replace("xyz:", ""))
+                if tf_name:
+                    tf_path = _PROJECT_ROOT / "data" / "thesis" / tf_name
+                    if tf_path.exists():
+                        td = json.loads(tf_path.read_text())
+                        direction = td.get("direction", "?")
+                        conv = float(td.get("conviction", 0))
+                        summary = (td.get("thesis_summary") or td.get("summary", ""))[:200]
+                        inv = (td.get("invalidation_conditions") or "")[:120]
+                        tp = td.get("take_profit_price")
+                        sl_price = td.get("stop_loss_price")
+                        thesis_line = f"[THESIS {coin}] {direction} conviction={conv:.2f}"
+                        if tp:
+                            thesis_line += f" TP=${tp}"
+                        if sl_price:
+                            thesis_line += f" SL=${sl_price}"
+                        if summary:
+                            thesis_line += f" | {summary}"
+                        if inv:
+                            thesis_line += f" | INVALIDATION: {inv}"
+                        coin_parts.append(thesis_line)
+            except Exception:
+                pass
+
+        # 3d. Latest signal summary (from market_snapshots — already rendered)
+        if "signals" in detected_topics or not detected_topics:
+            try:
+                bare = coin.replace("xyz:", "")
+                for k, v in market_snapshots.items():
+                    k_bare = k.replace("xyz:", "")
+                    if k_bare.upper() == bare.upper() and "Signal" in v:
+                        # Extract just the signal line(s)
+                        sig_lines = [ln for ln in v.splitlines() if "Signal" in ln or "RSI" in ln or "MECH" in ln]
+                        if sig_lines:
+                            coin_parts.append(f"[SIGNALS {coin}] " + " | ".join(sig_lines[:3]))
+                        break
+            except Exception:
+                pass
+
+        # 3e. Catalysts (from news/catalysts.jsonl)
+        if "catalysts" in detected_topics or not detected_topics:
+            try:
+                cat_path = _PROJECT_ROOT / "data" / "news" / "catalysts.jsonl"
+                if cat_path.exists():
+                    bare = coin.replace("xyz:", "").upper()
+                    upcoming: list[dict] = []
+                    import time as _time
+                    now_ts = _time.time()
+                    with cat_path.open() as fh:
+                        for ln in fh:
+                            ln = ln.strip()
+                            if not ln:
+                                continue
+                            try:
+                                ev = json.loads(ln)
+                            except Exception:
+                                continue
+                            # Match by instruments list or headline containing coin name
+                            instruments = [str(i).replace("xyz:", "").upper() for i in ev.get("instruments", [])]
+                            if bare not in instruments:
+                                continue
+                            # Filter to upcoming events (event_date in future or within 12h past)
+                            ev_date_str = ev.get("event_date", "")
+                            if ev_date_str:
+                                try:
+                                    from datetime import datetime, timezone
+                                    ev_dt = datetime.fromisoformat(ev_date_str.replace("Z", "+00:00"))
+                                    ev_ts = ev_dt.timestamp()
+                                    if ev_ts < now_ts - 43200:  # skip events >12h old
+                                        continue
+                                    upcoming.append((ev_ts, ev))
+                                except Exception:
+                                    upcoming.append((0, ev))
+                            else:
+                                upcoming.append((0, ev))
+                    upcoming.sort(key=lambda x: x[0])
+                    if upcoming:
+                        cat_lines = []
+                        for _, ev in upcoming[:3]:
+                            cat = f"{ev.get('event_date', '?')[:16]} [{ev.get('category', '?')}] sev={ev.get('severity', '?')}"
+                            rat = ev.get("rationale", "")[:80]
+                            if rat:
+                                cat += f" — {rat}"
+                            cat_lines.append(cat)
+                        coin_parts.append(f"[CATALYSTS {coin}]\n" + "\n".join(cat_lines))
+            except Exception:
+                pass
+
+        # 3f. Journal (last 5 entries for this market)
+        if "positions" in detected_topics or not detected_topics:
+            try:
+                journal_dir = _PROJECT_ROOT / "data" / "daemon" / "journal"
+                bare = coin.replace("xyz:", "").upper()
+                tick_entries: list[dict] = []
+                # ticks.jsonl holds the rolling journal
+                ticks_file = journal_dir / "ticks.jsonl"
+                if ticks_file.exists():
+                    from collections import deque as _deque
+                    tail = _deque(maxlen=200)
+                    with ticks_file.open() as fh:
+                        for ln in fh:
+                            if ln.strip():
+                                tail.append(ln)
+                    for ln in tail:
+                        try:
+                            entry_j = json.loads(ln)
+                        except Exception:
+                            continue
+                        prices = entry_j.get("prices", {})
+                        # Only include if the coin appears in prices
+                        has_coin = any(
+                            k.replace("xyz:", "").upper() == bare
+                            for k in prices
+                        )
+                        if has_coin:
+                            tick_entries.append(entry_j)
+                if tick_entries:
+                    last = tick_entries[-1]
+                    prices = last.get("prices", {})
+                    price_val = next(
+                        (v for k, v in prices.items() if k.replace("xyz:", "").upper() == bare),
+                        None,
+                    )
+                    if price_val:
+                        coin_parts.append(f"[JOURNAL {coin}] Last tick price=${float(price_val):,.2f} | n_pos={last.get('n_positions', '?')} n_alerts={last.get('n_alerts', '?')}")
+            except Exception:
+                pass
+
+        if coin_parts:
+            parts.extend(coin_parts)
+
+    # ── 4. Topic-only blocks (no specific market) ─────────────────────────
+
+    # Funding rates
+    if "funding" in detected_topics:
+        try:
+            # Try cached funding data from daemon state
+            state_path = _PROJECT_ROOT / "data" / "daemon" / "state.json"
+            if state_path.exists():
+                state = json.loads(state_path.read_text())
+                funding = state.get("funding_rates") or state.get("funding") or {}
+                if funding:
+                    coins_to_show = detected_markets if detected_markets else list(funding.keys())[:6]
+                    fund_lines = []
+                    for c in coins_to_show:
+                        bare = c.replace("xyz:", "")
+                        for k, v in funding.items():
+                            if k.replace("xyz:", "").upper() == bare.upper():
+                                fund_lines.append(f"{bare}: {v}")
+                                break
+                    if fund_lines:
+                        parts.append("[FUNDING RATES]\n" + "\n".join(fund_lines))
+        except Exception:
+            pass
+
+    # Liquidity zones / heatmap
+    if "zones" in detected_topics:
+        try:
+            zones_path = _PROJECT_ROOT / "data" / "heatmap" / "zones.jsonl"
+            if zones_path.exists():
+                coins_filter = {c.replace("xyz:", "").upper() for c in detected_markets} if detected_markets else None
+                from collections import deque as _deque2
+                tail_z = _deque2(maxlen=500)
+                with zones_path.open() as fh:
+                    for ln in fh:
+                        if ln.strip():
+                            tail_z.append(ln)
+                zone_rows: list[dict] = []
+                for ln in tail_z:
+                    try:
+                        z = json.loads(ln)
+                    except Exception:
+                        continue
+                    inst = z.get("instrument", "").upper()
+                    if coins_filter and inst not in coins_filter:
+                        continue
+                    zone_rows.append(z)
+                # Show 5 most recent unique zones
+                seen: set[str] = set()
+                zone_lines: list[str] = []
+                for z in reversed(zone_rows):
+                    key_z = f"{z.get('instrument')}_{z.get('side')}_{z.get('centroid', 0):.1f}"
+                    if key_z in seen:
+                        continue
+                    seen.add(key_z)
+                    zone_lines.append(
+                        f"{z.get('instrument')} {z.get('side')} @ ${z.get('centroid', 0):.2f} "
+                        f"(${z.get('notional_usd', 0):,.0f} notional)"
+                    )
+                    if len(zone_lines) >= 5:
+                        break
+                if zone_lines:
+                    parts.append("[LIQUIDITY ZONES]\n" + "\n".join(zone_lines))
+        except Exception:
+            pass
+
+    # Lessons
+    if "lessons" in detected_topics:
+        try:
+            from common import memory as _cmem
+            query = " ".join(detected_markets) if detected_markets else "oil trading"
+            lessons = _cmem.search_lessons(query=query, limit=3)
+            if lessons:
+                lesson_lines = []
+                for les in lessons:
+                    title = les.get("title") or les.get("summary", "")[:80]
+                    market = les.get("market", "")
+                    lesson_lines.append(f"[{market}] {title}")
+                parts.append("[LESSONS]\n" + "\n".join(lesson_lines))
+        except Exception:
+            pass
+
+    # Risk / liquidation data
+    if "risk" in detected_topics:
+        try:
+            positions = account_state.get("positions", [])
+            equity = account_state.get("account", {}).get("total_equity", 0)
+            risk_lines = []
+            for pos in positions:
+                pos_coin = pos.get("coin", "")
+                liq = pos.get("liq")
+                entry = pos.get("entry", 0)
+                if liq and entry:
+                    liq_f = float(liq)
+                    dist_pct = abs(liq_f - entry) / entry * 100 if entry else 0
+                    risk_lines.append(f"{pos_coin}: liq=${liq_f:,.2f} ({dist_pct:.1f}% from entry)")
+            if risk_lines:
+                liq_hdr = f"[RISK] equity=${equity:,.2f}"
+                parts.append(liq_hdr + "\n" + "\n".join(risk_lines))
+        except Exception:
+            pass
+
+    # Daemon health
+    if "health" in detected_topics:
+        try:
+            state_path = _PROJECT_ROOT / "data" / "daemon" / "state.json"
+            if state_path.exists():
+                state = json.loads(state_path.read_text())
+                escalation = state.get("escalation_level", "?")
+                risk_gate = state.get("risk_gate", "?")
+                last_tick = state.get("last_tick_ts")
+                import time as _time2
+                if last_tick:
+                    age_s = int(_time2.time() - last_tick)
+                    age_str = f"{age_s}s ago"
+                else:
+                    age_str = "unknown"
+                parts.append(f"[DAEMON HEALTH] escalation={escalation} risk_gate={risk_gate} last_tick={age_str}")
+        except Exception:
+            pass
+
+    # If we only have the header line, nothing was actually fetched
+    if len(parts) <= 1:
+        return ""
+
+    # Hard cap on total output
+    result = "\n".join(parts)
+    if len(result) > _PREFETCH_MAX_CHARS:
+        result = result[:_PREFETCH_MAX_CHARS] + "\n[... pre-fetch truncated at 2000 chars ...]"
+    return result
+
+
 def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") -> None:
     """Handle a free-text Telegram message with an AI response.
 
@@ -467,6 +871,20 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # OUT of the system prompt lets the static system prompt + tools stay cached.
         messages.append({"role": "user", "content": f"[LIVE CONTEXT — auto-injected, not from user]\n{live_context}"})
         messages.append({"role": "assistant", "content": "Understood. I have the latest market data."})
+
+        # Intent-based pre-fetch: deterministically inject relevant data BEFORE
+        # chat history so the LLM has it in context without needing to call tools.
+        # Uses account_state + market_snapshots already cached by _build_live_context.
+        try:
+            _as = _CACHE.get("account_state", {}).get("data", {})
+            _ms = _CACHE.get("market_snapshots", {}).get("data", {})
+            prefetch_text = _prefetch_for_message(text, _as, _ms)
+            if prefetch_text:
+                messages.append({"role": "user", "content": f"[PRE-FETCHED DATA — programmatic, not from user]\n{prefetch_text}"})
+                messages.append({"role": "assistant", "content": "Understood. I have the pre-fetched data for this query."})
+        except Exception as _pf_err:
+            log.debug("pre-fetch failed (non-fatal): %s", _pf_err)
+
         # Add chat history as conversation turns.
         # Skip entries whose text is empty/whitespace (e.g. an assistant turn
         # that _sanitize_assistant_history stripped down to nothing). Anthropic
@@ -1055,15 +1473,22 @@ def _build_live_context() -> str:
         # Audit F5: surface real snapshot age so the agent knows when to distrust prices
         fetched_at = account_state.get("fetched_at", time.time())
         age_s = int(time.time() - fetched_at)
-        if age_s < 15:
+        if account_state.get("api_error"):
+            age_str = "⚠️ API ERROR — position data may be missing"
+        elif age_s < 15:
             age_str = "fetched just now"
         elif age_s < 120:
             age_str = f"fetched {age_s}s ago"
         else:
             age_str = f"⚠️ STALE: fetched {age_s}s ago — verify with a tool call before citing prices as current"
         header = f"--- LIVE CONTEXT ({age_str}) ---"
+
+        # Prepend any fetch-failure alerts so the agent sees them at the top
+        fetch_alerts = [a for a in account_state.get("alerts", []) if "Failed to fetch" in a]
+        alert_prefix = ("\n".join(fetch_alerts) + "\n") if fetch_alerts else ""
+
         footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
-        return f"{header}\n{assembled.text}\n{footer}"
+        return f"{header}\n{alert_prefix}{assembled.text}\n{footer}"
 
     except Exception as e:
         log.warning("Context harness failed, using fallback: %s", e)
@@ -1083,9 +1508,13 @@ def _fetch_account_state_for_harness() -> dict:
     alerts = []
     positions = []
 
+    clearinghouse_failures = 0
+    clearinghouse_total = 0
     if main_addr:
         # Both clearinghouses — equity + positions
         for dex in ['', 'xyz']:
+            clearinghouse_total += 1
+            dex_label = dex if dex else "native"
             try:
                 payload = {"type": "clearinghouseState", "user": main_addr}
                 if dex:
@@ -1108,8 +1537,12 @@ def _fetch_account_state_for_harness() -> dict:
                                 "liq": pos.get("liquidationPx"),
                                 "dex": dex or "native",
                             })
-            except Exception:
-                pass
+                else:
+                    clearinghouse_failures += 1
+                    alerts.append(f"⚠️ Failed to fetch {dex_label} clearinghouse: HTTP {r.status_code}")
+            except Exception as e:
+                clearinghouse_failures += 1
+                alerts.append(f"⚠️ Failed to fetch {dex_label} clearinghouse: {e}")
             time.sleep(0.2)
 
         # Spot USDC
@@ -1121,8 +1554,8 @@ def _fetch_account_state_for_harness() -> dict:
                 for bal in r.json().get("balances", []):
                     if bal.get("coin") == "USDC":
                         total_equity += float(bal.get("total", 0))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("[account_state] spot clearinghouse fetch failed: %s", e)
 
     # Working state for escalation + alerts
     ws_path = _PROJECT_ROOT / "data" / "memory" / "working_state.json"
@@ -1162,12 +1595,16 @@ def _fetch_account_state_for_harness() -> dict:
     except Exception as e:
         log.warning("[auto-watchlist] failed: %s", e)
 
+    all_clearinghouses_failed = (
+        clearinghouse_total > 0 and clearinghouse_failures >= clearinghouse_total
+    )
     result = {
         "account": {"total_equity": total_equity},
         "positions": positions,
         "alerts": alerts,
         "escalation": escalation,
         "fetched_at": now,  # Audit F5: timestamp for staleness detection
+        "api_error": all_clearinghouses_failed,  # True when ALL clearinghouse calls failed
     }
     _CACHE["account_state"] = {"ts": now, "data": result}
     return result

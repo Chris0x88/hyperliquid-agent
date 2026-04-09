@@ -514,6 +514,8 @@ def _load_upcoming_catalysts(
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(row, dict):
+            continue
 
         instruments = row.get("instruments") or []
         if not isinstance(instruments, list):
@@ -788,7 +790,7 @@ def _grade_direction(stack: SignalStack, grade: EntryGrade) -> None:
 
 
 def _grade_catalyst_timing(stack: SignalStack, grade: EntryGrade) -> None:
-    majors = [c for c in stack.upcoming_catalysts if int(c.get("severity", 0)) >= CATALYST_SEVERITY_FLOOR]
+    majors = [c for c in stack.upcoming_catalysts if isinstance(c, dict) and int(c.get("severity", 0)) >= CATALYST_SEVERITY_FLOOR]
     if not majors:
         grade.catalyst_timing = CATALYST_NEUTRAL
         grade.catalyst_detail = "no major catalyst in 48h window"
@@ -915,7 +917,10 @@ def _collect_suggestions(stack: SignalStack, grade: EntryGrade) -> None:
 
     if grade.catalyst_timing == CATALYST_LATE and stack.upcoming_catalysts:
         nearest = stack.upcoming_catalysts[0]
-        cat = nearest.get("category", "?")
+        if isinstance(nearest, dict):
+            cat = nearest.get("category", "?")
+        else:
+            cat = "?"
         s.append(
             f"Major catalyst ({cat}) imminent — consider waiting for the print"
         )
@@ -1079,6 +1084,8 @@ def _sanitize_catalysts(rows: list[dict]) -> list[dict]:
     """Drop the internal _event_ms cache key from the JSONL output."""
     out: list[dict] = []
     for r in rows[:10]:
+        if not isinstance(r, dict):
+            continue
         clean = {k: v for k, v in r.items() if not k.startswith("_")}
         out.append(clean)
     return out

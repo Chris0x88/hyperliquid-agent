@@ -877,7 +877,14 @@ def cmd_restart(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_signals(token: str, chat_id: str, args: str) -> None:
-    """Show recent Pulse and Radar signals. Usage: /signals [limit]"""
+    """Show recent Pulse and Radar signals.
+
+    Usage:
+      /signals           — all signals, limit 15
+      /signals 5         — all signals, limit 5
+      /signals wti       — oil/BRENTOIL signals only, limit 15
+      /signals btc 5     — BTC signals only, limit 5
+    """
     import json as _json
     from pathlib import Path as _Path
     signals_path = _Path("data/research/signals.jsonl")
@@ -890,20 +897,45 @@ def cmd_signals(token: str, chat_id: str, args: str) -> None:
                 "Radar scans every 5 min for multi-timeframe setups.")
         return
 
+    # Parse args: optional asset name and/or limit number (order-insensitive)
     limit = 15
-    if args.strip().isdigit():
-        limit = min(int(args.strip()), 30)
+    asset_filter: Optional[str] = None  # canonical coin name, e.g. "BRENTOIL" or "BTC"
+    for tok in args.split():
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok.isdigit():
+            limit = min(int(tok), 30)
+        else:
+            resolved = resolve_coin(tok)
+            if resolved:
+                asset_filter = resolved
+            else:
+                # Treat uppercase token as a direct coin name (e.g. "BRENTOIL")
+                asset_filter = tok.upper()
 
     lines_raw = signals_path.read_text().strip().split("\n")
-    signals = []
-    for line in lines_raw[-limit:]:
+    # Read more lines than limit so filtering doesn't cut results short
+    read_count = limit * 5 if asset_filter else limit
+    signals_raw = []
+    for line in lines_raw[-read_count:]:
         try:
-            signals.append(_json.loads(line))
+            signals_raw.append(_json.loads(line))
         except Exception:
             pass
 
+    # Apply asset filter using _coin_matches for xyz: prefix safety
+    if asset_filter:
+        signals = [s for s in signals_raw if _coin_matches(s.get("asset", ""), asset_filter)]
+        signals = signals[-limit:]
+    else:
+        signals = signals_raw[-limit:]
+
     if not signals:
-        tg_send(token, chat_id, "📡 No recent signals.")
+        if asset_filter:
+            tg_send(token, chat_id, f"📡 No signals found for {asset_filter}.")
+        else:
+            tg_send(token, chat_id, "📡 No recent signals.")
         return
 
     signals.reverse()  # newest first
