@@ -24,6 +24,7 @@ TIER_ITERATORS = {
         "memory_consolidation", # compress old events hourly
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
@@ -55,6 +56,7 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
@@ -88,6 +90,7 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "telegram",
     ],
