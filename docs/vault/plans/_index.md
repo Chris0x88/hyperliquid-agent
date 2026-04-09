@@ -1,7 +1,7 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 16:05
-count: 21
+last_regenerated: 2026-04-09 16:36
+count: 25
 tags:
   - index
   - plans
@@ -9,13 +9,15 @@ tags:
 
 # Plans Index
 
-_21 plan documents in `docs/plans/`. Last regenerated: 2026-04-09 16:05._
+_25 plan documents in `docs/plans/`. Last regenerated: 2026-04-09 16:36._
 
 Plans are the approved workstreams. The living plan is [[MASTER_PLAN]]; the vision is [[NORTH_STAR]]. Parked plans live in `docs/plans/` with status markers and live in this index; archived plan snapshots live in `docs/plans/archive/` and are NOT regenerated into this vault (they're append-only historical records).
 
 - [[AUDIT_FIX_PLAN]]
+- [[BATTLE_TEST_LEDGER]]
 - [[BRUTAL_REVIEW_LOOP]]
 - [[BRUTAL_REVIEW_PROMPT]]
+- [[COHESION_HARDENING_LIST]]
 - [[GUARDIAN_PLAN]]
 - [[KNOWLEDGE_GRAPH_THINKING]]
 - [[MASTER_PLAN]]
@@ -34,3 +36,5 @@ Plans are the approved workstreams. The living plan is [[MASTER_PLAN]]; the visi
 - [[PHASE_3_REFLECT_LOOP]]
 - [[PHASE_4_SELF_IMPROVING]]
 - [[SYSTEM_REVIEW_HARDENING_PLAN]]
+- [[TIMER_LOOP_AUDIT]]
+- [[VAULT_AS_AUDITOR]]
