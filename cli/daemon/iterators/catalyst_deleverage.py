@@ -383,7 +383,9 @@ class CatalystDeleverageIterator:
             "warned_1h": list(self._warned_1h),
         }
         try:
-            self._state_path.write_text(json.dumps(data, indent=2) + "\n")
+            tmp = self._state_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2) + "\n")
+            tmp.replace(self._state_path)
         except OSError as e:
             log.error("Failed to save catalyst state: %s", e)
 

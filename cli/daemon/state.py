@@ -1,4 +1,8 @@
-"""Daemon state persistence and control file handling."""
+"""Daemon state persistence and control file handling.
+
+All writes use atomic rename (write to .tmp, then replace) so a crash
+mid-write cannot corrupt the state file.
+"""
 from __future__ import annotations
 
 import json
@@ -50,7 +54,7 @@ class StateStore:
 
     def save_state(self, state: DaemonState) -> None:
         self.ensure_dir()
-        self._state_path.write_text(json.dumps(state.to_dict(), indent=2))
+        self._atomic_write(self._state_path, json.dumps(state.to_dict(), indent=2))
 
     def load_state(self) -> DaemonState:
         if self._state_path.exists():
@@ -61,7 +65,7 @@ class StateStore:
 
     def write_pid(self) -> None:
         self.ensure_dir()
-        self._pid_path.write_text(str(os.getpid()))
+        self._atomic_write(self._pid_path, str(os.getpid()))
 
     def remove_pid(self) -> None:
         self._pid_path.unlink(missing_ok=True)
@@ -101,4 +105,13 @@ class StateStore:
     def write_control(self, command: Dict[str, Any]) -> None:
         """Write a control command for the running daemon to pick up."""
         self.ensure_dir()
-        self._control_path.write_text(json.dumps(command))
+        self._atomic_write(self._control_path, json.dumps(command))
+
+    # ── Helpers ──────────────────────────────────────────────
+
+    @staticmethod
+    def _atomic_write(path: Path, content: str) -> None:
+        """Write content to path atomically via tmp+rename."""
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(content)
+        tmp.replace(path)
