@@ -788,23 +788,64 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             pass
 
 
+_SYSTEM_PROMPT_INPUT_CAP = 20_000  # ~5000 tokens per file
+
+
+def _read_capped(path: Path, label: str) -> str:
+    """Read a system-prompt input file with a hard byte cap.
+
+    Per NORTH_STAR P10 / Critical Rule 11: the system prompt is the
+    highest-leverage surface in the entire codebase — every LLM call
+    starts with these bytes. Three files feed it: AGENT.md, SOUL.md,
+    and data/agent_memory/MEMORY.md. The first two are human-edited
+    and small. **MEMORY.md is agent-writable via the dream cycle**,
+    and nothing else enforces the documented "under 200 lines" rule.
+    A runaway dream that writes a 10MB MEMORY.md would inflate the
+    system prompt unbounded on the next session.
+
+    The cap is generous (20KB ≈ 5000 tokens) so any human-authored
+    file fits without truncation, but a runaway agent write is
+    bounded. Truncation logs a warning so it's visible in alignment
+    runs.
+    """
+    if not path.exists():
+        return ""
+    try:
+        text = path.read_text()
+    except OSError as e:
+        log.warning("Failed to read %s: %s", label, e)
+        return ""
+    if len(text) > _SYSTEM_PROMPT_INPUT_CAP:
+        log.warning(
+            "%s exceeds %d bytes (%d) — TRUNCATED before system prompt build "
+            "to protect the prompt from a runaway write. Investigate %s.",
+            label,
+            _SYSTEM_PROMPT_INPUT_CAP,
+            len(text),
+            path,
+        )
+        text = text[:_SYSTEM_PROMPT_INPUT_CAP] + "\n\n[... TRUNCATED at 20KB cap per NORTH_STAR P10 ...]"
+    return text.strip()
+
+
 def _build_system_prompt() -> str:
-    """Load system prompt using agent runtime + domain-specific instructions."""
+    """Load system prompt using agent runtime + domain-specific instructions.
+
+    Every input file is hard-capped at 20KB per NORTH_STAR P10 — see
+    `_read_capped()` for the rationale. The system prompt is the
+    highest-leverage surface in the codebase; this is the safety net
+    against agent-writable inputs (notably MEMORY.md via the dream
+    cycle) inflating the prompt beyond control.
+    """
     from cli.agent_runtime import build_system_prompt, build_lessons_section
 
-    # Load domain-specific files
-    agent_md = ""
-    soul_md = ""
-    if _AGENT_MD.exists():
-        agent_md = _AGENT_MD.read_text().strip()
-    if _SOUL_MD.exists():
-        soul_md = _SOUL_MD.read_text().strip()
+    # Load domain-specific files (hard-capped)
+    agent_md = _read_capped(_AGENT_MD, "AGENT.md")
+    soul_md = _read_capped(_SOUL_MD, "SOUL.md")
 
-    # Load agent memory
-    memory_content = ""
+    # Load agent memory (hard-capped — dream cycle writes here)
     memory_path = _PROJECT_ROOT / "data" / "agent_memory" / "MEMORY.md"
-    if memory_path.exists():
-        memory_content = memory_path.read_text().strip()
+    memory_content = _read_capped(memory_path, "MEMORY.md")
 
     # Pull top recent lessons from the lesson corpus for prompt injection.
     # Empty query → recency fallback. build_lessons_section() returns "" when
@@ -1410,14 +1451,34 @@ def _load_chat_history(limit: int = 20) -> List[Dict]:
     Takes the most recent messages that fit within _MAX_HISTORY_CHARS total.
     Assistant messages are sanitized to remove stale data snapshots that
     would poison the AI's understanding of current state.
+
+    Per NORTH_STAR P10 / Critical Rule 11: streaming tail-read via
+    ``collections.deque(maxlen=limit*5)`` so the agent's per-turn I/O
+    is bounded regardless of total file size. The chat corpus is
+    allowed to grow to gigabytes per Chris's "never delete" rule, but
+    every agent prompt only sees the last few rows. The deque keeps
+    memory bounded to roughly ``limit*5`` decoded JSON objects even if
+    the underlying file is 100MB. Audited 2026-04-09 (Agent E top-3
+    fix).
     """
     if not _HISTORY_FILE.exists():
         return []
+    from collections import deque
     entries = []
     try:
-        for line in _HISTORY_FILE.read_text().splitlines():
-            if line.strip():
+        # Slurp the last `limit*5` non-empty lines via deque tail.
+        # `limit*5` gives headroom: after sanitization + char-budget
+        # trimming, we still want at least `limit` rows surviving.
+        tail = deque(maxlen=max(50, limit * 5))
+        with _HISTORY_FILE.open("r") as fh:
+            for line in fh:
+                if line.strip():
+                    tail.append(line)
+        for line in tail:
+            try:
                 entries.append(json.loads(line))
+            except Exception:
+                continue
     except Exception:
         return []
 

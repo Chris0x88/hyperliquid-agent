@@ -454,21 +454,46 @@ def web_search(query: str, max_results: int = 5) -> dict:
         return {"error": f"web_search failed: {e}"}
 
 
+# Per NORTH_STAR P10 / Critical Rule 11: agent memory files are
+# AGENT-WRITABLE via memory_write + the dream cycle. Without a read
+# cap, a runaway dream that writes a 100KB MEMORY.md or topic file
+# would inflate the agent's tool result on the next read. The cap
+# is generous (20KB ≈ 5000 tokens) — any reasonable memory file
+# fits without truncation, but a runaway is bounded.
+_MEMORY_READ_CAP = 20_000
+
+
+def _read_memory_capped(path) -> str:
+    """Read a memory file with the P10 hard cap. Returns the (possibly
+    truncated) text. Truncation is marked inline so the agent knows it
+    happened."""
+    text = path.read_text()
+    if len(text) > _MEMORY_READ_CAP:
+        return text[:_MEMORY_READ_CAP] + "\n\n[... TRUNCATED at 20KB cap per NORTH_STAR P10 — file is too large, investigate.]"
+    return text
+
+
 def memory_read(topic: str = "index") -> dict:
-    """Read agent memory. 'index' returns MEMORY.md, otherwise reads topic file."""
+    """Read agent memory. 'index' returns MEMORY.md, otherwise reads topic file.
+
+    Hard-bounded per NORTH_STAR P10 / Critical Rule 11: each file is
+    capped at 20KB before being returned to the caller. The cap protects
+    against agent-writable inputs (memory_write, dream cycle) inflating
+    tool results unbounded.
+    """
     try:
         _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         if topic == "index" or topic == "all":
             index_path = _MEMORY_DIR / "MEMORY.md"
             if not index_path.exists():
                 return {"topic": "index", "content": "(empty — no memories yet)"}
-            return {"topic": "index", "content": index_path.read_text()}
+            return {"topic": "index", "content": _read_memory_capped(index_path)}
         topic_path = _MEMORY_DIR / f"{topic}.md"
         if not topic_path.exists():
             # List available topics
             available = [f.stem for f in _MEMORY_DIR.glob("*.md") if f.name != "MEMORY.md"]
             return {"error": f"Topic '{topic}' not found. Available: {', '.join(available) or '(none)'}"}
-        return {"topic": topic, "content": topic_path.read_text()}
+        return {"topic": topic, "content": _read_memory_capped(topic_path)}
     except Exception as e:
         return {"error": f"memory_read failed: {e}"}
 

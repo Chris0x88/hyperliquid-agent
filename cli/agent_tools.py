@@ -127,14 +127,16 @@ TOOL_DEFS: List[dict] = [
         "type": "function",
         "function": {
             "name": "get_signals",
-            "description": "Get recent Pulse (capital inflow) and Radar (opportunity scanner) trade signals.",
+            "description": "Get recent Pulse (capital inflow) and Radar (opportunity scanner) trade signals. Hard-capped at 50 per call (NORTH_STAR P10).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "description": "Max signals to return",
+                        "description": "Max signals to return (1-50). Default 20.",
                         "default": 20,
+                        "minimum": 1,
+                        "maximum": 50,
                     },
                     "source": {
                         "type": "string",
@@ -493,8 +495,10 @@ TOOL_DEFS: List[dict] = [
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max results. Default 5, max reasonable 20.",
+                        "description": "Max results (1-20). Default 5. Hard-capped per NORTH_STAR P10.",
                         "default": 5,
+                        "minimum": 1,
+                        "maximum": 20,
                     },
                 },
             },
@@ -803,25 +807,50 @@ def _tool_trade_journal(args: dict) -> str:
 
 
 def _tool_get_signals(args: dict) -> str:
-    """Recent Pulse and Radar trade signals."""
-    limit = args.get("limit", 20)
+    """Recent Pulse and Radar trade signals.
+
+    Hard-bounded per NORTH_STAR P10 / Critical Rule 11: clamp limit
+    at 50 (signals are smaller per-row than feedback/journal so the
+    cap is more generous), streaming tail-read so a giant signals
+    file doesn't get fully decoded every call.
+    """
+    # Hard ceiling: clamp the agent's requested limit. Default 20. Max 50.
+    raw_limit = args.get("limit", 20)
+    try:
+        limit = max(1, min(50, int(raw_limit)))
+    except (TypeError, ValueError):
+        limit = 20
+
     source_filter = args.get("source", "all")
     signals_path = _PROJECT_ROOT / "data" / "research" / "signals.jsonl"
 
     if not signals_path.exists():
         return "No signals yet. Pulse and Radar scanners persist signals to data/research/signals.jsonl."
 
+    # Streaming tail-read: bound memory regardless of file size.
+    # Read 5*limit lines from the end so filtered output still has
+    # enough rows to fill the limit.
+    from collections import deque
+
     signals = []
-    for line in signals_path.read_text().strip().split("\n"):
-        if not line.strip():
-            continue
-        try:
-            s = json.loads(line)
-            if source_filter != "all" and s.get("source") != source_filter:
+    try:
+        tail = deque(maxlen=max(100, limit * 5))
+        with signals_path.open("r") as fh:
+            for line in fh:
+                tail.append(line)
+        for line in tail:
+            line = line.strip()
+            if not line:
                 continue
-            signals.append(s)
-        except Exception:
-            pass
+            try:
+                s = json.loads(line)
+                if source_filter != "all" and s.get("source") != source_filter:
+                    continue
+                signals.append(s)
+            except Exception:
+                continue
+    except OSError:
+        return "Failed to read signals file."
 
     if not signals:
         return f"No {source_filter} signals found."
@@ -1300,8 +1329,20 @@ def _format_holding(holding_ms: int) -> str:
 
 
 def _tool_search_lessons(args: dict) -> str:
-    """BM25-ranked search over the trade lesson corpus. See TOOL_DEFS entry."""
+    """BM25-ranked search over the trade lesson corpus. See TOOL_DEFS entry.
+
+    Hard-bounded per NORTH_STAR P10 / Critical Rule 11: clamp limit at 20.
+    Lesson summaries are short (~150 chars each), but a 20-row response
+    is already ~3KB which is the right ceiling for prompt injection.
+    """
     from common import memory as common_memory
+
+    # Hard ceiling: clamp the agent's requested limit. Default 5. Max 20.
+    raw_limit = args.get("limit", 5) or 5
+    try:
+        limit = max(1, min(20, int(raw_limit)))
+    except (TypeError, ValueError):
+        limit = 5
 
     try:
         # Read _DB_PATH dynamically at call time so tests can monkeypatch it.
@@ -1315,7 +1356,7 @@ def _tool_search_lessons(args: dict) -> str:
             lesson_type=args.get("lesson_type") or None,
             outcome=args.get("outcome") or None,
             include_rejected=bool(args.get("include_rejected", False)),
-            limit=int(args.get("limit", 5) or 5),
+            limit=limit,
             db_path=common_memory._DB_PATH,
         )
     except Exception as e:
@@ -1403,7 +1444,17 @@ def _tool_get_lesson(args: dict) -> str:
     header_lines.append("")
     header_lines.append("## Verbatim body")
     header_lines.append("")
-    header_lines.append((row.get("body_full") or "").strip())
+    # Per NORTH_STAR P10 / Critical Rule 11: cap body_full at 6000 chars
+    # before joining. The lesson engine spec says ~5KB; an agent-authored
+    # lesson can technically be any size. The 12KB final _cap() in the
+    # dispatcher is the safety net but a single lesson would consume the
+    # entire tool result budget. 6000 chars is generous (~1500 tokens)
+    # for any reasonable post-mortem and matches cmd_lesson's Telegram
+    # render which also caps at 3000.
+    body = (row.get("body_full") or "").strip()
+    if len(body) > 6000:
+        body = body[:6000] + "\n\n[... TRUNCATED at 6KB cap per NORTH_STAR P10. Use /lesson <id> for the full body.]"
+    header_lines.append(body)
 
     return "\n".join(header_lines)
 
