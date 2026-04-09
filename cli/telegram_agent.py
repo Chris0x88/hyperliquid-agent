@@ -885,6 +885,21 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         except Exception as _pf_err:
             log.debug("pre-fetch failed (non-fatal): %s", _pf_err)
 
+        # Context Engine v2: intent-classified enriched context (additional data
+        # sources beyond the keyword prefetch above — bot classifier, supply
+        # disruptions, evaluations, proposals, calendar, learnings).
+        try:
+            from modules.context_engine import classify_intent, assemble_context
+            _as2 = _CACHE.get("account_state", {}).get("data", {})
+            _ms2 = _CACHE.get("market_snapshots", {}).get("data", {})
+            intent = classify_intent(text)
+            enriched = assemble_context(intent, _as2, _ms2)
+            if enriched:
+                messages.append({"role": "user", "content": f"[ENRICHED CONTEXT — programmatic, not from user]\n{enriched}"})
+                messages.append({"role": "assistant", "content": "Understood. I have the enriched context data."})
+        except Exception as _ce_err:
+            log.debug("context engine v2 failed (non-fatal): %s", _ce_err)
+
         # Add chat history as conversation turns.
         # Skip entries whose text is empty/whitespace (e.g. an assistant turn
         # that _sanitize_assistant_history stripped down to nothing). Anthropic

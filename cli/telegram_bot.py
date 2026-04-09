@@ -1220,6 +1220,14 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /oilbot — oil_botpattern strategy state (sub-system 5)\n"
         "  /oilbotjournal [N] — recent strategy decisions\n"
         "  /oilbotreviewai [N] — AI review of strategy behaviour\n"
+        "\n*Lab & Architect*\n"
+        "  /lab — strategy development pipeline status\n"
+        "  /lab discover <market> — profile + create experiments\n"
+        "  /lab promote <id> — promote graduated experiment\n"
+        "  /architect — self-improvement engine status\n"
+        "  /architect detect — run detection (zero cost)\n"
+        "  /architect proposals — pending proposals\n"
+        "  /architect approve|reject <id>\n"
         "\n*Self-Tune Harness (sub-system 6)*\n"
         "  /selftune — L1 auto-tune + L2 reflect state\n"
         "  /selftuneproposals [N] — pending structural proposals\n"
@@ -2844,6 +2852,147 @@ def cmd_selftunereject(token: str, chat_id: str, args: str) -> None:
     tg_send(token, chat_id,
             f"❌ Proposal #{proposal_id} rejected.",
             markdown=True)
+
+
+# ── Lab Engine commands ────────────────────────────────────────────────
+
+def cmd_lab(token: str, chat_id: str, args: str) -> None:
+    """Lab Engine — strategy development pipeline.
+
+    Usage:
+      /lab              — show experiment status summary
+      /lab discover <m> — profile market and create candidates
+      /lab promote <id> — promote graduated experiment
+    Deterministic. Zero AI calls.
+    """
+    from modules.lab_engine import LabEngine
+    lab = LabEngine()
+
+    arg = (args or "").strip()
+    if not arg or arg == "status":
+        if not lab.enabled:
+            tg_send(token, chat_id, "🧪 Lab Engine is DISABLED.\nEnable: `data/config/lab.json` → `enabled: true`", markdown=True)
+            return
+        info = lab.get_status()
+        lines = [f"🧪 *Lab Engine* — {info['total']} experiments\n"]
+        for status_name, experiments in info.get("by_status", {}).items():
+            lines.append(f"*{status_name.upper()}*")
+            for e in experiments:
+                metrics = e.get("metrics", {})
+                sharpe = metrics.get("sharpe", 0) if metrics else 0
+                lines.append(f"  `{e['id']}`: {e['strategy']} on {e['market']} (sharpe={sharpe:.2f})")
+        tg_send(token, chat_id, "\n".join(lines), markdown=True)
+        return
+
+    parts = arg.split(maxsplit=1)
+    sub = parts[0].lower()
+    sub_arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if sub == "discover" and sub_arg:
+        created = lab.discover(sub_arg.upper())
+        if created:
+            lines = [f"🧪 Created {len(created)} experiments for {sub_arg.upper()}:"]
+            for eid in created:
+                exp = lab.get_experiment(eid)
+                if exp:
+                    lines.append(f"  `{exp.id}`: {exp.strategy}")
+            tg_send(token, chat_id, "\n".join(lines), markdown=True)
+        else:
+            tg_send(token, chat_id, f"No new experiments for {sub_arg.upper()}")
+    elif sub == "promote" and sub_arg:
+        if lab.promote_to_production(sub_arg):
+            tg_send(token, chat_id, f"✅ `{sub_arg}` promoted to PRODUCTION (params frozen)", markdown=True)
+        else:
+            tg_send(token, chat_id, f"Cannot promote `{sub_arg}` — must be 'graduated'", markdown=True)
+    elif sub == "retire" and sub_arg:
+        if lab.retire_experiment(sub_arg):
+            tg_send(token, chat_id, f"🗑 `{sub_arg}` retired", markdown=True)
+        else:
+            tg_send(token, chat_id, f"Experiment `{sub_arg}` not found", markdown=True)
+    else:
+        tg_send(token, chat_id,
+                "Usage:\n`/lab` — status\n`/lab discover <market>`\n`/lab promote <id>`\n`/lab retire <id>`",
+                markdown=True)
+
+
+def cmd_architect(token: str, chat_id: str, args: str) -> None:
+    """Architect Engine — mechanical self-improvement.
+
+    Usage:
+      /architect            — show findings + proposal counts
+      /architect detect     — run detection now (zero AI, zero cost)
+      /architect proposals  — list pending proposals
+      /architect approve <id> — approve a proposal
+      /architect reject <id>  — reject a proposal
+    Deterministic. Zero AI calls. Zero API costs.
+    """
+    from modules.architect_engine import ArchitectEngine
+    arch = ArchitectEngine()
+
+    arg = (args or "").strip()
+    if not arg or arg == "status":
+        info = arch.get_status()
+        lines = [f"🏗 *Architect Engine* — {'ENABLED' if info['enabled'] else 'DISABLED'}\n"]
+        lines.append(f"Findings: {info['findings']}")
+        for sev, count in info["findings_by_severity"].items():
+            if count:
+                lines.append(f"  {sev}: {count}")
+        lines.append(f"\nProposals: {info['proposals_pending']} pending, {info['proposals_approved']} approved, {info['proposals_applied']} applied")
+        tg_send(token, chat_id, "\n".join(lines), markdown=True)
+        return
+
+    parts = arg.split(maxsplit=1)
+    sub = parts[0].lower()
+    sub_arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if sub == "detect":
+        if not arch.enabled:
+            tg_send(token, chat_id, "🏗 Architect is DISABLED. Enable in `data/config/architect.json`", markdown=True)
+            return
+        findings = arch.detect()
+        if findings:
+            proposals = arch.hypothesize(findings)
+            lines = [f"🔍 {len(findings)} new patterns detected:"]
+            for f in findings:
+                lines.append(f"  [{f.severity}] {f.description}")
+            if proposals:
+                lines.append(f"\n📋 {len(proposals)} proposals generated:")
+                for p in proposals:
+                    lines.append(f"  `{p.id}`: {p.title}")
+            tg_send(token, chat_id, "\n".join(lines), markdown=True)
+        else:
+            tg_send(token, chat_id, "No new patterns detected.")
+
+    elif sub == "proposals":
+        pending = arch.get_pending_proposals()
+        if not pending:
+            tg_send(token, chat_id, "No pending proposals.")
+            return
+        lines = [f"📋 {len(pending)} pending proposals:\n"]
+        for p in pending:
+            lines.append(f"`{p.id}`: *{p.title}*")
+            lines.append(f"  {p.description[:120]}")
+            lines.append(f"  Impact: {p.expected_impact}")
+            lines.append("")
+        tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+    elif sub == "approve" and sub_arg:
+        if arch.approve(sub_arg):
+            tg_send(token, chat_id, f"✅ Proposal `{sub_arg}` approved", markdown=True)
+        else:
+            tg_send(token, chat_id, f"Proposal `{sub_arg}` not found or not pending", markdown=True)
+
+    elif sub == "reject" and sub_arg:
+        if arch.reject(sub_arg):
+            tg_send(token, chat_id, f"❌ Proposal `{sub_arg}` rejected", markdown=True)
+        else:
+            tg_send(token, chat_id, f"Proposal `{sub_arg}` not found or not pending", markdown=True)
+
+    else:
+        tg_send(token, chat_id,
+                "Usage:\n`/architect` — status\n`/architect detect`\n`/architect proposals`\n"
+                "`/architect approve <id>`\n`/architect reject <id>`",
+                markdown=True)
 
 
 # ── Lesson commands moved to cli/telegram_commands/lessons.py ─────────
@@ -4543,6 +4692,10 @@ HANDLERS = {
     "selftuneproposals": cmd_selftuneproposals,
     "selftuneapprove": cmd_selftuneapprove,
     "selftunereject": cmd_selftunereject,
+    "/lab": cmd_lab,
+    "lab": cmd_lab,
+    "/architect": cmd_architect,
+    "architect": cmd_architect,
     "patterncatalog": cmd_patterncatalog,
     "patternpromote": cmd_patternpromote,
     "patternreject": cmd_patternreject,
@@ -4629,6 +4782,8 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "oilbot", "description": "oil_botpattern strategy state (sub-system 5)"},
         {"command": "oilbotjournal", "description": "Recent oil_botpattern decision records"},
         {"command": "oilbotreviewai", "description": "AI review of oil_botpattern strategy"},
+        {"command": "lab", "description": "Lab — strategy development pipeline"},
+        {"command": "architect", "description": "Architect — mechanical self-improvement"},
         {"command": "selftune", "description": "Self-tune harness state (sub-system 6)"},
         {"command": "selftuneproposals", "description": "List pending L2 structural proposals"},
         {"command": "selftuneapprove", "description": "/selftuneapprove <id> — approve + apply a proposal"},

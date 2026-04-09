@@ -253,6 +253,16 @@ def daemon_start(
         clock.register(MemoryBackupIterator())
     except ImportError:
         pass
+    try:
+        from cli.daemon.iterators.lab import LabIterator
+        clock.register(LabIterator())  # strategy development pipeline (kill switch OFF at ship)
+    except ImportError:
+        pass
+    try:
+        from cli.daemon.iterators.architect import ArchitectIterator
+        clock.register(ArchitectIterator())  # mechanical self-improvement (kill switch OFF at ship)
+    except ImportError:
+        pass
     clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")

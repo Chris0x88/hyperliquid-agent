@@ -41,6 +41,8 @@ from cli.commands.daemon import daemon_app
 from cli.commands.heartbeat_cmd import heartbeat_app
 from cli.commands.telegram import telegram_app
 from cli.commands.commands import commands_app
+from cli.commands.lab import app as lab_app
+from cli.commands.architect import app as architect_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -65,6 +67,8 @@ app.add_typer(daemon_app, name="daemon", help="Daemon — monitoring and trading
 app.add_typer(heartbeat_app, name="heartbeat", help="Heartbeat — position auditor and risk monitor")
 app.add_typer(telegram_app, name="telegram", help="Telegram bot — real-time commands, zero AI credits")
 app.add_typer(commands_app, name="commands", help="List all commands (short/long form)")
+app.add_typer(lab_app, name="lab", help="Lab — strategy development pipeline")
+app.add_typer(architect_app, name="architect", help="Architect — mechanical self-improvement")
 
 
 def main():

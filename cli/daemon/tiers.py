@@ -16,6 +16,15 @@ TIER_ITERATORS = {
         "supply_ledger",       # sub-system 2: supply disruption ledger (read-only, safe in WATCH)
         "heatmap",             # sub-system 3: stop/liquidity heatmap (read-only, safe in WATCH)
         "bot_classifier",      # sub-system 4: bot-pattern classifier (read-only, safe in WATCH)
+        "oil_botpattern",      # sub-system 5: strategy engine — SAFE IN WATCH because (a)
+                               # WATCH has no execution_engine/exchange_protection so OrderIntents
+                               # accumulate with no consumer, AND (b) decisions_only=true puts the
+                               # iterator in shadow mode which emits zero OrderIntents by design.
+                               # This tier slot is what makes Rung 1 (shadow in WATCH) actually
+                               # work — without it, sub-system 5 doesn't tick in WATCH.
+        "oil_botpattern_tune",    # sub-system 6 L1: bounded auto-tune (kill switch OFF at ship)
+        "oil_botpattern_reflect", # sub-system 6 L2: weekly reflect proposals (kill switch OFF at ship)
+        "oil_botpattern_shadow",  # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
         "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
@@ -28,6 +37,8 @@ TIER_ITERATORS = {
         "oil_botpattern_patternlib",  # sub-system 6 L3: pattern library growth (read-only observational, safe in WATCH)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
+        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
     ],
     "rebalance": [
@@ -63,6 +74,8 @@ TIER_ITERATORS = {
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
+        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
     ],
     "opportunistic": [
@@ -100,6 +113,8 @@ TIER_ITERATORS = {
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
+        "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
+        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
     ],
 }

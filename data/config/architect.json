@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "interval_hours": 12,
+  "min_pattern_occurrences": 3,
+  "max_proposals": 10
+}
