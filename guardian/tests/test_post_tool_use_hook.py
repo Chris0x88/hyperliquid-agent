@@ -55,17 +55,10 @@ def test_hook_ignores_non_read_tools():
     assert not _SESSION_READS_FILE.exists() or _SESSION_READS_FILE.read_text().strip() == ""
 
 
-def test_hook_marks_read_file(tmp_path: Path):
-    from guardian.gate import reset_session_reads, _has_been_read
-    reset_session_reads()
-    target = tmp_path / "MASTER_PLAN.md"
-    target.write_text("x")
-    code, _ = _run_hook(json.dumps({
-        "tool_name": "Read",
-        "tool_input": {"file_path": str(target)},
-    }))
-    assert code == 0
-    assert _has_been_read("MASTER_PLAN.md")
+# Deleted 2026-04-09 — post_tool_use.py permanently gutted to a no-op per
+# user request. The two tests previously here (marks_read_file,
+# handles_toolName_camelcase) asserted that the hook called
+# guardian.gate.mark_file_read; the call is gone.
 
 
 def test_hook_handles_missing_file_path():
@@ -76,22 +69,3 @@ def test_hook_handles_missing_file_path():
         "tool_input": {},
     }))
     assert code == 0  # Should not crash even without file_path
-
-
-def test_hook_handles_toolName_camelcase():
-    """The hook tolerates both snake_case and camelCase field names."""
-    from guardian.gate import reset_session_reads, _has_been_read
-    reset_session_reads()
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix="_AUDIT_FIX_PLAN.md", delete=False) as f:
-        f.write(b"x")
-        path = f.name
-    try:
-        code, _ = _run_hook(json.dumps({
-            "toolName": "Read",
-            "toolInput": {"file_path": path},
-        }))
-        assert code == 0
-        assert _has_been_read("AUDIT_FIX_PLAN.md")
-    finally:
-        os.unlink(path)
