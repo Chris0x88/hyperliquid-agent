@@ -62,6 +62,11 @@ BOT_PATTERNS_JSONL = "data/research/bot_patterns.jsonl"  # sub-system 4: bot-pat
 OIL_BOTPATTERN_CONFIG_JSON = "data/config/oil_botpattern.json"  # sub-system 5: strategy config + kill switches
 OIL_BOTPATTERN_STATE_JSON = "data/strategy/oil_botpattern_state.json"  # sub-system 5: strategy state
 OIL_BOTPATTERN_DECISIONS_JSONL = "data/strategy/oil_botpattern_journal.jsonl"  # sub-system 5: per-decision audit log
+OIL_BOTPATTERN_TUNE_CONFIG_JSON = "data/config/oil_botpattern_tune.json"  # sub-system 6 L1: bounded auto-tune config
+OIL_BOTPATTERN_TUNE_AUDIT_JSONL = "data/strategy/oil_botpattern_tune_audit.jsonl"  # sub-system 6: nudge audit log
+OIL_BOTPATTERN_REFLECT_CONFIG_JSON = "data/config/oil_botpattern_reflect.json"  # sub-system 6 L2: weekly reflect config
+OIL_BOTPATTERN_REFLECT_STATE_JSON = "data/strategy/oil_botpattern_reflect_state.json"  # sub-system 6 L2: cadence state
+OIL_BOTPATTERN_PROPOSALS_JSONL = "data/strategy/oil_botpattern_proposals.jsonl"  # sub-system 6 L2: structural proposals
 
 # ── Watchlist: markets we track (loaded from data/config/watchlist.json) ──
 from common.watchlist import (
@@ -1126,6 +1131,11 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /oilbot — oil_botpattern strategy state (sub-system 5)\n"
         "  /oilbotjournal [N] — recent strategy decisions\n"
         "  /oilbotreviewai [N] — AI review of strategy behaviour\n"
+        "\n*Self-Tune Harness (sub-system 6)*\n"
+        "  /selftune — L1 auto-tune + L2 reflect state\n"
+        "  /selftuneproposals [N] — pending structural proposals\n"
+        "  /selftuneapprove <id> — approve + apply a proposal\n"
+        "  /selftunereject <id> — reject a proposal\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2350,14 +2360,109 @@ def cmd_oilbotreviewai(token: str, chat_id: str, args: str) -> None:
                 markdown=True)
 
 
-def cmd_lessons(token: str, chat_id: str, args: str) -> None:
-    """Show the most recent lessons from the trade lesson corpus.
+# ── Sub-system 6: self-tune harness commands ─────────────────────────
 
-    Deterministic — reads data/memory/memory.db via common.memory.search_lessons.
-    Optional argument: integer limit (default 10, max 25).
-    Rejected lessons (reviewed_by_chris = -1) are excluded by default.
+def cmd_selftune(token: str, chat_id: str, _args: str) -> None:
+    """Show sub-system 6 self-tune harness state (L1 + L2).
+
+    Deterministic — reads tune config + strategy config + audit log + proposals
+    file. NOT AI-driven.
     """
-    from common import memory as common_memory
+    import json
+    from pathlib import Path
+
+    def _read_json(path: str) -> dict:
+        try:
+            return json.loads(Path(path).read_text()) if Path(path).exists() else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    tune_cfg = _read_json(OIL_BOTPATTERN_TUNE_CONFIG_JSON)
+    reflect_cfg = _read_json(OIL_BOTPATTERN_REFLECT_CONFIG_JSON)
+    strat_cfg = _read_json(OIL_BOTPATTERN_CONFIG_JSON)
+    reflect_state = _read_json(OIL_BOTPATTERN_REFLECT_STATE_JSON)
+
+    tune_enabled = bool(tune_cfg.get("enabled", False))
+    reflect_enabled = bool(reflect_cfg.get("enabled", False))
+
+    lines = ["🎛️ *oil_botpattern self-tune harness (sub-system 6)*", ""]
+    lines.append(f"*L1 auto-tune:* {'🟢 ON' if tune_enabled else '🔴 OFF'}")
+    lines.append(f"*L2 reflect:*   {'🟢 ON' if reflect_enabled else '🔴 OFF'}")
+    lines.append("")
+
+    # L1 param snapshot
+    bounds = tune_cfg.get("bounds", {}) or {}
+    if bounds:
+        lines.append("*Tunable params (current / [min–max]):*")
+        for name, spec in bounds.items():
+            cur = strat_cfg.get(name, "?")
+            bmin = spec.get("min", "?")
+            bmax = spec.get("max", "?")
+            lines.append(f"  `{name}` = {cur}  [{bmin}–{bmax}]")
+        lines.append("")
+
+    # Last N audit records (nudge history)
+    audit_path = Path(OIL_BOTPATTERN_TUNE_AUDIT_JSONL)
+    nudges: list[dict] = []
+    if audit_path.exists():
+        try:
+            with audit_path.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        nudges.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            nudges = []
+
+    if nudges:
+        lines.append(f"*Last nudges (newest 5 of {len(nudges)}):*")
+        for rec in nudges[-5:][::-1]:
+            ts = (rec.get("applied_at") or "")[:19].replace("T", " ")
+            param = rec.get("param", "?")
+            old = rec.get("old_value", "?")
+            new = rec.get("new_value", "?")
+            src = rec.get("source", "?")
+            lines.append(f"  `{ts}` {param}: {old} → {new} ({src})")
+        lines.append("")
+    else:
+        lines.append("*Last nudges:* none yet")
+        lines.append("")
+
+    # L2 state + pending proposal count
+    last_run = reflect_state.get("last_run_at") if reflect_state else None
+    if last_run:
+        lines.append(f"*L2 last run:* {last_run[:19].replace('T', ' ')} UTC")
+    else:
+        lines.append("*L2 last run:* never")
+
+    from cli.daemon.iterators.oil_botpattern_reflect import load_proposals
+    all_proposals = load_proposals(OIL_BOTPATTERN_PROPOSALS_JSONL)
+    pending = [p for p in all_proposals if p.get("status") == "pending"]
+    lines.append(f"*Pending proposals:* {len(pending)}  (total {len(all_proposals)})")
+    if pending:
+        lines.append("  Run `/selftuneproposals` to review.")
+
+    lines.append("")
+    lines.append(
+        "_L1 nudges param values within bounds. L2 proposes structural "
+        "changes — approve with_ `/selftuneapprove <id>` _or_ "
+        "`/selftunereject <id>`."
+    )
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
+def cmd_selftuneproposals(token: str, chat_id: str, args: str) -> None:
+    """List pending structural proposals from L2 reflect loop.
+
+    Deterministic — reads oil_botpattern_proposals.jsonl directly.
+    Optional arg: integer limit (default 10, max 25).
+    """
+    from cli.daemon.iterators.oil_botpattern_reflect import load_proposals
 
     limit = 10
     if args.strip():
@@ -2366,221 +2471,239 @@ def cmd_lessons(token: str, chat_id: str, args: str) -> None:
         except ValueError:
             pass
 
-    try:
-        rows = common_memory.search_lessons(limit=limit)
-    except Exception as e:
-        tg_send(token, chat_id, f"📓 Error reading lessons: {e}")
-        return
+    all_proposals = load_proposals(OIL_BOTPATTERN_PROPOSALS_JSONL)
+    pending = [p for p in all_proposals if p.get("status") == "pending"]
 
-    if not rows:
-        tg_send(token, chat_id, "📓 No lessons yet. The lesson_author iterator "
-                                "has not written any post-mortems — the corpus "
-                                "is empty until a trade closes after wedge 5 ships.")
-        return
-
-    lines = [f"📓 *Latest {len(rows)} lessons*", ""]
-    for r in rows:
-        lesson_id = r.get("id")
-        market = r.get("market", "?")
-        direction = r.get("direction", "?")
-        outcome = r.get("outcome", "?")
-        signal = r.get("signal_source", "?")
-        ltype = r.get("lesson_type", "?")
-        roe = r.get("roe_pct", 0.0)
-        closed = (r.get("trade_closed_at") or "")[:10]
-        summary = (r.get("summary") or "").strip()
-        reviewed = r.get("reviewed_by_chris", 0)
-        flag = " ✅" if reviewed == 1 else ""
-        lines.append(f"`#{lesson_id}` {closed} {market} {direction} ({signal}, {ltype})")
-        lines.append(f"  → {outcome} {roe:+.1f}%{flag}")
-        lines.append(f"  _{summary}_")
-        lines.append("")
-    lines.append("Use `/lesson <id>` to see the verbatim body.")
-    tg_send(token, chat_id, "\n".join(lines))
-
-
-def cmd_lesson(token: str, chat_id: str, args: str) -> None:
-    """Show one lesson by id, or approve/reject a lesson.
-
-    Usage:
-        /lesson <id>           — show the verbatim body
-        /lesson approve <id>   — mark reviewed_by_chris = 1 (boost ranking)
-        /lesson reject <id>    — mark reviewed_by_chris = -1 (exclude, anti-pattern)
-        /lesson unreview <id>  — reset reviewed_by_chris = 0
-
-    Deterministic — reads/writes data/memory/memory.db directly, no AI.
-    """
-    from common import memory as common_memory
-
-    parts = args.strip().split()
-    if not parts:
+    if not pending:
         tg_send(token, chat_id,
-                "Usage: `/lesson <id>` or `/lesson approve|reject|unreview <id>`")
+                "🎛️ No pending self-tune proposals. "
+                "L2 reflect loop has not found structural changes to surface.",
+                markdown=True)
         return
 
-    if parts[0] in ("approve", "reject", "unreview"):
-        if len(parts) < 2:
-            tg_send(token, chat_id, f"Usage: `/lesson {parts[0]} <id>`")
-            return
-        try:
-            lesson_id = int(parts[1])
-        except ValueError:
-            tg_send(token, chat_id, f"Invalid id: {parts[1]!r}")
-            return
-        status_map = {"approve": 1, "reject": -1, "unreview": 0}
-        status = status_map[parts[0]]
-        try:
-            ok = common_memory.set_lesson_review(lesson_id, status)
-        except Exception as e:
-            tg_send(token, chat_id, f"Error: {e}")
-            return
-        if not ok:
-            tg_send(token, chat_id, f"Lesson #{lesson_id} not found.")
-            return
-        flag = {1: "approved ✅", -1: "rejected ❌", 0: "unreviewed"}[status]
-        tg_send(token, chat_id, f"Lesson #{lesson_id} marked {flag}.")
-        return
+    # Show newest first
+    shown = pending[-limit:][::-1]
+
+    lines = [f"🎛️ *Pending self-tune proposals* (showing {len(shown)} of {len(pending)})", ""]
+    for p in shown:
+        pid = p.get("id", "?")
+        ptype = p.get("type", "?")
+        created = (p.get("created_at") or "")[:19].replace("T", " ")
+        desc = p.get("description", "")
+        action = p.get("proposed_action", {}) or {}
+        action_kind = action.get("kind", "?")
+        action_path = action.get("path", "")
+        old = action.get("old_value")
+        new = action.get("new_value")
+        notes = action.get("notes", "")
+
+        lines.append(f"*#{pid}* `{ptype}` — {created} UTC")
+        lines.append(f"  {desc}")
+        if action_kind == "config_change":
+            lines.append(f"  Action: `{action_path}` {old} → {new}")
+        else:
+            lines.append(f"  Action: {action_kind}" + (f" — {notes}" if notes else ""))
+        lines.append(f"  `/selftuneapprove {pid}`  `/selftunereject {pid}`")
+        lines.append("")
+
+    tg_send(token, chat_id, "\n".join(lines), markdown=True)
+
+
+def _apply_proposal_action(proposal: dict) -> tuple[bool, str]:
+    """Execute a proposed_action on its target file atomically.
+
+    Returns (ok, message). Never raises — errors come back as ok=False.
+    Only `kind="config_change"` is auto-applicable; `kind="advisory"`
+    returns ok=True with a reminder that no file was changed.
+    """
+    import json
+    import os
+    from pathlib import Path
+
+    action = proposal.get("proposed_action", {}) or {}
+    kind = action.get("kind")
+    if kind == "advisory":
+        return (True, "advisory only — no file change")
+    if kind != "config_change":
+        return (False, f"unknown action kind {kind!r}")
+
+    target = action.get("target", "")
+    path_key = action.get("path", "")
+    new_value = action.get("new_value")
+    if not target or not path_key:
+        return (False, "missing target or path in proposed_action")
+    if new_value is None:
+        return (False, "no new_value in proposed_action")
+
+    target_path = Path(target)
+    if not target_path.exists():
+        return (False, f"target file missing: {target}")
 
     try:
-        lesson_id = int(parts[0])
+        cfg = json.loads(target_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        return (False, f"cannot read {target}: {e}")
+
+    # Only top-level keys supported in L2 v1.
+    if path_key not in cfg:
+        return (False, f"key {path_key!r} not present in {target}")
+
+    cfg[path_key] = new_value
+
+    try:
+        tmp = target_path.with_suffix(target_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(cfg, indent=2) + "\n")
+        os.replace(tmp, target_path)
+    except OSError as e:
+        return (False, f"write failed: {e}")
+
+    # Append to audit log
+    try:
+        audit_path = Path(OIL_BOTPATTERN_TUNE_AUDIT_JSONL)
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime, timezone
+        audit_path.open("a").write(json.dumps({
+            "applied_at": datetime.now(tz=timezone.utc).isoformat(),
+            "param": path_key,
+            "old_value": action.get("old_value"),
+            "new_value": new_value,
+            "reason": f"proposal #{proposal.get('id')} approved",
+            "stats_sample_size": 0,
+            "stats_snapshot": proposal.get("evidence", {}),
+            "trade_ids_considered": [],
+            "source": "reflect_approved",
+        }) + "\n")
+    except OSError:
+        # Non-fatal — config already updated.
+        pass
+
+    return (True, f"applied {path_key}: {action.get('old_value')} → {new_value}")
+
+
+def cmd_selftuneapprove(token: str, chat_id: str, args: str) -> None:
+    """Approve a structural proposal and apply its action to the target file.
+
+    Usage: /selftuneapprove <id>
+    Deterministic — no AI involvement.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    from cli.daemon.iterators.oil_botpattern_reflect import (
+        find_proposal,
+        load_proposals,
+        write_proposals_atomic,
+    )
+
+    arg = (args or "").strip()
+    if not arg:
+        tg_send(token, chat_id, "Usage: `/selftuneapprove <id>`", markdown=True)
+        return
+    try:
+        proposal_id = int(arg)
     except ValueError:
-        tg_send(token, chat_id, f"Invalid id: {parts[0]!r}")
+        tg_send(token, chat_id, f"Bad id: `{arg}`. Integer expected.", markdown=True)
         return
+
+    proposals = load_proposals(OIL_BOTPATTERN_PROPOSALS_JSONL)
+    target = find_proposal(proposals, proposal_id)
+    if target is None:
+        tg_send(token, chat_id, f"🎛️ Proposal #{proposal_id} not found.", markdown=True)
+        return
+    if target.get("status") != "pending":
+        tg_send(token, chat_id,
+                f"🎛️ Proposal #{proposal_id} is {target.get('status')}, not pending.",
+                markdown=True)
+        return
+
+    ok, msg = _apply_proposal_action(target)
+    now_iso = datetime.now(tz=timezone.utc).isoformat()
+    target["status"] = "approved" if ok else "pending"
+    target["reviewed_at"] = now_iso
+    target["reviewed_outcome"] = "applied" if ok else f"error: {msg}"
 
     try:
-        row = common_memory.get_lesson(lesson_id)
-    except Exception as e:
-        tg_send(token, chat_id, f"Error reading lesson: {e}")
+        write_proposals_atomic(OIL_BOTPATTERN_PROPOSALS_JSONL, proposals)
+    except OSError as e:
+        tg_send(token, chat_id,
+                f"🎛️ Applied action but failed to update proposals file: {e}",
+                markdown=True)
         return
-    if row is None:
-        tg_send(token, chat_id, f"Lesson #{lesson_id} not found.")
-        return
 
-    tags_raw = row.get("tags") or "[]"
-    try:
-        tags = json.loads(tags_raw) if isinstance(tags_raw, str) else list(tags_raw)
-    except (ValueError, TypeError):
-        tags = []
-
-    reviewed = row.get("reviewed_by_chris", 0)
-    review_flag = {1: "approved ✅", -1: "rejected ❌", 0: "unreviewed"}[reviewed]
-
-    header = [
-        f"📓 *Lesson #{row.get('id')}*",
-        f"*Closed:* {row.get('trade_closed_at', '?')[:16]}",
-        f"*Market:* {row.get('market', '?')} {row.get('direction', '?')}",
-        f"*Signal:* {row.get('signal_source', '?')} · {row.get('lesson_type', '?')}",
-        f"*Outcome:* {row.get('outcome', '?')}  "
-        f"PnL ${row.get('pnl_usd', 0):+.2f}  ROE {row.get('roe_pct', 0):+.2f}%",
-        f"*Review:* {review_flag}",
-    ]
-    if tags:
-        header.append(f"*Tags:* {', '.join(tags)}")
-    header.append("")
-    header.append(f"_{(row.get('summary') or '').strip()}_")
-    header.append("")
-    header.append("*Verbatim body:*")
-    header.append("```")
-    body = (row.get("body_full") or "").strip()
-    max_body = 3000
-    if len(body) > max_body:
-        body = body[:max_body] + "\n... [truncated, full body in memory.db]"
-    header.append(body)
-    header.append("```")
-    tg_send(token, chat_id, "\n".join(header))
-
-
-def cmd_lessonauthorai(token: str, chat_id: str, args: str) -> None:
-    """Author pending lesson candidates: hand them to the agent and persist.
-
-    AI-dependent — uses Claude Haiku via _call_anthropic in telegram_agent.
-    Per CLAUDE.md slash-command rule, the `ai` suffix is required because
-    this command's output (the lesson summary, analysis, tags) is written
-    by the model.
-
-    Usage:
-        /lessonauthorai          — author the next 3 pending candidates
-        /lessonauthorai 1        — author 1
-        /lessonauthorai all      — author every pending candidate (capped at 25
-                                   to keep the bot responsive)
-    """
-    arg = (args or "").strip().lower()
-    if arg == "all":
-        max_lessons = 25
-    elif arg:
-        try:
-            max_lessons = max(1, min(25, int(arg)))
-        except ValueError:
-            tg_send(token, chat_id, "Usage: `/lessonauthorai [N|all]`")
-            return
+    if ok:
+        tg_send(token, chat_id,
+                f"✅ Proposal #{proposal_id} approved and applied.\n`{msg}`",
+                markdown=True)
     else:
-        max_lessons = 3
-
-    try:
-        from cli.telegram_agent import _author_pending_lessons
-        result = _author_pending_lessons(max_lessons=max_lessons)
-    except Exception as e:
-        tg_send(token, chat_id, f"📓 Authoring failed: {e}")
-        return
-
-    processed = result.get("processed", 0)
-    failed = result.get("failed", 0)
-    errors = result.get("errors", []) or []
-
-    if processed == 0 and failed == 0:
-        tg_send(token, chat_id, "📓 No pending lesson candidates to author.")
-        return
-
-    lines = [f"📓 *Lesson authoring*: {processed} authored, {failed} failed", ""]
-    if processed:
-        lines.append(f"✅ Wrote {processed} new lesson(s) to the corpus.")
-        lines.append("Use `/lessons` to browse them.")
-    if failed:
-        lines.append("")
-        lines.append("⚠️ Failures (candidates left in place for next run):")
-        for err in errors[:5]:
-            lines.append(f"  - {err}")
-        if len(errors) > 5:
-            lines.append(f"  ... and {len(errors) - 5} more")
-    tg_send(token, chat_id, "\n".join(lines))
+        tg_send(token, chat_id,
+                f"⚠️ Proposal #{proposal_id} could NOT be auto-applied: {msg}\n"
+                f"Status reverted to pending. Review manually.",
+                markdown=True)
 
 
-def cmd_lessonsearch(token: str, chat_id: str, args: str) -> None:
-    """BM25-ranked search over the lesson corpus.
+def cmd_selftunereject(token: str, chat_id: str, args: str) -> None:
+    """Reject a structural proposal. No file changes.
 
-    Usage: /lessonsearch <query>
-    Deterministic — reads data/memory/memory.db directly, no AI.
+    Usage: /selftunereject <id>
+    Deterministic.
     """
-    from common import memory as common_memory
+    from datetime import datetime, timezone
 
-    query = args.strip()
-    if not query:
-        tg_send(token, chat_id, "Usage: `/lessonsearch <query>`")
+    from cli.daemon.iterators.oil_botpattern_reflect import (
+        find_proposal,
+        load_proposals,
+        write_proposals_atomic,
+    )
+
+    arg = (args or "").strip()
+    if not arg:
+        tg_send(token, chat_id, "Usage: `/selftunereject <id>`", markdown=True)
         return
+    try:
+        proposal_id = int(arg)
+    except ValueError:
+        tg_send(token, chat_id, f"Bad id: `{arg}`. Integer expected.", markdown=True)
+        return
+
+    proposals = load_proposals(OIL_BOTPATTERN_PROPOSALS_JSONL)
+    target = find_proposal(proposals, proposal_id)
+    if target is None:
+        tg_send(token, chat_id, f"🎛️ Proposal #{proposal_id} not found.", markdown=True)
+        return
+    if target.get("status") != "pending":
+        tg_send(token, chat_id,
+                f"🎛️ Proposal #{proposal_id} is {target.get('status')}, not pending.",
+                markdown=True)
+        return
+
+    target["status"] = "rejected"
+    target["reviewed_at"] = datetime.now(tz=timezone.utc).isoformat()
+    target["reviewed_outcome"] = "rejected"
 
     try:
-        rows = common_memory.search_lessons(query=query, limit=10)
-    except Exception as e:
-        tg_send(token, chat_id, f"📓 Search failed: {e}")
+        write_proposals_atomic(OIL_BOTPATTERN_PROPOSALS_JSONL, proposals)
+    except OSError as e:
+        tg_send(token, chat_id,
+                f"🎛️ Failed to update proposals file: {e}",
+                markdown=True)
         return
 
-    if not rows:
-        tg_send(token, chat_id, f"📓 No lessons match `{query}`.")
-        return
+    tg_send(token, chat_id,
+            f"❌ Proposal #{proposal_id} rejected.",
+            markdown=True)
 
-    lines = [f"📓 *Search: `{query}` — {len(rows)} hit(s)*", ""]
-    for r in rows:
-        lesson_id = r.get("id")
-        market = r.get("market", "?")
-        direction = r.get("direction", "?")
-        outcome = r.get("outcome", "?")
-        roe = r.get("roe_pct", 0.0)
-        summary = (r.get("summary") or "").strip()
-        lines.append(f"`#{lesson_id}` {market} {direction} → {outcome} {roe:+.1f}%")
-        lines.append(f"  _{summary}_")
-        lines.append("")
-    lines.append("Use `/lesson <id>` to see the verbatim body.")
-    tg_send(token, chat_id, "\n".join(lines))
+
+# ── Lesson commands moved to cli/telegram_commands/lessons.py ─────────
+# First wedge of the telegram_bot.py monolith split (2026-04-09).
+# The four cmd_lessons / cmd_lesson / cmd_lessonauthorai / cmd_lessonsearch
+# handlers now live in cli/telegram_commands/lessons.py and are imported
+# below so the HANDLERS dict references resolve correctly.
+from cli.telegram_commands.lessons import (  # noqa: E402
+    cmd_lesson,
+    cmd_lessonauthorai,
+    cmd_lessons,
+    cmd_lessonsearch,
+)
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2630,6 +2753,10 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/oilbot` — sub-system 5 strategy: kill-switch status, open positions, drawdown brakes\n"
         "`/oilbotjournal [20]` — per-decision audit log (which gates passed/failed, sizing rung, edge)\n"
         "`/oilbotreviewai [50]` — AI summary of recent strategy decisions (the `ai` suffix is required)\n"
+        "`/selftune` — sub-system 6 self-tune harness (L1 auto-tune + L2 reflect) state\n"
+        "`/selftuneproposals` — list L2 structural proposals pending human review\n"
+        "`/selftuneapprove <id>` — approve + atomically apply a proposal's config change\n"
+        "`/selftunereject <id>` — reject a proposal (no file change)\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -4103,6 +4230,10 @@ HANDLERS = {
     "/oilbot": cmd_oilbot,
     "/oilbotjournal": cmd_oilbotjournal,
     "/oilbotreviewai": cmd_oilbotreviewai,
+    "/selftune": cmd_selftune,
+    "/selftuneproposals": cmd_selftuneproposals,
+    "/selftuneapprove": cmd_selftuneapprove,
+    "/selftunereject": cmd_selftunereject,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -4161,6 +4292,10 @@ HANDLERS = {
     "oilbot": cmd_oilbot,
     "oilbotjournal": cmd_oilbotjournal,
     "oilbotreviewai": cmd_oilbotreviewai,
+    "selftune": cmd_selftune,
+    "selftuneproposals": cmd_selftuneproposals,
+    "selftuneapprove": cmd_selftuneapprove,
+    "selftunereject": cmd_selftunereject,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4234,6 +4369,10 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "oilbot", "description": "oil_botpattern strategy state (sub-system 5)"},
         {"command": "oilbotjournal", "description": "Recent oil_botpattern decision records"},
         {"command": "oilbotreviewai", "description": "AI review of oil_botpattern strategy"},
+        {"command": "selftune", "description": "Self-tune harness state (sub-system 6)"},
+        {"command": "selftuneproposals", "description": "List pending L2 structural proposals"},
+        {"command": "selftuneapprove", "description": "/selftuneapprove <id> — approve + apply a proposal"},
+        {"command": "selftunereject", "description": "/selftunereject <id> — reject a proposal"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
