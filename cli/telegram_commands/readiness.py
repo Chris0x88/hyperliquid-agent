@@ -61,10 +61,25 @@ def _parse_iso(ts: str | None) -> datetime | None:
 
 
 def _latest_jsonl_ts(path: str, ts_field: str = "detected_at") -> datetime | None:
+    """Return the newest timestamp across all rows of a JSONL file.
+
+    Tries `ts_field` first, then a small set of common fallbacks so
+    the call site can stay schema-agnostic. Heatmap zones use
+    `snapshot_at`, catalyst rows use `published_at`/`scheduled_at`,
+    bot_patterns use `detected_at`, misc rows use `created_at` — all
+    get picked up.
+    """
     p = Path(path)
     if not p.exists():
         return None
     latest: datetime | None = None
+    fallback_fields = (
+        "snapshot_at",
+        "detected_at",
+        "scheduled_at",
+        "published_at",
+        "created_at",
+    )
     try:
         with p.open("r") as f:
             for line in f:
@@ -75,12 +90,15 @@ def _latest_jsonl_ts(path: str, ts_field: str = "detected_at") -> datetime | Non
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                ts = _parse_iso(
-                    row.get(ts_field)
-                    or row.get("scheduled_at")
-                    or row.get("published_at")
-                    or row.get("created_at")
-                )
+                ts_str = row.get(ts_field)
+                if not ts_str:
+                    for fb in fallback_fields:
+                        if fb == ts_field:
+                            continue
+                        ts_str = row.get(fb)
+                        if ts_str:
+                            break
+                ts = _parse_iso(ts_str)
                 if ts is None:
                     continue
                 if latest is None or ts > latest:
@@ -148,7 +166,10 @@ def check_supply_ledger(now: datetime) -> tuple[str, str, str, str]:
 
 
 def check_heatmap(now: datetime) -> tuple[str, str, str, str]:
-    latest = _latest_jsonl_ts(HEATMAP_ZONES_JSONL, ts_field="detected_at")
+    # Heatmap rows use `snapshot_at`, not `detected_at`. _latest_jsonl_ts
+    # falls through to other common timestamp fields anyway, but being
+    # explicit keeps the intent clear.
+    latest = _latest_jsonl_ts(HEATMAP_ZONES_JSONL, ts_field="snapshot_at")
     age = _age_hours(latest, now)
     if age is None:
         return ("🔴", "Liquidity heatmap", "no zones data", "red")
@@ -184,6 +205,20 @@ def check_thesis(now: datetime) -> tuple[str, str, str, str]:
         or state.get("last_updated")
         or state.get("timestamp")
     )
+    # Fallback: thesis files written by the AI agent use `last_evaluation_ts`
+    # as a Unix millisecond epoch. Parse that format too.
+    if ts is None:
+        last_eval = state.get("last_evaluation_ts")
+        if isinstance(last_eval, (int, float)):
+            try:
+                # Heuristic: > 1e12 = milliseconds, < 1e12 = seconds
+                epoch = float(last_eval)
+                if epoch > 1e12:
+                    epoch = epoch / 1000.0
+                from datetime import datetime as _dt
+                ts = _dt.fromtimestamp(epoch, tz=timezone.utc)
+            except (OSError, OverflowError, ValueError):
+                ts = None
     age = _age_hours(ts, now)
     conviction = state.get("conviction", state.get("score"))
     if age is None:

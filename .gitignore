@@ -88,3 +88,8 @@ htmlcov/
 .coverage
 data/research/quarantine/
 *.bak
+
+# Obsidian per-user view settings — the vault at docs/vault/ is tracked,
+# but graph layouts, theme, open-pane state, trash are personal
+docs/vault/.obsidian/
+docs/vault/.trash/

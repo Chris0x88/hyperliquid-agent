@@ -1,0 +1,72 @@
+---
+kind: config_file
+last_regenerated: 2026-04-09 14:08
+path: data/config/news_feeds.yaml
+format: yaml
+tags:
+  - config
+  - yaml
+---
+# Config: `news_feeds.yaml`
+
+**Path**: [`data/config/news_feeds.yaml`](../../data/config/news_feeds.yaml)
+
+## Current contents
+
+```yaml
+# data/config/news_feeds.yaml
+# Feed registry for news_ingest iterator.
+# Spec: docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md §6
+# Implementer: verify each URL returns valid XML before promoting to live.
+
+feeds:
+  - name: reuters_energy
+    url: https://www.reuters.com/business/energy/feed/
+    poll_interval_s: 60
+    weight: 0.9
+    categories: [oil, energy]
+    enabled: true
+
+  - name: oilprice_main
+    url: https://oilprice.com/rss/main
+    poll_interval_s: 120
+    weight: 0.8
+    categories: [oil, energy]
+    enabled: true
+
+  - name: eia_today_in_energy
+    url: https://www.eia.gov/rss/todayinenergy.xml
+    poll_interval_s: 300
+    weight: 0.95
+    categories: [oil, energy, fundamentals]
+    enabled: true
+
+  - name: ap_top
+    url: https://feeds.apnews.com/rss/apf-topnews
+    poll_interval_s: 60
+    weight: 0.7
+    categories: [macro, geopolitical]
+    enabled: true
+
+icals:
+  - name: eia_weekly_petroleum
+    url: ""   # Verify at implementation time; set enabled=false if not found
+    enabled: false
+    categories: [oil, scheduled]
+
+  - name: opec_meetings
+    url: ""
+    enabled: false
+    categories: [oil, scheduled]
+
+  - name: fomc_schedule
+    url: ""
+    enabled: false
+    categories: [macro, scheduled]
+
+```
+
+## Human notes
+
+<!-- HUMAN:BEGIN -->
+<!-- HUMAN:END -->

@@ -1,0 +1,43 @@
+---
+kind: config_file
+last_regenerated: 2026-04-09 14:08
+path: data/config/heatmap.json
+is_kill_switch: true
+tags:
+  - config
+  - kill-switch
+---
+# Config: `heatmap.json`
+
+**Path**: [`data/config/heatmap.json`](../../data/config/heatmap.json)
+
+**Is kill switch**: ✅ yes (has `enabled` field)
+
+## Current contents
+
+```json
+{
+  "enabled": true,
+  "instruments": ["BRENTOIL"],
+  "poll_interval_s": 60,
+  "cluster_bps": 8,
+  "max_distance_bps": 200,
+  "max_zones_per_side": 5,
+  "min_zone_notional_usd": 50000,
+  "cascade_window_s": 180,
+  "cascade_oi_delta_pct": 1.5,
+  "cascade_funding_jump_bps": 10,
+  "zones_jsonl": "data/heatmap/zones.jsonl",
+  "cascades_jsonl": "data/heatmap/cascades.jsonl"
+}
+
+```
+
+## See also
+
+- Likely consumer: [[heatmap]] iterator
+
+## Human notes
+
+<!-- HUMAN:BEGIN -->
+<!-- HUMAN:END -->

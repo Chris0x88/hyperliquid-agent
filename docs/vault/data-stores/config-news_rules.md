@@ -1,0 +1,115 @@
+---
+kind: config_file
+last_regenerated: 2026-04-09 14:08
+path: data/config/news_rules.yaml
+format: yaml
+tags:
+  - config
+  - yaml
+---
+# Config: `news_rules.yaml`
+
+**Path**: [`data/config/news_rules.yaml`](../../data/config/news_rules.yaml)
+
+## Current contents
+
+```yaml
+# data/config/news_rules.yaml
+# Rule library for modules/news_engine.py tagger.
+# Spec: docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION.md §5
+
+rules:
+  - name: trump_oil_announcement
+    severity: 4
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: ["trump"]
+    keywords_any: ["iran", "saudi", "opec", "sanctions", "deadline"]
+    keywords_require_any: []
+
+  - name: opec_action
+    severity: 4
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: ["opec"]
+    keywords_any: ["cut", "quota", "production", "meeting", "ramp", "increase"]
+    keywords_require_any: []
+
+  - name: eia_weekly
+    severity: 3
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: ["eia"]
+    keywords_any: ["crude", "inventories", "stockpile"]
+    keywords_require_any: []
+
+  - name: geopolitical_strike
+    severity: 5
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: "bull"
+    keywords_all: []
+    keywords_any: ["strike", "drone", "missile"]
+    keywords_require_any: ["refinery", "pipeline", "field", "oil", "terminal"]
+
+  - name: cushing_storage
+    severity: 3
+    instruments: ["CL"]
+    direction: null
+    keywords_all: ["cushing"]
+    keywords_any: ["storage", "inventory", "build", "draw"]
+    keywords_require_any: []
+
+  - name: iran_deal
+    severity: 4
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: ["iran"]
+    keywords_any: ["deal", "deadline", "nuclear", "talks"]
+    keywords_require_any: []
+
+  - name: russia_oil
+    severity: 4
+    instruments: ["xyz:BRENTOIL"]
+    direction: null
+    keywords_all: ["russia"]
+    keywords_any: ["oil", "sanctions", "pipeline", "refinery"]
+    keywords_require_any: []
+
+  - name: fomc_macro
+    severity: 3
+    instruments: ["BTC", "xyz:BRENTOIL", "CL"]
+    direction: null
+    keywords_all: []
+    keywords_any: ["fomc", "fed"]
+    keywords_require_any: ["rate", "hike", "cut", "pause"]
+
+  - name: physical_damage_facility
+    severity: 5
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: "bull"
+    keywords_all: []
+    keywords_any: ["strike", "drone", "missile", "fire", "explosion", "damage", "offline"]
+    keywords_require_any: ["refinery", "pipeline", "terminal", "oilfield", "gas plant"]
+
+  - name: shipping_attack
+    severity: 5
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: "bull"
+    keywords_all: []
+    keywords_any: ["strike", "attack", "drone", "missile", "fire", "detained", "seized"]
+    keywords_require_any: ["tanker", "vlcc", "ship", "vessel", "shipping"]
+
+  - name: chokepoint_blockade
+    severity: 5
+    instruments: ["xyz:BRENTOIL", "CL"]
+    direction: "bull"
+    keywords_all: []
+    keywords_any: ["block", "closed", "halt", "detain", "attack"]
+    keywords_require_any: ["hormuz", "bab-el-mandeb", "suez", "malacca", "red sea", "strait"]
+
+```
+
+## Human notes
+
+<!-- HUMAN:BEGIN -->
+<!-- HUMAN:END -->

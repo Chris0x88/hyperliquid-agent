@@ -1,0 +1,82 @@
+---
+kind: config_file
+last_regenerated: 2026-04-09 14:08
+path: data/config/markets.yaml
+format: yaml
+tags:
+  - config
+  - yaml
+---
+# Config: `markets.yaml`
+
+**Path**: [`data/config/markets.yaml`](../../data/config/markets.yaml)
+
+## Current contents
+
+```yaml
+# data/config/markets.yaml
+# Per-instrument metadata for every market the system treats as thesis-driven.
+# Wedge 1 of the Multi-Market Expansion — see docs/plans/MULTI_MARKET_EXPANSION_PLAN.md
+#
+# Schema (per market row):
+#   direction_bias: "long_only" | "short_only" | "neutral"
+#       - long_only:  shorts are blocked outside exception_subsystems
+#       - short_only: longs are blocked outside exception_subsystems
+#       - neutral:    both directions are allowed
+#   asset_class: free-form category tag ("crypto", "commodity", "equities", ...)
+#   sub_class: optional finer category ("energy", "precious_metals", ...)
+#   max_leverage: int cap used by sizing engines as a ceiling
+#   thesis_required: whether the market must have a thesis file to trade
+#   roll_calendar: optional identifier for instruments that roll (futures/perps)
+#   exception_subsystems: list of subsystem names that may bypass direction_bias
+#       (e.g. BRENTOIL is long_only globally, but the oil_botpattern subsystem
+#        ships a supervised short-leg path that is explicitly allowed.)
+#
+# xyz-prefixed names (e.g. xyz:BRENTOIL) are auto-matched to their bare form by
+# common/markets.MarketRegistry, so keys here should use the bare symbol.
+
+version: 1
+
+markets:
+  BTC:
+    direction_bias: "neutral"
+    asset_class: "crypto"
+    thesis_required: true
+    max_leverage: 25
+    exception_subsystems: []
+
+  BRENTOIL:
+    direction_bias: "long_only"
+    asset_class: "commodity"
+    sub_class: "energy"
+    thesis_required: true
+    max_leverage: 10
+    roll_calendar: "monthly_3rd_to_12th"
+    # oil_botpattern ships a supervised short-leg path; it is the ONLY place
+    # shorting BRENTOIL is legal. See data/config/oil_botpattern.json for the
+    # kill switches that gate it.
+    exception_subsystems:
+      - "oil_botpattern"
+
+  GOLD:
+    direction_bias: "neutral"
+    asset_class: "commodity"
+    sub_class: "precious_metals"
+    thesis_required: true
+    max_leverage: 10
+    exception_subsystems: []
+
+  SILVER:
+    direction_bias: "neutral"
+    asset_class: "commodity"
+    sub_class: "precious_metals"
+    thesis_required: true
+    max_leverage: 10
+    exception_subsystems: []
+
+```
+
+## Human notes
+
+<!-- HUMAN:BEGIN -->
+<!-- HUMAN:END -->
