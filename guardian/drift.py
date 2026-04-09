@@ -459,12 +459,91 @@ def detect_plan_code_mismatch(
     return mismatches
 
 
+# ---------- Stale plan-claim detection ----------
+
+# Sentinel phrases that mark a "this is not yet shipped" claim in plan docs.
+# When any of these appear in MASTER_PLAN.md (or another plan file) on the
+# same line as a path/symbol that DOES exist in the cartographer inventory,
+# the claim is stale and should be flagged.
+STALE_CLAIM_SENTINELS: tuple[str, ...] = (
+    "Not yet wired",
+    "not yet wired",
+    "Not yet shipped",
+    "not yet shipped",
+    "Not yet implemented",
+    "Wiring deferred",
+    "wiring deferred",
+    "Deferred behind",
+    "deferred behind",
+    "Empty shell",
+    "empty shell",
+)
+
+# File path stems we accept as plan-doc references inside MASTER_PLAN.md.
+_PLAN_REFERENCE_PATTERN = r"`([a-zA-Z_][\w/.-]*\.py)`"
+
+
+def detect_stale_plan_claims(
+    plan_path: Path,
+    inventory: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Find 'not yet wired' claims in a plan file that reference files which
+    DO exist in the cartographer inventory.
+
+    Returns one finding per stale claim. The classic failure mode this catches:
+    MASTER_PLAN.md says 'Not yet wired: cli/daemon/iterators/lesson_author.py'
+    but the file is in the inventory and registered in tiers.py — meaning the
+    plan is stale and should be archived + rewritten.
+
+    Pure stdlib. Plan file is read once, line by line. No false positives on
+    legitimate "not yet shipped" claims for files that genuinely don't exist.
+    """
+    import re
+
+    if not plan_path.exists():
+        return []
+
+    findings: list[dict[str, Any]] = []
+    known_paths = {m.get("path") for m in inventory.get("modules", [])}
+
+    try:
+        lines = plan_path.read_text().splitlines()
+    except OSError:
+        return []
+
+    for lineno, line in enumerate(lines, start=1):
+        if not any(sentinel in line for sentinel in STALE_CLAIM_SENTINELS):
+            continue
+        # Look ahead a few lines as well — sentinels often introduce a list
+        window = "\n".join(lines[lineno - 1 : min(len(lines), lineno + 8)])
+        for match in re.findall(_PLAN_REFERENCE_PATTERN, window):
+            # Normalise — strip leading "agent-cli/" if the inventory paths
+            # are package-relative
+            normalized_candidates = {match, f"agent-cli/{match}", match.replace("agent-cli/", "")}
+            if normalized_candidates & known_paths:
+                findings.append({
+                    "plan": str(plan_path),
+                    "line": lineno,
+                    "claim": line.strip()[:120],
+                    "stale_reference": match,
+                    "severity": "P1",
+                    "reason": (
+                        f"Plan claims '{match}' is not yet wired/shipped but the "
+                        f"file is present in the inventory. Likely the plan is "
+                        f"stale — archive + rewrite per MAINTAINING.md."
+                    ),
+                })
+                break  # one finding per sentinel hit is enough
+    return findings
+
+
 # ---------- Full drift report builder + writer ----------
 
 def build_drift_report(
     inventory: dict[str, Any],
     prev_inventory: dict[str, Any] | None,
     plan_references: list[dict[str, Any]] | None = None,
+    plan_files_to_audit: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Assemble a complete drift report from an inventory + optional previous."""
     from datetime import datetime, timezone
@@ -474,7 +553,15 @@ def build_drift_report(
     telegram_gaps = detect_telegram_gaps(inventory.get("telegram", {}))
     plan_mismatches = detect_plan_code_mismatch(inventory, plan_references or [])
 
-    all_findings = [*orphans, *parallel_tracks, *telegram_gaps, *plan_mismatches]
+    # Stale-claim detection across MASTER_PLAN.md by default; callers can
+    # supply additional plan files (e.g. all docs/plans/*.md).
+    if plan_files_to_audit is None:
+        plan_files_to_audit = [Path("docs/plans/MASTER_PLAN.md")]
+    stale_claims: list[dict[str, Any]] = []
+    for pf in plan_files_to_audit:
+        stale_claims.extend(detect_stale_plan_claims(pf, inventory))
+
+    all_findings = [*orphans, *parallel_tracks, *telegram_gaps, *plan_mismatches, *stale_claims]
     p0 = sum(1 for f in all_findings if f.get("severity") == "P0")
     p1 = sum(1 for f in all_findings if f.get("severity") == "P1")
     p2 = sum(1 for f in all_findings if f.get("severity") == "P2")
@@ -485,6 +572,7 @@ def build_drift_report(
         "parallel_tracks": parallel_tracks,
         "telegram_gaps": telegram_gaps,
         "plan_mismatches": plan_mismatches,
+        "stale_plan_claims": stale_claims,
         "summary": {
             "p0_count": p0,
             "p1_count": p1,
@@ -526,6 +614,17 @@ def write_drift_report(report: dict[str, Any], state_dir: Path) -> None:
         lines.append("## Plan/Code Mismatches")
         for m in report["plan_mismatches"]:
             lines.append(f"- **[{m['severity']}]** `{m['plan']}` → `{m['reference']}` — {m.get('reason', '')}")
+        lines.append("")
+
+    if report.get("stale_plan_claims"):
+        lines.append("## Stale Plan Claims")
+        lines.append("> Plan files claiming a file/system is 'not yet wired' when the file IS in the inventory.")
+        lines.append("> Per MAINTAINING.md: archive the current plan + rewrite fresh.")
+        for s in report["stale_plan_claims"]:
+            lines.append(
+                f"- **[{s['severity']}]** `{s['plan']}:{s['line']}` → `{s['stale_reference']}` — {s.get('reason', '')}"
+            )
+            lines.append(f"  > _claim:_ {s.get('claim', '')}")
         lines.append("")
 
     (state_dir / "drift_report.md").write_text("\n".join(lines) + "\n")

@@ -2,6 +2,21 @@
 
 This is the single most important document for keeping docs honest. Read this before updating anything.
 
+## The Two Drift Failure Modes
+
+Doc rot kills projects. There are exactly two ways docs go wrong:
+
+1. **Stale claims** — the doc says X is true but reality says X is false.
+   Example: MASTER_PLAN.md says "lesson_author iterator not yet wired"
+   when the file exists, is registered in tiers.py, and has shipped commits.
+   Caught by: Guardian's `detect_stale_plan_claims()` (added 2026-04-09)
+   and the periodic Brutal Review Loop.
+2. **Hardcoded counts** — the doc says "32 commands, 19 iterators" and is
+   wrong the moment someone adds a function. See "Golden Rule" below.
+
+When you find either, **fix the source first** (the running code is the
+truth), then update the docs to match.
+
 ## The Five Doc Types
 
 | Type | Location | Purpose | Update trigger | Who updates |
@@ -131,6 +146,54 @@ What changed? What are the trade-offs?
 ```
 
 Number sequentially. Check the highest existing number in `docs/wiki/decisions/` first.
+
+### MASTER_PLAN.md (`docs/plans/MASTER_PLAN.md`)
+
+MASTER_PLAN.md is the **living plan**: it always reflects current reality
+and forward direction. It is **not** a historical record — that's what the
+build log and the archive directory are for.
+
+**Update when:**
+- Reality drifts from what the plan says (a "Not yet wired" item ships,
+  a workstream is parked, a new active workstream begins)
+- Open Questions / Known Gaps section needs additions or strikeouts
+- Critical Rules need to be tightened (a new safety lesson learned)
+
+**Versioning convention** (added 2026-04-09):
+
+When MASTER_PLAN.md drifts meaningfully from reality — typically when a
+phase finishes or a major workstream pivots — **archive the current
+version + rewrite fresh**. Do not try to preserve historical narrative
+inside the live file.
+
+```
+# 1. Snapshot the current MASTER_PLAN to the archive (append-only,
+#    sortable filename, kebab-case slug describing the moment)
+cp docs/plans/MASTER_PLAN.md \
+   docs/plans/archive/MASTER_PLAN_YYYY-MM-DD_<slug>.md
+
+# 2. Add an HTML comment header to the archived file with:
+#    - Date archived
+#    - Reason for archival (what drifted, what shipped)
+#    - "DO NOT EDIT" instruction
+
+# 3. Rewrite docs/plans/MASTER_PLAN.md fresh against current reality.
+#    Forward-looking. Crisp. No embedded history.
+
+# 4. Add a build-log entry explaining the archive + rewrite.
+```
+
+The archive captures **plan state at a moment**. The build log captures
+**incremental change**. MASTER_PLAN.md captures **now**. All three together
+let any future session reconstruct any past state of the project.
+
+**Do NOT** edit archived plan snapshots. They are append-only by
+convention. If a snapshot is wrong, the WHY of the wrongness is exactly
+what makes it valuable for reflection.
+
+**Do NOT** keep large historical sections inside MASTER_PLAN.md. If you
+catch yourself writing "_this section was historically..._" you should
+be archiving + rewriting instead.
 
 ### Build Log (`docs/wiki/build-log.md`)
 

@@ -4,6 +4,93 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (PM, latest) — Deep-dive review + memory.db SPOF closed + MASTER_PLAN realignment
+
+Triggered by Chris asking for a brutal-honesty deep-dive review of the
+codebase. The review surfaced four real findings, three were fixed in
+this session, one (Telegram monolith) was filed as ongoing technical
+debt with a proposed incremental fix.
+
+### Findings → fixes
+
+1. **memory.db SPOF — FIXED.** The entire lessons corpus + consolidated
+   events + observations + action_log all lived in one ~1.2 MB SQLite
+   file with zero backup. New iterator
+   `cli/daemon/iterators/memory_backup.py` (~290 LOC) takes hourly
+   atomic snapshots via `sqlite3.Connection.backup()` (zero shell exec,
+   safe with concurrent writers), runs `PRAGMA integrity_check`,
+   promotes to daily/weekly slots, rotates retention (24 hourly /
+   7 daily / 4 weekly). 16 new tests in
+   `tests/test_memory_backup_iterator.py`. Registered in all 3 tiers.
+   Kill switch at `data/config/memory_backup.json`. First production
+   snapshot taken before any subsequent surgery
+   (`memory-20260409-1004.db`).
+
+2. **MASTER_PLAN.md staleness — FIXED.** The plan claimed the Trade
+   Lesson Layer was "data layer shipped, wiring deferred" when in
+   reality wedges 5 + 6 had already shipped in commits `9094b22` and
+   `a65b1e5` and the entire lesson pipeline was wired end-to-end
+   (iterator + tiers + agent tools + RECENT RELEVANT LESSONS prompt
+   injection + Telegram surface + AGENT.md docs). The full pre-state
+   was archived to
+   `docs/plans/archive/MASTER_PLAN_2026-04-09_pre-realignment.md` and
+   MASTER_PLAN.md was rewritten fresh against current reality.
+   Established the **versioning convention**: when MASTER_PLAN.md
+   drifts meaningfully from reality, archive the current version to
+   `docs/plans/archive/MASTER_PLAN_YYYY-MM-DD_<slug>.md` (append-only,
+   never edited) and rewrite the live file. The build-log captures
+   incremental change; the archive captures plan-state-at-a-moment;
+   MASTER_PLAN.md captures *now*.
+
+3. **Lesson corpus polluted with test fixtures — TO FIX (Phase A
+   below).** memory.db `lessons` table contains 46 rows that are
+   duplicate seed data ("BRENTOIL long on EIA draw…"), not real trade
+   post-mortems. They will be quoted by BM25 retrieval until purged.
+
+4. **`data/research/journal.jsonl` schema mismatch — TO FIX (Phase A
+   below).** 10 stale rows use `trade_id` / `timestamp_close` /
+   `instrument` while `lesson_author._is_closed_position()` requires
+   `entry_id` / `close_ts` / `pnl`. The iterator silently skips them.
+   Quarantine + reset.
+
+5. **Telegram monolith (4,200+ LOC) — TECHNICAL DEBT, filed.** Working,
+   monitored by Guardian telegram-completeness drift, but warrants
+   incremental split into `cli/telegram_commands/` submodules over time.
+   Captured in MASTER_PLAN Open Questions.
+
+### Process improvements
+
+- **Plan archival convention** documented in MAINTAINING.md and the
+  rewritten MASTER_PLAN.md itself.
+- **MAINTAINING.md** updated with explicit guidance on when to archive
+  vs edit MASTER_PLAN, and a "stale-claim drift detector" rule.
+- Three new strategic plan documents written to set forward direction:
+  `NORTH_STAR.md` (vision + 12/24/36-month direction),
+  `MULTI_MARKET_EXPANSION_PLAN.md` (decoupling oil-shaped assumptions
+  so any HL market can be promoted to thesis-driven via configuration),
+  `BRUTAL_REVIEW_LOOP.md` (cadenced deep-honesty audit system distinct
+  from Guardian's continuous shallow drift detection).
+
+### Lesson from this session
+
+**MASTER_PLAN.md drift had been unflagged for at least one cycle.** The
+2026-04-07 hardening session famously wasted a brainstorming pass writing
+a 600-line ADR based on a stale picture. Today's review caught a similar
+class of error in a different doc — the existing alignment workflow and
+Guardian drift detection don't yet check MASTER_PLAN.md against running
+code. The fix is twofold: (a) the new versioning convention forces the
+plan to be either current-or-archived (no in-between), (b) a proposed
+Guardian addition detects "Not yet wired:" / "Deferred:" claims in
+MASTER_PLAN that reference symbols which DO exist in inventory.json
+(see `BRUTAL_REVIEW_LOOP.md`).
+
+### Test coverage
+
+16 new tests, all green. Full suite: **2423 passed, 0 failed**
+(was 2407 after sub-system 5).
+
+---
+
 ## 2026-04-09 (PM, even later) — Sub-system 5 shipped: Oil Bot-Pattern Strategy Engine
 
 The fifth and single most consequential sub-system of the Oil Bot-Pattern
