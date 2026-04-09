@@ -38,7 +38,14 @@ from typing import Any
 @dataclass
 class ShadowPosition:
     """An open paper position. Mutable — its cumulative_unrealized_pnl
-    field is updated on each mark-to-market tick."""
+    field is updated on each mark-to-market tick.
+
+    Hypothesis fields (entry_classification, entry_confidence,
+    entry_pattern_direction, expected_reach_hours) are captured at
+    entry for the adaptive evaluator (modules.oil_botpattern_adaptive).
+    They default to empty/sentinels to keep older persisted records
+    loadable after this wedge.
+    """
     instrument: str
     side: str              # "long" | "short"
     entry_ts: str          # ISO 8601 UTC
@@ -53,6 +60,13 @@ class ShadowPosition:
     unrealized_pnl_usd: float = 0.0
     last_mark_ts: str | None = None
     last_mark_price: float | None = None
+    # Hypothesis fields — adaptive evaluator inputs (additive, default-safe)
+    entry_classification: str = ""
+    entry_confidence: float = 0.0
+    entry_pattern_direction: str = ""
+    expected_reach_hours: float = 0.0
+    scaled_out: bool = False   # set once SCALE_OUT has fired; prevents dup scale-outs
+    adaptive_last_heartbeat_ts: str | None = None
 
 
 @dataclass(frozen=True)
@@ -222,8 +236,19 @@ def open_shadow_position(
     edge: float,
     rung: int,
     now: datetime,
+    entry_classification: str = "",
+    entry_confidence: float = 0.0,
+    entry_pattern_direction: str = "",
+    expected_reach_hours: float = 0.0,
 ) -> ShadowPosition:
-    """Construct a new ShadowPosition with computed SL/TP prices."""
+    """Construct a new ShadowPosition with computed SL/TP prices.
+
+    Hypothesis fields (entry_classification, entry_confidence,
+    entry_pattern_direction, expected_reach_hours) are optional for
+    backwards compat with pre-adaptive-layer callers, but the
+    iterator populates them so the adaptive evaluator can test the
+    thesis on every tick.
+    """
     notional = size * entry_price
     return ShadowPosition(
         instrument=instrument,
@@ -237,6 +262,10 @@ def open_shadow_position(
         tp_price=compute_tp_price(entry_price, side, tp_pct),
         edge=edge,
         rung=rung,
+        entry_classification=entry_classification,
+        entry_confidence=entry_confidence,
+        entry_pattern_direction=entry_pattern_direction,
+        expected_reach_hours=expected_reach_hours,
     )
 
 
@@ -328,6 +357,12 @@ def position_from_dict(d: dict) -> ShadowPosition:
         unrealized_pnl_usd=float(d.get("unrealized_pnl_usd", 0.0) or 0.0),
         last_mark_ts=d.get("last_mark_ts"),
         last_mark_price=d.get("last_mark_price"),
+        entry_classification=str(d.get("entry_classification", "")),
+        entry_confidence=float(d.get("entry_confidence", 0.0) or 0.0),
+        entry_pattern_direction=str(d.get("entry_pattern_direction", "")),
+        expected_reach_hours=float(d.get("expected_reach_hours", 0.0) or 0.0),
+        scaled_out=bool(d.get("scaled_out", False)),
+        adaptive_last_heartbeat_ts=d.get("adaptive_last_heartbeat_ts"),
     )
 
 

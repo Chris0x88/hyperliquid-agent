@@ -70,6 +70,16 @@ from modules.oil_botpattern_paper import (
     unrealized_pnl,
     update_balance_on_close,
 )
+from modules.oil_botpattern_adaptive import (
+    AdaptiveAction,
+    AdaptiveConfig,
+    MarketSnapshot,
+    PositionHypothesis,
+    build_log_entry,
+    config_from_dict as adaptive_config_from_dict,
+    evaluate as adaptive_evaluate,
+    should_log as adaptive_should_log,
+)
 
 log = logging.getLogger("daemon.oil_botpattern")
 
@@ -416,6 +426,9 @@ class BotPatternStrategyIterator:
                 edge=edge,
                 ctx=ctx,
                 now=now,
+                entry_classification=cls,
+                entry_confidence=conf,
+                entry_pattern_direction=pat_dir,
             )
             # Also update the live-state record so that /oilbot keeps showing
             # a "current intent" for operator eyes. This does NOT cause any
@@ -712,10 +725,16 @@ class BotPatternStrategyIterator:
         edge: float,
         ctx: TickContext,
         now: datetime,
+        entry_classification: str = "",
+        entry_confidence: float = 0.0,
+        entry_pattern_direction: str = "",
     ) -> None:
         """Open a new paper position and emit a Telegram notice.
 
-        No exchange contact — pure simulation + state + alert.
+        No exchange contact — pure simulation + state + alert. The
+        classification / confidence / direction at entry are captured
+        on the position so the adaptive evaluator can test the
+        thesis on subsequent ticks.
         """
         if entry_price <= 0 or sizing.target_size <= 0:
             return
@@ -728,6 +747,9 @@ class BotPatternStrategyIterator:
 
         sl_pct = float(self._config.get("shadow_sl_pct", 2.0))
         tp_pct = float(self._config.get("shadow_tp_pct", 5.0))
+        expected_reach_hours = float(
+            self._config.get("adaptive_expected_reach_hours", 48.0)
+        )
         new_pos = open_shadow_position(
             instrument=instrument,
             side=direction,
@@ -739,6 +761,10 @@ class BotPatternStrategyIterator:
             edge=edge,
             rung=int(sizing.rung),
             now=now,
+            entry_classification=entry_classification,
+            entry_confidence=entry_confidence,
+            entry_pattern_direction=entry_pattern_direction,
+            expected_reach_hours=expected_reach_hours,
         )
         positions.append(new_pos)
         try:
@@ -803,6 +829,18 @@ class BotPatternStrategyIterator:
 
         Runs regardless of decisions_only state — ensures existing paper
         positions continue to be watched even if mode is flipped off.
+
+        Also runs the ADAPTIVE evaluator (modules.oil_botpattern_adaptive)
+        on every tick, which tests the entry hypothesis against current
+        market state and may:
+          - EXIT early (thesis invalidated, adverse catalyst, stale, classifier drift)
+          - SCALE_OUT at target
+          - TIGHTEN_STOP or TRAIL_BREAKEVEN to lock in profit
+
+        Every non-HOLD decision (and throttled HOLD heartbeats) is
+        persisted to data/strategy/oil_botpattern_adaptive_log.jsonl
+        as a flat, pre-featurized row for retrospective review + future
+        ML / rule-tuning pipelines.
         """
         positions = self._load_shadow_positions()
         if not positions:
@@ -811,6 +849,10 @@ class BotPatternStrategyIterator:
         remaining: list[ShadowPosition] = []
         closed_any = False
         balance = self._load_shadow_balance()
+        adaptive_cfg = adaptive_config_from_dict(self._config.get("adaptive", {}))
+        adaptive_catalysts = self._load_upcoming_catalysts_for_adaptive(now)
+        adaptive_supply = self._load_supply_state()
+        adaptive_patterns = self._load_latest_patterns_by_instrument()
 
         for pos in positions:
             price = self._current_price(pos.instrument, ctx)
@@ -822,6 +864,104 @@ class BotPatternStrategyIterator:
             pos.unrealized_pnl_usd = unrealized_pnl(pos, price)
             pos.last_mark_ts = now.isoformat()
             pos.last_mark_price = price
+
+            # ------------------------------------------------------------
+            # Adaptive evaluation — test the thesis against current state
+            # ------------------------------------------------------------
+            adaptive_decision = None
+            if pos.entry_classification:  # only evaluate positions with captured hypothesis
+                try:
+                    hypothesis = PositionHypothesis(
+                        instrument=pos.instrument,
+                        side=pos.side,
+                        entry_ts=pos.entry_ts,
+                        entry_price=pos.entry_price,
+                        expected_reach_price=pos.tp_price,
+                        expected_reach_hours=pos.expected_reach_hours or float(
+                            self._config.get("adaptive_expected_reach_hours", 48.0)
+                        ),
+                        entry_classification=pos.entry_classification,
+                        entry_confidence=pos.entry_confidence,
+                        entry_pattern_direction=pos.entry_pattern_direction,
+                    )
+                    latest_pattern = (
+                        adaptive_patterns.get(pos.instrument)
+                        or adaptive_patterns.get(f"xyz:{pos.instrument}")
+                    )
+                    snapshot = MarketSnapshot(
+                        current_price=price,
+                        latest_pattern=latest_pattern,
+                        recent_catalysts=adaptive_catalysts,
+                        supply_state=adaptive_supply,
+                        now=now,
+                    )
+                    adaptive_decision = adaptive_evaluate(
+                        hypothesis, snapshot, adaptive_cfg,
+                        current_stop_price=pos.stop_price,
+                    )
+                    self._log_adaptive_decision(hypothesis, snapshot, adaptive_decision, pos, now)
+                    # Apply the adaptive action
+                    if adaptive_decision.action == AdaptiveAction.EXIT:
+                        # Force an early exit at current mark price
+                        trade = close_shadow_position(pos, price, "adaptive_exit", now)
+                        try:
+                            self._append_shadow_trade(trade)
+                            balance = update_balance_on_close(balance, trade, now)
+                            closed_any = True
+                            self._emit_adaptive_close_alert(
+                                ctx, pos, trade, balance,
+                                reason_label="ADAPTIVE EXIT",
+                                reason=adaptive_decision.reason,
+                            )
+                        except OSError as e:
+                            log.warning("oil_botpattern: adaptive exit write failed: %s", e)
+                            remaining.append(pos)
+                        continue
+                    if adaptive_decision.action == AdaptiveAction.SCALE_OUT and not pos.scaled_out:
+                        # v1: close the full position at the scale-out price,
+                        # mark as a "scale_out" exit. Partial closes are a
+                        # future wedge.
+                        trade = close_shadow_position(pos, price, "scale_out", now)
+                        try:
+                            self._append_shadow_trade(trade)
+                            balance = update_balance_on_close(balance, trade, now)
+                            closed_any = True
+                            self._emit_adaptive_close_alert(
+                                ctx, pos, trade, balance,
+                                reason_label="ADAPTIVE SCALE-OUT",
+                                reason=adaptive_decision.reason,
+                            )
+                        except OSError as e:
+                            log.warning("oil_botpattern: scale-out write failed: %s", e)
+                            remaining.append(pos)
+                        continue
+                    if adaptive_decision.action in (
+                        AdaptiveAction.TIGHTEN_STOP,
+                        AdaptiveAction.TRAIL_BREAKEVEN,
+                    ) and adaptive_decision.new_stop_price is not None:
+                        old_stop = pos.stop_price
+                        pos.stop_price = adaptive_decision.new_stop_price
+                        ctx.alerts.append(Alert(
+                            severity="info", source=self.name,
+                            message=(
+                                f"🔒 SHADOW {adaptive_decision.action.value.upper()} "
+                                f"{pos.instrument} {pos.side.upper()} — "
+                                f"stop {old_stop:,.2f} → {pos.stop_price:,.2f} "
+                                f"({adaptive_decision.reason})"
+                            ),
+                            data={
+                                "shadow": True,
+                                "instrument": pos.instrument,
+                                "adaptive_action": adaptive_decision.action.value,
+                                "old_stop": old_stop,
+                                "new_stop": pos.stop_price,
+                                "reason": adaptive_decision.reason,
+                                "price_progress": adaptive_decision.price_progress,
+                                "velocity_ratio": adaptive_decision.velocity_ratio,
+                            },
+                        ))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("oil_botpattern: adaptive evaluation failed for %s: %s", pos.instrument, e)
 
             exit_reason, exit_price = paper_check_exit(pos, price)
             if exit_reason is None:
@@ -886,3 +1026,133 @@ class BotPatternStrategyIterator:
                 self._save_shadow_balance(balance)
             except OSError as e:
                 log.warning("oil_botpattern: failed to save shadow balance: %s", e)
+
+    # ------------------------------------------------------------------
+    # Adaptive evaluator helpers
+    # ------------------------------------------------------------------
+
+    def _load_upcoming_catalysts_for_adaptive(self, now: datetime) -> list[dict]:
+        """Load catalysts visible in the adaptive window — wider than the
+        24h entry-gate window so we can see adverse events that appeared
+        shortly after entry."""
+        path = Path(self._config.get("catalysts_jsonl", "data/news/catalysts.jsonl"))
+        if not path.exists():
+            return []
+        # 72h backward / 24h forward covers the 'appeared since entry' case
+        cutoff_low = now - timedelta(hours=72)
+        cutoff_hi = now + timedelta(hours=24)
+        out: list[dict] = []
+        try:
+            with path.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ts_str = (
+                        row.get("published_at")
+                        or row.get("scheduled_at")
+                        or row.get("created_at")
+                    )
+                    if not ts_str:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        continue
+                    if cutoff_low <= ts <= cutoff_hi:
+                        out.append(row)
+        except OSError:
+            return []
+        return out
+
+    def _adaptive_log_path(self) -> Path:
+        return Path(self._config.get(
+            "adaptive_log_jsonl",
+            "data/strategy/oil_botpattern_adaptive_log.jsonl",
+        ))
+
+    def _log_adaptive_decision(
+        self,
+        hypothesis: PositionHypothesis,
+        snapshot: MarketSnapshot,
+        decision,
+        pos: ShadowPosition,
+        now: datetime,
+    ) -> None:
+        """Persist an AdaptiveDecision to the append-only training log.
+
+        Non-HOLD decisions are always logged. HOLD decisions are
+        throttled to one heartbeat per position per
+        `adaptive_heartbeat_minutes` (default 15m) — enough temporal
+        coverage for retrospective review without exploding log volume.
+        """
+        last_hb: datetime | None = None
+        if pos.adaptive_last_heartbeat_ts:
+            try:
+                last_hb = datetime.fromisoformat(pos.adaptive_last_heartbeat_ts)
+                if last_hb.tzinfo is None:
+                    last_hb = last_hb.replace(tzinfo=timezone.utc)
+            except ValueError:
+                last_hb = None
+
+        hb_minutes = float(self._config.get("adaptive_heartbeat_minutes", 15.0))
+        if not adaptive_should_log(
+            decision, last_heartbeat_at=last_hb, now=now,
+            heartbeat_interval_minutes=hb_minutes,
+        ):
+            return
+
+        entry = build_log_entry(hypothesis, snapshot, decision, now)
+        path = self._adaptive_log_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a") as f:
+                f.write(json.dumps(entry) + "\n")
+            pos.adaptive_last_heartbeat_ts = now.isoformat()
+        except OSError as e:
+            log.warning("oil_botpattern: failed to append adaptive log: %s", e)
+
+    def _emit_adaptive_close_alert(
+        self,
+        ctx: TickContext,
+        pos: ShadowPosition,
+        trade,
+        balance: ShadowBalance,
+        reason_label: str,
+        reason: str,
+    ) -> None:
+        emoji = "🎯" if trade.realised_pnl_usd > 0 else "🛑"
+        ctx.alerts.append(Alert(
+            severity="info" if trade.realised_pnl_usd > 0 else "warning",
+            source=self.name,
+            message=(
+                f"{emoji} SHADOW {reason_label} {pos.instrument} "
+                f"{pos.side.upper()} @ {trade.exit_price:,.2f} "
+                f"{'+$' if trade.realised_pnl_usd >= 0 else '-$'}"
+                f"{abs(trade.realised_pnl_usd):,.0f} "
+                f"({trade.roe_pct:+.2f}% ROE) hold {trade.hold_hours:.1f}h | "
+                f"reason: {reason} | "
+                f"balance: ${balance.current_balance_usd:,.0f} "
+                f"({balance.pnl_pct:+.2f}%) | "
+                f"{balance.closed_trades} trades, WR {balance.win_rate:.0%}"
+            ),
+            data={
+                "shadow": True,
+                "adaptive": True,
+                "instrument": pos.instrument,
+                "side": pos.side,
+                "exit_reason": trade.exit_reason,
+                "exit_price": trade.exit_price,
+                "realised_pnl_usd": trade.realised_pnl_usd,
+                "roe_pct": trade.roe_pct,
+                "reason": reason,
+                "balance_usd": balance.current_balance_usd,
+                "closed_trades": balance.closed_trades,
+            },
+        ))
