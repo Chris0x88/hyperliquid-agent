@@ -73,8 +73,9 @@ class ProfitLockIterator:
             return
         self._last_check = now_s
 
-        # Track starting equity on first tick
-        equity = ctx.balances.get("USDC", ctx.balances.get("USD", ZERO))
+        # Track starting equity on first tick — use canonical total_equity
+        # (native + xyz + spot) so profit-lock sizing covers the full account.
+        equity = Decimal(str(ctx.total_equity)) if ctx.total_equity > 0 else ctx.balances.get("USDC", ctx.balances.get("USD", ZERO))
         if self._last_equity == ZERO and equity > ZERO:
             self._last_equity = equity
             return

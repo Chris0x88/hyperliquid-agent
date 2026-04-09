@@ -208,7 +208,7 @@ class AutoresearchIterator:
                     issues.append(f"{market}: conviction {conviction:.2f} but no position — missed entry?")
                 continue
 
-            account_equity = float(ctx.balances.get("USDC", 0))
+            account_equity = float(ctx.total_equity or ctx.balances.get("USDC", 0))
             if account_equity <= 0:
                 continue
 

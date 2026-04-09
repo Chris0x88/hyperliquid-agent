@@ -80,6 +80,7 @@ class JournalIterator:
             "timestamp": ctx.timestamp,
             "tick": ctx.tick_number,
             "balances": {k: str(v) for k, v in ctx.balances.items()},
+            "total_equity": ctx.total_equity,
             "prices": {k: str(v) for k, v in ctx.prices.items()},
             "risk_gate": ctx.risk_gate.value,
             "n_positions": len(ctx.positions),
