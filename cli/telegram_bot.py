@@ -1178,6 +1178,8 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /patternpromote <id> — promote a pattern candidate into the live catalog\n"
         "  /patternreject <id> — reject a pattern candidate\n"
         "  /shadoweval [id] — L4 counterfactual shadow eval results\n"
+        "  /sim — shadow (paper) account state + positions + recent trades\n"
+        "  /readiness — sub-system 5 activation preflight checklist\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2813,6 +2815,8 @@ from cli.telegram_commands.patternlib import (  # noqa: E402
     cmd_patternreject,
 )
 from cli.telegram_commands.shadow import cmd_shadoweval  # noqa: E402
+from cli.telegram_commands.sim import cmd_sim  # noqa: E402
+from cli.telegram_commands.readiness import cmd_readiness  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2871,6 +2875,8 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/patternreject <id>` — reject a pending pattern candidate (catalog untouched)\n"
         "`/shadoweval` — sub-system 6 L4 counterfactual shadow-eval summary\n"
         "`/shadoweval 42` — detailed shadow eval for proposal #42\n"
+        "`/sim` — shadow (paper) account for sub-system 5 — balance, open positions, recent trades. Lit up when `decisions_only=true`.\n"
+        "`/readiness` — activation preflight for sub-system 5: catalyst/supply/heatmap/classifier/thesis/risk-caps/brakes freshness + master-switch state. Run before flipping shadow → live.\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -4383,6 +4389,8 @@ HANDLERS = {
     "/patternpromote": cmd_patternpromote,
     "/patternreject": cmd_patternreject,
     "/shadoweval": cmd_shadoweval,
+    "/sim": cmd_sim,
+    "/readiness": cmd_readiness,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -4454,6 +4462,8 @@ HANDLERS = {
     "patternpromote": cmd_patternpromote,
     "patternreject": cmd_patternreject,
     "shadoweval": cmd_shadoweval,
+    "sim": cmd_sim,
+    "readiness": cmd_readiness,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4540,6 +4550,8 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "patternpromote", "description": "/patternpromote <id> — promote a candidate into the live catalog"},
         {"command": "patternreject", "description": "/patternreject <id> — reject a candidate (catalog untouched)"},
         {"command": "shadoweval", "description": "Shadow counterfactual eval results (sub-system 6 L4)"},
+        {"command": "sim", "description": "Shadow (paper) account state — balance, open positions, recent trades"},
+        {"command": "readiness", "description": "Sub-system 5 activation preflight checklist"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
