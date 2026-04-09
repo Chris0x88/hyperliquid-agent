@@ -189,6 +189,16 @@ def daemon_start(
     clock.register(HeatmapIterator())       # sub-system 3: stop/liquidity heatmap
     clock.register(BotPatternIterator())    # sub-system 4: bot-pattern classifier
     clock.register(BotPatternStrategyIterator())  # sub-system 5: strategy engine (kill switches OFF at ship)
+    try:
+        from cli.daemon.iterators.oil_botpattern_tune import OilBotPatternTuneIterator
+        clock.register(OilBotPatternTuneIterator())  # sub-system 6 L1: bounded auto-tune (kill switch OFF at ship)
+    except ImportError:
+        pass
+    try:
+        from cli.daemon.iterators.oil_botpattern_reflect import OilBotPatternReflectIterator
+        clock.register(OilBotPatternReflectIterator())  # sub-system 6 L2: weekly reflect proposals (kill switch OFF at ship)
+    except ImportError:
+        pass
     clock.register(PulseIterator())
     clock.register(ProfitLockIterator(data_dir=data_dir))
     if _has_funding:

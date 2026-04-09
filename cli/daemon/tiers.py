@@ -46,6 +46,8 @@ TIER_ITERATORS = {
         "heatmap",             # sub-system 3: stop/liquidity heatmap (read-only, safe in REBALANCE)
         "bot_classifier",      # sub-system 4: bot-pattern classifier (read-only, safe in REBALANCE)
         "oil_botpattern",      # sub-system 5: strategy engine (ONLY place oil shorting is legal; kill switches OFF at ship)
+        "oil_botpattern_tune",    # sub-system 6 L1: bounded auto-tune for #5 params (kill switch OFF at ship)
+        "oil_botpattern_reflect", # sub-system 6 L2: weekly reflect proposals for #5 (kill switch OFF at ship)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -76,6 +78,8 @@ TIER_ITERATORS = {
         "heatmap",             # sub-system 3: stop/liquidity heatmap (read-only, safe in OPPORTUNISTIC)
         "bot_classifier",      # sub-system 4: bot-pattern classifier (read-only, safe in OPPORTUNISTIC)
         "oil_botpattern",      # sub-system 5: strategy engine (ONLY place oil shorting is legal; kill switches OFF at ship)
+        "oil_botpattern_tune",    # sub-system 6 L1: bounded auto-tune for #5 params (kill switch OFF at ship)
+        "oil_botpattern_reflect", # sub-system 6 L2: weekly reflect proposals for #5 (kill switch OFF at ship)
         "pulse",
         "profit_lock",
         "funding_tracker",
