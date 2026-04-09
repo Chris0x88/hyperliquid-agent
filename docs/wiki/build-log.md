@@ -4,6 +4,147 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (late evening+) — Sub-system 6 L3 + L4 shipped (pattern library + shadow counterfactual)
+
+Following up on the L1 + L2 ship earlier in the day, the remaining
+auto-evaluable layers of sub-system 6 are now in. L5 (ML overlay)
+stays parked per SYSTEM doc §6. Every layer still ships behind its
+own kill switch at `enabled: false`.
+
+### What shipped
+
+1. **L3 pattern library growth.** New iterator
+   `cli/daemon/iterators/oil_botpattern_patternlib.py` + pure module
+   `modules/oil_botpattern_patternlib.py`. Watches
+   `data/research/bot_patterns.jsonl`, detects novel
+   `(classification, direction, confidence_band, signals)` signatures
+   that are not in the live catalog, tallies them in a 30-day rolling
+   window, and emits `PatternCandidate` records once a signature
+   crosses `min_occurrences` (default 3). Candidates land in
+   `data/research/bot_pattern_candidates.jsonl` with
+   `status="pending"`. Chris reviews via `/patterncatalog` and taps
+   `/patternpromote <id>` (writes to the live catalog at
+   `data/research/bot_pattern_catalog.json`) or `/patternreject <id>`.
+   **L3 does NOT modify sub-system 4's classifier behavior** — that's
+   a separate future wedge. L3 is purely observational catalog growth
+   for now.
+   Kill switch: `data/config/oil_botpattern_patternlib.json → enabled: false`.
+   Registered in **all three tiers** (read-only, safe in WATCH).
+
+2. **L4 counterfactual shadow evaluation.** New iterator
+   `cli/daemon/iterators/oil_botpattern_shadow.py` + pure module
+   `modules/oil_botpattern_shadow.py`. For each L2 proposal with
+   `status="approved"` and no `shadow_eval` field yet, the iterator
+   re-runs the affected gate (edge threshold for `long_min_edge` /
+   `short_min_edge`, severity floor replay for
+   `short_blocking_catalyst_severity`) against the last 30 days of
+   decisions and computes a `ShadowEval`: `would_have_entered_same`,
+   `would_have_diverged`, `divergence_rate`, and a first-order
+   `counterfactual_pnl_estimate_usd` using the window's average
+   trade PnL. Writes records to
+   `data/strategy/oil_botpattern_shadow_evals.jsonl` and attaches a
+   `shadow_eval` sub-field to the proposal record via atomic rewrite.
+   Chris reviews via `/shadoweval [id]`.
+
+   **This is a LOOK-BACK counterfactual, not a forward paper
+   executor.** SYSTEM doc §6 describes L4 as "run in shadow (paper)
+   mode for ≥N closed trades before eligibility for promotion" —
+   that's the forward-paper reading, which needs a mock executor
+   and significant separate work. The counterfactual look-back
+   delivers the same signal (does the proposed change improve
+   outcomes?) against data we already have, without the extra
+   surface. The forward paper executor remains deferred as a future
+   wedge on top of this one.
+
+   Kill switch: `data/config/oil_botpattern_shadow.json → enabled: false`.
+   Registered in REBALANCE + OPPORTUNISTIC (not WATCH — same as #5
+   and L1/L2, nothing to evaluate when no trades are closing).
+
+3. **Telegram commands — all land in `cli/telegram_commands/` per
+   the monolith-split refactor pattern established this morning.**
+   - `cli/telegram_commands/patternlib.py` — `/patterncatalog`,
+     `/patternpromote <id>`, `/patternreject <id>`
+   - `cli/telegram_commands/shadow.py` — `/shadoweval [id]`
+     (summary mode with no arg, detail mode with proposal ID)
+
+   All four deterministic (no `ai` suffix — all output is
+   code-generated from templates). The 5-surface checklist is
+   satisfied: HANDLERS dict with both `/cmd` and bare forms,
+   `_set_telegram_commands`, `cmd_help`, `cmd_guide`.
+
+4. **Tier + daemon registration.** L3 added to all three tiers.
+   L4 added to REBALANCE + OPPORTUNISTIC. Both wired into
+   `cli/commands/daemon.py` via `clock.register()` inside
+   try/except ImportError blocks.
+
+5. **Wiki + SYSTEM doc.**
+   `docs/wiki/components/oil_botpattern_self_tune.md` — full L3 + L4
+   sections added, layer-ladder status flipped, test coverage map
+   updated (191 total tests now).
+   `docs/plans/OIL_BOT_PATTERN_06_SELF_TUNE_HARNESS.md` plan doc
+   updated to reflect L3 + L4 as shipped.
+
+### Test impact
+
++87 tests from sub-system 6 L3 + L4:
+- 24 L3 pure module
+- 12 L3 iterator
+- 13 L3 Telegram commands
+- 19 L4 pure module
+- 10 L4 iterator
+- 9 L4 Telegram command
+
+Full suite expected to land green.
+
+### Parallel-session interleave
+
+The parallel session was active throughout this wedge, shipping:
+- `entry_critic` iterator (WATCH tier + daemon registration +
+  `cli/telegram_commands/entry_critic.py` + `/critique` command)
+- `action_queue` iterator (WATCH tier + daemon registration +
+  `cli/telegram_commands/action_queue.py` + `/nudge` command)
+- A `cli/telegram_commands/chat_history.py` + `/chathistory` command
+- Multiple `cli/telegram_bot.py` edits during my L3 Telegram work
+
+To avoid editing `cli/telegram_bot.py` while the parallel session
+was actively modifying it, I put my L3/L4 command handlers in
+`cli/telegram_commands/patternlib.py` and
+`cli/telegram_commands/shadow.py` (matching the convention the
+parallel session established in their `bdd2540` refactor). My
+touches to `cli/telegram_bot.py` are surgical: import lines,
+HANDLERS dict entries, `_set_telegram_commands` list, `cmd_help` +
+`cmd_guide` entries. Zero textual conflicts with the parallel
+session's work.
+
+### Sub-system 6 status (end of 2026-04-09)
+
+| Layer | Description | Status |
+|---|---|---|
+| L0 | Hard contracts (tests, SL+TP, JSON schemas) | **pre-existing** |
+| L1 | Bounded auto-tune | **shipped (earlier today)** |
+| L2 | Weekly reflect proposals | **shipped (earlier today)** |
+| L3 | Pattern library growth | **shipped (now)** |
+| L4 | Shadow counterfactual eval | **shipped (now)** |
+| L5 | ML overlay | deferred indefinitely |
+
+Plus two follow-up wedges on top of L3 and L4:
+- L3 classifier integration (teach sub-system 4 to read the
+  promoted catalog)
+- L4 forward paper executor (run strategy with proposed params
+  against live market data, no real orders)
+
+Neither is shipping this session.
+
+### Safety posture
+
+All four sub-system 6 kill switches ship `enabled: false`. Zero
+production impact on first deploy. L3 is the only harness iterator
+that runs in WATCH (purely observational, read-only). L4 only
+activates when both L4.enabled=true AND there is at least one
+approved L2 proposal to evaluate — double gate.
+
+---
+
 ## 2026-04-09 (late evening) — Philosophy realignment: NORTH_STAR + MASTER_PLAN rewritten, founding insight restored
 
 Triggered by Chris's brutal feedback on the 2026-04-09 morning vision rewrite:

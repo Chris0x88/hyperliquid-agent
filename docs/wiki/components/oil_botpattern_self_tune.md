@@ -27,8 +27,8 @@ trades. It mutates the config that sub-system 5 reads on its next tick.
 | L0 | Hard contracts (tests, SL+TP, JSON schemas) | per commit/tick | none | **shipped** (pre-existing infra) |
 | L1 | Bounded auto-tune — journal-replay nudges params within hard bounds after each closed trade | per closed trade | none | **shipped** |
 | L2 | Reflect proposals — weekly structural change proposals to Telegram with 1-tap promote/reject | weekly digest | 1-tap | **shipped** |
-| L3 | Pattern library growth — classifier auto-adds new bot-pattern signatures | per new pattern | 1-tap | deferred (phase 2) |
-| L4 | Shadow trading — proposals run in paper mode for ≥N closed trades before live | per proposal | none | deferred (phase 3) |
+| L3 | Pattern library growth — detects novel bot-pattern signatures in `bot_patterns.jsonl` and emits candidates for 1-tap promotion | per new pattern | 1-tap | **shipped** |
+| L4 | Shadow counterfactual — replays approved L2 proposals against the last N days of decisions and reports divergences + est. PnL delta | per approved proposal | none | **shipped** |
 | L5 | ML overlay | — | — | deferred indefinitely (≥100 closed trades required) |
 
 Contract (SYSTEM doc §6, non-negotiable):
@@ -216,16 +216,111 @@ Four deterministic commands (no `ai` suffix — all code-generated output):
   record. Only `kind="config_change"` is auto-applicable; `kind="advisory"`
   is marked approved but no file changes.
 
+## L3 — pattern library growth
+
+### What it is
+
+A daemon iterator that watches `data/research/bot_patterns.jsonl` and
+detects NOVEL `(classification, direction, confidence_band, signals)`
+signature tuples that are not already in the live catalog. When a
+signature crosses `min_occurrences` in the window, it is emitted as a
+`PatternCandidate` to `data/research/bot_pattern_candidates.jsonl`.
+
+Chris reviews via `/patterncatalog` and promotes with
+`/patternpromote <id>` (writes to the live catalog) or discards with
+`/patternreject <id>` (catalog untouched).
+
+### Signature computation
+
+- **classification** — from sub-system 4's output
+- **direction** — "up" | "down" | "flat"
+- **confidence_band** — confidence rounded to the nearest
+  `confidence_band_precision` (default 0.1), so 0.73 and 0.77 collapse
+  into the same bucket at 0.70/0.80 respectively
+- **signals_sig** — the sorted `|`-joined unique signals list; empty
+  signals → `∅`
+
+Two bot-pattern rows with the same signature are equivalent for
+library-growth purposes.
+
+### Kill switch + tier
+
+`data/config/oil_botpattern_patternlib.json → enabled: false`. Ships
+disabled.
+
+Registered in **all three tiers** (unlike L1/L2/L4). Reason: L3 is
+read-only against `bot_patterns.jsonl` and write-only to its own
+files — it does not mutate any config, does not affect sub-system 5,
+does not trade. Safe in WATCH where catalog growth still has value
+even without live trading.
+
+### Classifier integration
+
+**L3 does NOT modify sub-system 4's classifier behavior in this
+wedge.** Promoted catalog entries are purely observational. A future
+wedge can teach sub-system 4 to gate classifications on the promoted
+live catalog.
+
+## L4 — shadow counterfactual evaluation
+
+### What it is
+
+A look-back counterfactual replay that answers "over the last N days
+of closed trades + decisions, how would the proposed param change
+have performed?" Given an approved L2 proposal, the iterator:
+
+1. Loads the recent decision + closed-trade window
+2. Re-runs the affected gate (e.g. `long_min_edge` threshold check,
+   `short_blocking_catalyst_severity` severity floor replay) with the
+   PROPOSED param value
+3. Counts how many decisions would have had the same outcome, how
+   many would have diverged (newly entered or newly skipped)
+4. Estimates a first-order PnL delta using the window's average
+   trade PnL
+5. Appends a `ShadowEval` record to
+   `data/strategy/oil_botpattern_shadow_evals.jsonl` and attaches a
+   `shadow_eval` sub-field to the proposal record
+
+### Counterfactual rules (first-wedge coverage)
+
+| Param | Rule |
+|---|---|
+| `long_min_edge`, `short_min_edge` | Edge-threshold replay: was `edge >= current` vs `edge >= proposed` |
+| `short_blocking_catalyst_severity` | Severity-floor replay: parses `sevN` from the gate's reason string and compares `sev >= current_floor` vs `sev >= proposed_floor` |
+
+Other params (funding_warn_pct, funding_exit_pct) are not auto-
+evaluable in this wedge — they're flagged with
+`shadow_eval.status = "not_applicable"` so the iterator doesn't retry
+them every tick.
+
+### Not paper trading
+
+This wedge is a LOOK-BACK counterfactual, not a forward paper
+executor. The SYSTEM doc §6 describes L4 as "run in shadow (paper)
+mode for ≥N closed trades before being eligible for promotion", which
+is the forward-paper reading. The counterfactual look-back gives the
+same signal (does the proposed change improve outcomes?) using the
+data we already have, without needing a parallel mock executor. A
+future wedge can add a forward paper executor on top.
+
+### Kill switch + tier
+
+`data/config/oil_botpattern_shadow.json → enabled: false`. Ships
+disabled.
+
+Registered in REBALANCE + OPPORTUNISTIC only. Same reasoning as
+L1/L2: no value when no trades are closing.
+
 ## Deferred (future wedges)
 
-- **L3 — pattern library growth.** Needs a sub-system 4 classifier
-  extension to emit new signature candidates, plus a versioned catalog
-  with promotion UX. Separate plan doc.
-- **L4 — shadow trading.** Needs a paper-mode executor that can run the
-  strategy with proposed params against live market data without
-  touching real orders. Significant separate work — plan doc pending.
-- **L5 — ML overlay.** Deferred indefinitely per SYSTEM doc §6. Requires
-  ≥100 closed oil_botpattern trades before re-evaluation.
+- **L3 classifier integration.** Teach sub-system 4 to gate its
+  classification on the live promoted catalog. Separate wedge.
+- **L4 forward paper executor.** Run the strategy with proposed params
+  against live market data in a mock executor (no real orders), as
+  originally described by SYSTEM doc §6. Builds on the counterfactual
+  look-back.
+- **L5 — ML overlay.** Deferred indefinitely per SYSTEM doc §6.
+  Requires ≥100 closed oil_botpattern trades before re-evaluation.
 
 ## Test coverage
 
@@ -233,6 +328,12 @@ Four deterministic commands (no `ai` suffix — all code-generated output):
 - `tests/test_oil_botpattern_tune_iterator.py` — L1 iterator (13 tests)
 - `tests/test_oil_botpattern_reflect.py` — L2 pure module (22 tests)
 - `tests/test_oil_botpattern_reflect_iterator.py` — L2 iterator (12 tests)
-- `tests/test_telegram_selftune_commands.py` — all 4 Telegram commands (16 tests)
+- `tests/test_telegram_selftune_commands.py` — L1/L2 Telegram commands (16 tests)
+- `tests/test_oil_botpattern_patternlib.py` — L3 pure module (24 tests)
+- `tests/test_oil_botpattern_patternlib_iterator.py` — L3 iterator (12 tests)
+- `tests/test_telegram_patternlib_commands.py` — L3 Telegram commands (13 tests)
+- `tests/test_oil_botpattern_shadow.py` — L4 pure module (19 tests)
+- `tests/test_oil_botpattern_shadow_iterator.py` — L4 iterator (10 tests)
+- `tests/test_telegram_shadow_command.py` — L4 Telegram command (9 tests)
 
-Total: 104 tests covering the harness.
+Total: 191 tests covering the harness (L1–L4).
