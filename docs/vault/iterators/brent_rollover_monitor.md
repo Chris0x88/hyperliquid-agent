@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 iterator_name: brent_rollover_monitor
 class_name: BrentRolloverMonitorIterator
 source_file: cli/daemon/iterators/brent_rollover_monitor.py

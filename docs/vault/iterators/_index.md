@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 count: 36
 tags:
   - index
@@ -9,7 +9,7 @@ tags:
 
 # Iterators Index
 
-_36 iterators auto-generated from `cli/daemon/iterators/`. Last regenerated: 2026-04-09 14:08._
+_36 iterators auto-generated from `cli/daemon/iterators/`. Last regenerated: 2026-04-09 16:05._
 
 Iterators are the daemon's pluggable processors. Each one runs per tick (~120s cadence). See [[Tier-Ladder]] for which iterators activate in which tier, and [[Authority-Model]] for how per-asset delegation gates trade-touching iterators.
 
@@ -37,11 +37,11 @@ Iterators are the daemon's pluggable processors. Each one runs per tick (~120s c
 | [[memory_backup]] | `MemoryBackupIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/memory_backup.json` | ✅ |
 | [[memory_consolidation]] | `MemoryConsolidationIterator` | `watch`, `rebalance`, `opportunistic` | _none_ | ✅ |
 | [[news_ingest]] | `NewsIngestIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/news_ingest.json` | ✅ |
-| [[oil_botpattern]] | `BotPatternStrategyIterator` | `rebalance`, `opportunistic` | `data/config/oil_botpattern.json` | ✅ |
+| [[oil_botpattern]] | `BotPatternStrategyIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/oil_botpattern.json` | ✅ |
 | [[oil_botpattern_patternlib]] | `OilBotPatternPatternLibIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/oil_botpattern_patternlib.json` | ✅ |
-| [[oil_botpattern_reflect]] | `OilBotPatternReflectIterator` | `rebalance`, `opportunistic` | `data/config/oil_botpattern_reflect.json` | ✅ |
-| [[oil_botpattern_shadow]] | `OilBotPatternShadowIterator` | `rebalance`, `opportunistic` | `data/config/oil_botpattern_shadow.json` | ✅ |
-| [[oil_botpattern_tune]] | `OilBotPatternTuneIterator` | `rebalance`, `opportunistic` | `data/config/oil_botpattern_tune.json` | ✅ |
+| [[oil_botpattern_reflect]] | `OilBotPatternReflectIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/oil_botpattern_reflect.json` | ✅ |
+| [[oil_botpattern_shadow]] | `OilBotPatternShadowIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/oil_botpattern_shadow.json` | ✅ |
+| [[oil_botpattern_tune]] | `OilBotPatternTuneIterator` | `watch`, `rebalance`, `opportunistic` | `data/config/oil_botpattern_tune.json` | ✅ |
 | [[profit_lock]] | `ProfitLockIterator` | `rebalance`, `opportunistic` | _none_ | ✅ |
 | [[protection_audit]] | `ProtectionAuditIterator` | `watch`, `rebalance`, `opportunistic` | _none_ | ✅ |
 | [[pulse]] | `PulseIterator` | `watch`, `opportunistic` | _none_ | ✅ |

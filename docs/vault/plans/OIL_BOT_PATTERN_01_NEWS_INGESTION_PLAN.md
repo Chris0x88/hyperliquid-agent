@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/OIL_BOT_PATTERN_01_NEWS_INGESTION_PLAN.md
 status: unknown
 tags:

@@ -1,6 +1,6 @@
 ---
 kind: telegram_command
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 command: /readiness
 submodule: readiness
 ai_dependent: false

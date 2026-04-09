@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 iterator_name: catalyst_deleverage
 class_name: CatalystDeleverageIterator
 source_file: cli/daemon/iterators/catalyst_deleverage.py

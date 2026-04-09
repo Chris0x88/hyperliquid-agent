@@ -1,6 +1,6 @@
 ---
 kind: agent_tool
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 tool_name: run_bash
 tags:
   - agent-tool

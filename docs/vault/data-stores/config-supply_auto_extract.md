@@ -1,6 +1,6 @@
 ---
 kind: config_file
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 path: data/config/supply_auto_extract.yaml
 format: yaml
 tags:

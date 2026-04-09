@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 count: 14
 tags:
   - index
@@ -9,7 +9,7 @@ tags:
 
 # Architecture Decision Records Index
 
-_14 ADRs in `docs/wiki/decisions/`. Last regenerated: 2026-04-09 14:08._
+_14 ADRs in `docs/wiki/decisions/`. Last regenerated: 2026-04-09 16:05._
 
 ADRs are append-only. Each records a significant architectural decision with context, the decision itself, and consequences. Never edit an existing ADR — write a new one if the decision changes.
 

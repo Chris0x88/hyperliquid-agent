@@ -164,8 +164,6 @@ def _write_current_report(
 
     lines.extend([
         "",
-        "_Phase 5 will replace this with a sub-agent synthesis._",
-        "",
     ])
 
     (state_dir / "current_report.md").write_text("\n".join(lines))

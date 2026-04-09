@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/BRUTAL_REVIEW_LOOP.md
 status: : Proposed. Wedge 1 ready to start in parallel with Multi-Market
 tags:

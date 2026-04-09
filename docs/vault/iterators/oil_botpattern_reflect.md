@@ -1,16 +1,18 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 iterator_name: oil_botpattern_reflect
 class_name: OilBotPatternReflectIterator
 source_file: cli/daemon/iterators/oil_botpattern_reflect.py
 tiers:
+  - watch
   - rebalance
   - opportunistic
 kill_switch: data/config/oil_botpattern_reflect.json
 daemon_registered: true
 tags:
   - iterator
+  - tier-watch
   - tier-rebalance
   - tier-opportunistic
 ---
@@ -18,7 +20,7 @@ tags:
 
 **Class**: `OilBotPatternReflectIterator` in [`cli/daemon/iterators/oil_botpattern_reflect.py`](../../cli/daemon/iterators/oil_botpattern_reflect.py)
 
-**Registered in tiers**: `rebalance`, `opportunistic`
+**Registered in tiers**: `watch`, `rebalance`, `opportunistic`
 
 **Kill switch config**: `data/config/oil_botpattern_reflect.json`
 

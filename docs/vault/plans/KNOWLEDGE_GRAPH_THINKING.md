@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/KNOWLEDGE_GRAPH_THINKING.md
 status: **PARKED — awaiting demonstrated need** (2026-04-09 evening)
 tags:

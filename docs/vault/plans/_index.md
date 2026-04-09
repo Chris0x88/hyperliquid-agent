@@ -1,7 +1,7 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 14:08
-count: 20
+last_regenerated: 2026-04-09 16:05
+count: 21
 tags:
   - index
   - plans
@@ -9,7 +9,7 @@ tags:
 
 # Plans Index
 
-_20 plan documents in `docs/plans/`. Last regenerated: 2026-04-09 14:08._
+_21 plan documents in `docs/plans/`. Last regenerated: 2026-04-09 16:05._
 
 Plans are the approved workstreams. The living plan is [[MASTER_PLAN]]; the vision is [[NORTH_STAR]]. Parked plans live in `docs/plans/` with status markers and live in this index; archived plan snapshots live in `docs/plans/archive/` and are NOT regenerated into this vault (they're append-only historical records).
 
@@ -33,3 +33,4 @@ Plans are the approved workstreams. The living plan is [[MASTER_PLAN]]; the visi
 - [[OIL_BOT_PATTERN_SYSTEM]]
 - [[PHASE_3_REFLECT_LOOP]]
 - [[PHASE_4_SELF_IMPROVING]]
+- [[SYSTEM_REVIEW_HARDENING_PLAN]]

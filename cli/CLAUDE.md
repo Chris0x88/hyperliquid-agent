@@ -9,7 +9,7 @@ Primary interface layer. Bot commands, interactive button menu, AI agent with to
 | `telegram_bot.py` | Command handlers (`def cmd_*`), interactive menu (`mn:` callbacks), write commands, AI routing |
 | `telegram_agent.py` | Telegram adapter — routes to agent_runtime, handles streaming output, Anthropic/OpenRouter API calls |
 | `agent_runtime.py` | **Core agent runtime** — system prompt, parallel tools, SSE streaming, context compaction, memory dream |
-| `agent_tools.py` | 20 tools (READ auto-execute, WRITE with approval), pending action store |
+| `agent_tools.py` | Agent tools (READ auto-execute, WRITE with approval), pending action store. Live count: `grep -c '^def ' agent_tools.py` |
 | `mcp_server.py` | MCP server for OpenClaw agent |
 | `hl_adapter.py` | DirectHLProxy — exchange adapter with market_order, trigger orders |
 

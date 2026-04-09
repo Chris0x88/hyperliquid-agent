@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 iterator_name: bot_classifier
 class_name: BotPatternIterator
 source_file: cli/daemon/iterators/bot_classifier.py

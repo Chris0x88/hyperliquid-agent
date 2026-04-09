@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/MULTI_MARKET_EXPANSION_PLAN.md
 status: : Proposed. Wedge 1 ready to start after the current Oil Bot
 tags:

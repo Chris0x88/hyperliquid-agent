@@ -27,10 +27,10 @@ contract, the authority model, and the historical-oracles vision.**
 |---|---|
 | **Production tier** | WATCH (mainnet, launchd-managed) |
 | **Authority model** | Per-asset via `common/authority.py` (`agent` / `manual` / `off`); default `manual`; persisted in `data/authority.json` |
-| **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER (oil + BTC are active edge) |
+| **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER. **Active edge: oil + BTC.** GOLD + SILVER theses have been stale since early April — conviction engine auto-clamps them (safe), not being traded. Refresh or formally park. |
 | **Multi-market config** | `data/config/markets.yaml` + `common/markets.py` `MarketRegistry` (Wedge 1 shipped 2026-04-09) |
 | **Agent runtime** | Embedded Claude Code port, session-token auth, no API keys |
-| **Test suite** | 2,747+ tests, 0 failed (run `cd agent-cli && .venv/bin/python -m pytest tests/ guardian/tests/ -q`) |
+| **Test suite** | Green. Count: `cd agent-cli && .venv/bin/python -m pytest tests/ guardian/tests/ -q --collect-only 2>&1 \| tail -1`. Run: `cd agent-cli && .venv/bin/python -m pytest tests/ guardian/tests/ -q` |
 | **Daemon iterators** | See `cli/daemon/iterators/` and `cli/daemon/tiers.py` |
 | **Telegram commands** | See `def cmd_*` in `cli/telegram_bot.py` and `cli/telegram_commands/*.py` |
 | **Memory.db backups** | Hourly atomic snapshots in `data/memory/backups/` (24h/7d/4w retention) |
@@ -61,15 +61,22 @@ The 2026-04-09 morning vision rewrite missed the founding philosophy, the
 authority model, and the L0–L5 contract. The user flagged the gap with
 critical feedback. This session is the corrective burst:
 
-- ✅ NORTH_STAR.md rewritten against the founding insight (this commit)
-- ✅ MASTER_PLAN.md rewritten to match (this commit)
+- ✅ NORTH_STAR.md rewritten against the founding insight
+- ✅ MASTER_PLAN.md rewritten to match
 - ✅ Both pre-realignment versions archived to `docs/plans/archive/`
-- 🔄 User-action queue iterator (in flight, parallel agent A)
-- 🔄 Entry critic end-to-end verification (in flight, parallel agent B)
-- 🔄 Chat history rotation audit + market-state correlation (in flight, parallel agent C)
-- 🔄 `/feedback` + `/todo` hardening with append-only event semantics (in flight, parallel agent D)
-- 📝 Knowledge graph thinking regime plan doc (in flight, foreground)
-- 📝 Build-log entry capturing the realignment lesson (in flight, foreground)
+- ✅ User-action queue iterator shipped
+- ✅ Entry critic end-to-end verification shipped
+- ✅ Chat history rotation audit + market-state correlation shipped
+- ✅ `/feedback` + `/todo` hardening with append-only event semantics shipped
+- ✅ Knowledge Graph Thinking Regime plan authored and PARKED (Wedge 1 YAML preserved on disk, not wired) — see "Parked Plans" below
+- ✅ Oil Short Decision Checklist experiment added to `agent/AGENT.md` as the cheap alternative to the parked Knowledge Graph (2026-04-09 commit `d47a8f3`)
+- ✅ Sub-system 5 activation runbook shipped (`docs/wiki/operations/` + `/activate` walkthrough command)
+- ✅ Adaptive evaluator exit-only v1 wired into shadow-mode iterator (`72b9e90`, `f490c0f`, `165b0fe`)
+- ✅ New Telegram commands: `/sim`, `/readiness`, `/activate`, `/adaptlog`, `/shadoweval` (sub-system 5 + L4 surfaces)
+- ✅ Readiness thesis epoch-ms fallback + heatmap `snapshot_at` field fix (`9153805`)
+- ✅ Bot classifier now fetches 1m candles from HL API directly (cache was empty) (`998b6bb`)
+- ✅ Guardian meta-system DISABLED — all three hooks gutted, settings.json emptied, post-mortem in memory (`a9cc94e`, 2026-04-09 PM)
+- ✅ `SYSTEM_REVIEW_HARDENING_PLAN.md` landed as the map for this review session
 
 ### 2. Oil Bot Pattern System — Sub-system 6 final wedges
 
@@ -153,18 +160,25 @@ that a markdown checklist in `AGENT.md` fails to fix.
   Memory consolidation works; tool-using consolidation does not.
 - **Vault BTC excluded from `_fetch_account_state_for_harness()`.** Vault
   rebalancer manages it independently — minor visibility gap.
-- **`telegram_bot.py` is 4,600+ lines** even after Wedge 1 (-220 LOC for
-  lessons extraction). Working, monitored by Guardian's
-  telegram-completeness drift, but should be incrementally split into
-  `cli/telegram_commands/` submodules over time. Wedges 2-7 remain.
+- **`telegram_bot.py` is ~4,400 lines** after Wedge 1 (-220 LOC for
+  lessons extraction) + Wedge 2 (portfolio commands extraction, commit
+  `4ffc805`). Working. Should continue incrementally splitting into
+  `cli/telegram_commands/` submodules. Wedges 3-7 remain.
 - **No real closed trade has flowed through the lesson layer yet.** The
   pipeline is verified end-to-end on a synthetic row (smoke test agent,
   lesson #47 marked rejected). The first real trade is a one-button
   follow-up by Chris.
 - **`data/snapshots/` grows unbounded.** Flagged in ADR-011 §1 as Tier 1
   fix prerequisite. No rotation, no archival, no truncation strategy.
-- **chat_history.jsonl had .bak files** suggesting rotation/truncation
-  somewhere. Audit + stop in flight (parallel agent C this session).
+- **`chat_history.jsonl.bak` files are now read-unioned into search**
+  (commit `1bc40c4`) and treated as historical oracle per NORTH_STAR P9.
+  Root cause of the rotation/truncation that creates them is still not
+  identified — audit closed with a workaround, not a fix.
+- **Nothing in the Oil Bot Pattern sub-systems 1-6 has flowed through a
+  real closed trade yet.** L1/L2/L3/L4 all depend on trade outcomes that
+  haven't happened. Promotion is blocked on live experience, not code.
+  See `BATTLE_TEST_LEDGER.md` (Phase B of this review) for the full
+  classification.
 
 ---
 

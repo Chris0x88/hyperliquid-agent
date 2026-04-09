@@ -1,6 +1,6 @@
 ---
 kind: config_file
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 path: data/config/oil_botpattern_reflect.json
 is_kill_switch: true
 tags:

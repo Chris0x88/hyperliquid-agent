@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/MASTER_PLAN.md
 status: unknown
 tags:
@@ -44,7 +44,7 @@ contract, the authority model, and the historical-oracles vision.**
 |---|---|
 | **Production tier** | WATCH (mainnet, launchd-managed) |
 | **Authority model** | Per-asset via `common/authority.py` (`agent` / `manual` / `off`); default `manual`; persisted in `data/authority.json` |
-| **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER (oil + BTC are active edge) |
+| **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER. **Active edge: oil + BTC.** GOLD + SILVER theses have been stale since early April — conviction engine auto-clamps them (safe), not being traded. Refresh or formally park. |
 ```
 
 ## Human notes

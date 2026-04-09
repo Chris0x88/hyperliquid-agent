@@ -1,6 +1,6 @@
 ---
 kind: adr
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 adr_file: docs/wiki/decisions/013-parallel-equity-field.md
 tags:
   - adr

@@ -258,10 +258,12 @@ all forever, all searchable.
 - The corpus is searchable (BM25 for lessons, substring for chat/feedback/todo today, FTS5 follow-up wedge for the latter)
 - The corpus is referenced by the agent on every decision
 
-**What's being built right now** (parallel agents in the 2026-04-09 evening
-realignment session): chat history market-state correlation + rotation
-audit + `/chathistory` search + `/feedback` and `/todo` hardening with
-append-only event semantics.
+**What shipped 2026-04-09 evening**: chat history market-state
+correlation + `/chathistory` search (with `.bak` union per P10) +
+`/feedback` and `/todo` hardening with append-only event semantics. The
+rotation *audit* closed with a workaround (unioned `.bak` files into
+search) rather than a fix — root cause of rotation/truncation is still
+unknown and parked in MASTER_PLAN open questions.
 
 ---
 
@@ -285,11 +287,11 @@ include:
 - `/alignment` ritual reminder (start + end of session)
 - Unresolved feedback aging review
 
-**Status**: being built right now in the same realignment session as this
-NORTH_STAR rewrite. Will land as `cli/daemon/iterators/action_queue.py` +
-`/nudge` Telegram command + 5-surface registration. After this lands,
-**the user no longer has to remember which manual rituals are due.** The
-system tells them.
+**Status**: SHIPPED 2026-04-09 as `cli/daemon/iterators/action_queue.py`
++ `/nudge` Telegram command + 5-surface registration. **The user no
+longer has to remember which manual rituals are due — the system tells
+them.** Battle-test status: synthetic-verified; first real nudge fire
+pending (see `BATTLE_TEST_LEDGER.md` after Phase B of the review plan).
 
 ---
 
@@ -506,14 +508,14 @@ follow the contract above.
 
 | Dimension | What good looks like | Current state |
 |---|---|---|
-| Test coverage | >90% on trade-touching code; deterministic tests for every gate | ✅ ~52% test:code ratio (2,700+ tests) |
+| Test coverage | >90% on trade-touching code; deterministic tests for every gate | ✅ Living count via `pytest --collect-only` — ratio informally ~52% test:code at last measure |
 | Backups | Hourly automated, integrity-checked, restore-drilled | ✅ memory.db hourly snapshots shipped 2026-04-09; restore drill runbook shipped same day; user-action queue (pending) will nudge quarterly drill |
 | Audit trail | Every order, every decision, every reasoning step in append-only logs | ✅ Already in place — chat history, journal, lessons, feedback, todos all append-only (rotation audit underway) |
 | Kill switches | Every subsystem has one. Default-off for risky things | ✅ Convention enforced — every iterator has a kill switch file in `data/config/` |
 | Drawdown protection | Hard floors that auto-trigger | ✅ 3% daily / 8% weekly / 15% monthly in `oil_botpattern.json` |
 | Documentation | Wiki + ADRs + build-log + plans + memory + archived snapshots | ✅ Living wiki, 14 ADRs, append-only build-log, plan archive convention |
-| Drift detection | Continuous (Guardian) + periodic deep audit (Brutal Review Loop) | ✅ Guardian shipped; Brutal Review Loop wedge 1 shipped 2026-04-09 |
-| Disaster recovery | Restore drill documented and run quarterly | ⚠️ Documented (`docs/wiki/operations/memory-restore-drill.md`); user-action queue will nudge for quarterly run (in build) |
+| Drift detection | Continuous (Guardian) + periodic deep audit (Brutal Review Loop) | ⚠️ Guardian shipped then DISABLED 2026-04-09 (hook loop re-emitted stale narrative); `SYSTEM_REVIEW_HARDENING_PLAN.md` is the manual replacement. Brutal Review Loop wedge 1 shipped same day; never run yet. |
+| Disaster recovery | Restore drill documented and run quarterly | ⚠️ Documented (`docs/wiki/operations/memory-restore-drill.md`); user-action queue shipped and will nudge for quarterly run. First real drill pending. |
 | Observability | Metrics for funding cost, equity curve, win rate, lesson approval rate | ⚠️ Partial — needs the daily report from ADR-011 to be data-driven |
 | Reproducibility | Mock mode for any iterator, replay harness for any past trade | ⚠️ Partial — mock mode exists; replay harness deferred to ADR-011 quant app |
 | Security | Session token auth, dual-write secrets, no API keys | ✅ |

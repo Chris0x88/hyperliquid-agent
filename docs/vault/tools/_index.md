@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 count: 27
 tags:
   - index
@@ -9,7 +9,7 @@ tags:
 
 # Agent Tools Index
 
-_27 tools parsed from `TOOL_DEFS` in `cli/agent_tools.py`. Last regenerated: 2026-04-09 14:08._
+_27 tools parsed from `TOOL_DEFS` in `cli/agent_tools.py`. Last regenerated: 2026-04-09 16:05._
 
 Tools are how the embedded agent interacts with the system. Each tool is either READ (auto-executes) or WRITE (requires user approval via Telegram inline keyboard). The dispatcher is `_TOOL_DISPATCH`. Every read-path tool must obey [[Data-Discipline|P10 bounds]].
 

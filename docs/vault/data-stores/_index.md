@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 count: 22
 tags:
   - index
@@ -10,7 +10,7 @@ tags:
 
 # Config Files Index
 
-_22 config files in `data/config/`. Last regenerated: 2026-04-09 14:08._
+_22 config files in `data/config/`. Last regenerated: 2026-04-09 16:05._
 
 Config files drive runtime behavior of iterators, strategies, and protection systems. Every iterator that ships with a kill switch has a corresponding `data/config/<name>.json` file with an `enabled` field. Per CLAUDE.md convention: every risky subsystem ships with `enabled: false` by default.
 

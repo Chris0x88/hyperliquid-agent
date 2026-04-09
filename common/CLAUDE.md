@@ -19,6 +19,7 @@ Foundational utilities used by every other package. The `models` module is the m
 | `conviction_engine.py` | Conviction bands → position sizing |
 | `credentials.py` | Pluggable key backends: OWS → Keychain → Encrypted → Env → File |
 | `authority.py` | Per-asset delegation: agent vs manual vs off |
+| `markets.py` | `MarketRegistry` — reads `data/config/markets.yaml`, normalizes coin names (handles `xyz:` prefix), enforces per-instrument direction rules (`is_direction_allowed()`). Multi-Market Wedge 1, commit `0c7bebc`. |
 | `heartbeat.py` | Simplified 2-min monitoring (launchd) |
 | `memory.py` | Canonical owner of `data/memory/memory.db`. `_init()` migrates schema for all tables (events, learnings, observations, action_log, execution_traces, account_snapshots, summaries, lessons + `lessons_fts` FTS5). Module-level helpers: `log_event`, `log_learning`, `log_account_snapshot`, `log_lesson`, `get_lesson`, `search_lessons` (BM25), `set_lesson_review`. FTS5 input sanitized via `_fts5_escape_query`. |
 | `memory_consolidator.py` | Event compression + trim_learnings_file for agent memory rolling trim |

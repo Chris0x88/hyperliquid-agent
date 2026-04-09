@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 14:08
+last_regenerated: 2026-04-09 16:05
 plan_file: docs/plans/OIL_BOT_PATTERN_06_SELF_TUNE_HARNESS.md
 status: APPROVED 2026-04-09 (picked up from prior session handoff).
 tags:

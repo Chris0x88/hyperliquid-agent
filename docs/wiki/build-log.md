@@ -4,6 +4,142 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-09 (late evening++) — Guardian shut off + SYSTEM_REVIEW_HARDENING_PLAN launched
+
+A deliberate "pause and take stock" milestone. 68 commits, 452 files,
++54,884 lines landed between the last `alignment:` commit (`514e0bf`)
+and HEAD (`998b6bb`) all in one day. The system is now too big to hold
+in the head — it needs a structured review before any more ambitious
+scope lands.
+
+### What shipped in the late-afternoon burst after the L3+L4 ship entry below
+
+- **`9153805` `fix(readiness)`** — thesis epoch-ms fallback +
+  `heatmap.snapshot_at` field. `/readiness` was reading from the wrong
+  timestamp field and under-reporting heatmap freshness.
+- **`998b6bb` `fix(bot_classifier)`** — fetches 1m candles from HL API
+  directly because the cache was empty. Sub-system 4 was producing
+  classifications against no candles.
+- **`d47a8f3` `experiment(agent)`** — Oil Short Decision Checklist added
+  to `agent/AGENT.md` as the cheap markdown-note alternative to the
+  parked Knowledge Graph Thinking Regime. Observing for several
+  sessions before deciding either's fate.
+- **`deef0f9` `feat(telegram): /adaptlog`** — query the adaptive
+  evaluator decision log.
+- **`165b0fe` `feat(oil_botpattern): adaptive parity for LIVE positions`**
+  — exit-only v1 wired into the shadow iterator.
+- **`7f65cfd` `feat(telegram): /activate`** — guided sub-system 5
+  activation walkthrough.
+- **`f490c0f` `feat(oil_botpattern)`** — wire adaptive evaluator into
+  shadow-mode iterator.
+- **`72b9e90` `feat(oil_botpattern_adaptive)`** — live thesis-testing
+  evaluator + training log schema.
+- **`9c5f799` `docs(ops)`** — sub-system 5 activation runbook.
+- **`0882b4e` `docs(park)`** — Knowledge Graph Thinking Regime formally
+  parked; P5 sub-rule added to NORTH_STAR ("validate before planning").
+
+### Guardian shut off
+
+`agent-cli/.claude/settings.json` emptied to `"hooks": {}` (gitignored;
+local-only). Then in a follow-up pass (commit `a9cc94e`) all three
+hook scripts — `session_start.py`, `pre_tool_use.py`, `post_tool_use.py`
+— gutted to no-op stubs per explicit user demand ("rip the guts out
+by any means necessary"). Five guardian hook tests that asserted the
+removed behavior were deleted; the remaining tests in those files
+still pass and cover the kill-switch + malformed-input paths of the
+gutted stubs.
+
+**Root cause of the shutoff**: the Guardian hook loop was dispatching
+sub-agents on SessionStart that re-emitted the same stale narrative
+every session. Chris's exact framing: *"I need it stopped NOW... I
+don't care if it's disabled and broken. Don't delete. Just rip the
+guts out of it to turn it off."* A secondary source of the "hook
+firing on session startup" message turned out to be the superpowers
+plugin's own SessionStart injection, which was disabled out-of-repo
+in `~/.claude/settings.json` (takes effect next session).
+
+Guardian code is preserved on disk. `guardian/sweep.py` stale "Phase 5
+will replace this with a sub-agent synthesis" marker also removed
+(Phases 5 + 6 both shipped, and the whole system is disabled anyway —
+the marker was double-wrong).
+
+**Re-enable policy**: none without explicit user authorization. See
+`~/.claude/projects/-Users-cdi-Developer-HyperLiquid-Bot/memory/feedback_guardian_subagent_dispatch.md`.
+
+### SYSTEM_REVIEW_HARDENING_PLAN.md landed
+
+`docs/plans/SYSTEM_REVIEW_HARDENING_PLAN.md` (authored this same
+session, ~1,700 lines) is the map for a 6-phase review:
+
+- **Phase 0** — pre-flight: commit the Guardian shutdown (done, `a9cc94e`)
+- **Phase A** — alignment backfill (this entry's commit)
+- **Phase B** — battle-test ledger: classify every post-`514e0bf`
+  ship into P / S / I (production-verified / synthetic-verified / inert)
+- **Phase C** — timer + loop audit: cadences, sequencing, common-sense
+  review. Biggest phase.
+- **Phase D** — cohesion hardening list: prioritized P0/P1/P2 fixes
+- **Phase E** — vault-as-auditor: operationalise the obsidian vault
+  as a drift-detection surface
+- **Phase F** — ship report: the brutal-review output Chris reads
+  to decide what to do next
+
+Each phase produces one committed doc (`BATTLE_TEST_LEDGER.md`,
+`TIMER_LOOP_AUDIT.md`, `COHESION_HARDENING_LIST.md`,
+`VAULT_AS_AUDITOR.md`, `REVIEW_<date>_SHIP_REPORT.md`).
+
+### Alignment backfill (this commit, Phase A)
+
+- `CLAUDE.md` (project root) Guardian reference rewritten: was "auto-runs
+  on SessionStart and before Edit/Write/Bash", now "DISABLED at every
+  layer; do NOT re-enable without authorization".
+- `guardian/sweep.py:167` stale Phase 5 marker removed.
+- `MASTER_PLAN.md` surgical updates: hard-coded test count replaced with
+  a living-count command; GOLD + SILVER conviction clamps noted in the
+  Tradeable thesis markets row; post-13:04 ships listed under Active
+  Workstreams §1; Open Questions section destaled
+  (telegram_bot.py line count updated for Wedge 2, chat history .bak
+  audit re-scoped, Oil Bot Pattern battle-test forward-reference added).
+- `NORTH_STAR.md` touched lightly: Guardian status flipped in the
+  startup-quality table (shipped → disabled); hard-coded test count
+  softened; user-action queue and chat-history-rotation paragraphs
+  updated from "being built" to "shipped".
+- Per-package `CLAUDE.md` files:
+  - `cli/CLAUDE.md`: removed hardcoded "20 tools" count
+  - `cli/daemon/CLAUDE.md`: added L3 patternlib, L4 shadow, adaptive
+    evaluator, entry_critic, action_queue, memory_backup, and four
+    other recently-shipped iterators to the "Known Iterators" section
+  - `common/CLAUDE.md`: added `markets.py` (Multi-Market Wedge 1)
+  - `modules/CLAUDE.md`: LESSON row flipped from "not yet wired" to
+    "fully wired end-to-end"
+- Obsidian vault regenerated.
+
+**Adaptive-evaluator WIP** (modifications to `tiers.py`,
+`oil_botpattern.py`, `market_structure_iter.py`, associated tests,
+runtime state files) explicitly NOT touched per the review plan §1.8 —
+belongs to a separate workstream Chris may still be in the middle of.
+
+### Test suite state
+
+3,181 tests passing, 0 failing, as of Phase 0 commit `a9cc94e`. No
+regressions from the guardian gut or the test deletions. Full run:
+`cd agent-cli && .venv/bin/python -m pytest tests/ guardian/tests/ -q`.
+
+### The lesson
+
+The 2026-04-09 shipping burst was productive but it shipped 68 commits
+in one day without an alignment pass in the middle. Two separate
+sub-rules were added to NORTH_STAR in the same session
+(P5 sub-rule "validate before planning", and the strengthening of
+P2 "reality first"). The SYSTEM_REVIEW_HARDENING_PLAN is the
+enforcement mechanism: stop shipping, take stock, classify every new
+component's battle-test status, audit every timer, then ship the
+hardening list. This is the first time the project has formally
+stopped to review a shipping burst — and it's exactly what
+NORTH_STAR P8 ("honest feedback over comfortable consensus") says
+should happen at this point.
+
+---
+
 ## 2026-04-09 (late evening+) — Sub-system 6 L3 + L4 shipped (pattern library + shadow counterfactual)
 
 Following up on the L1 + L2 ship earlier in the day, the remaining

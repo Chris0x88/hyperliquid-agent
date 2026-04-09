@@ -86,6 +86,43 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
   `/selftuneapprove <id>` tap. Kill switch:
   `data/config/oil_botpattern_reflect.json`. Registered REBALANCE + OPPORTUNISTIC
   only. Same spec.
+- `oil_botpattern_patternlib` — sub-system 6 L3. Pattern library growth. Detects
+  novel `(classification, direction, confidence_band, signals)` signatures in
+  `data/research/bot_patterns.jsonl`, tallies over a 30-day rolling window, emits
+  `PatternCandidate` records to
+  `data/research/bot_pattern_candidates.jsonl` once a signature crosses
+  `min_occurrences`. Review via `/patterncatalog`, promote via
+  `/patternpromote <id>`. Kill switch: `data/config/oil_botpattern_patternlib.json`.
+  Read-only; all tiers including WATCH.
+- `oil_botpattern_shadow` — sub-system 6 L4. Counterfactual shadow evaluation.
+  For each approved L2 proposal, re-runs the affected gate against the last 30
+  days of decisions and computes `ShadowEval`. **Look-back counterfactual, NOT
+  a forward paper executor.** Writes
+  `data/strategy/oil_botpattern_shadow_evals.jsonl`. Review via `/shadoweval [id]`.
+  Kill switch: `data/config/oil_botpattern_shadow.json`. Registered REBALANCE +
+  OPPORTUNISTIC only.
+- `oil_botpattern` adaptive evaluator — live thesis-testing evaluator plumbed
+  into the shadow-mode iterator. Exit-only v1 today. Writes
+  `data/strategy/adapt_log.jsonl`; query via `/adaptlog`. Shadow-only by design.
+- `entry_critic` — Trade Entry Critic. Deterministic grading on every new entry
+  with lesson recall + suggestions. Command surface: `/critique`. Kill switch:
+  `data/config/entry_critic.json`.
+- `action_queue` — User-action queue (daily sweep). Maintains the list of
+  operator rituals (memory restore drill quarterly, `/brutalreviewai` weekly,
+  thesis refresh checks, feedback aging, etc.) with cadence + last-done
+  timestamps + Telegram nudges. Command surface: `/nudge`.
+- `memory_backup` — Hourly atomic snapshots of `data/memory/memory.db` with
+  24h/7d/4w retention under `data/memory/backups/`. Closes the memory.db SPOF.
+  Kill switch: `data/config/memory_backup.json` (`interval_hours: 1`). Restore
+  drill runbook: `docs/wiki/operations/memory-restore-drill.md`.
+- `liquidation_monitor` — tiered cushion alerts on every open position
+  (audit F6). Alert-only; the ruin floor is still exchange_protection's
+  mandatory stops. Registered all tiers.
+- `brent_rollover_monitor` — T-7/T-3/T-1 alerts before each Brent contract roll
+  (catalyst C7). Registered all tiers.
+- `protection_audit` — read-only verifier that every open position has a sane
+  exchange-side SL (catalyst C1').
+- `funding_tracker` — cumulative funding cost tracker (catalyst C2).
 
 ## Gotchas
 
