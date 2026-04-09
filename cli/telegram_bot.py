@@ -1233,6 +1233,7 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /patterncatalog — L3 bot-pattern library state\n"
         "  /patternpromote <id> — promote a pattern candidate into the live catalog\n"
         "  /patternreject <id> — reject a pattern candidate\n"
+        "  /shadoweval [id] — L4 counterfactual shadow eval results\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -2946,6 +2947,7 @@ from cli.telegram_commands.patternlib import (  # noqa: E402
     cmd_patternpromote,
     cmd_patternreject,
 )
+from cli.telegram_commands.shadow import cmd_shadoweval  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -3002,6 +3004,8 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/patterncatalog` — sub-system 6 L3 bot-pattern library (live catalog + pending candidates)\n"
         "`/patternpromote <id>` — promote a pending pattern candidate into the live catalog\n"
         "`/patternreject <id>` — reject a pending pattern candidate (catalog untouched)\n"
+        "`/shadoweval` — sub-system 6 L4 counterfactual shadow-eval summary\n"
+        "`/shadoweval 42` — detailed shadow eval for proposal #42\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -4513,6 +4517,7 @@ HANDLERS = {
     "/patterncatalog": cmd_patterncatalog,
     "/patternpromote": cmd_patternpromote,
     "/patternreject": cmd_patternreject,
+    "/shadoweval": cmd_shadoweval,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
@@ -4583,6 +4588,7 @@ HANDLERS = {
     "patterncatalog": cmd_patterncatalog,
     "patternpromote": cmd_patternpromote,
     "patternreject": cmd_patternreject,
+    "shadoweval": cmd_shadoweval,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4668,6 +4674,7 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "patterncatalog", "description": "Bot-pattern library state (sub-system 6 L3)"},
         {"command": "patternpromote", "description": "/patternpromote <id> — promote a candidate into the live catalog"},
         {"command": "patternreject", "description": "/patternreject <id> — reject a candidate (catalog untouched)"},
+        {"command": "shadoweval", "description": "Shadow counterfactual eval results (sub-system 6 L4)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
