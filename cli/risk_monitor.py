@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from common.account_state import fetch_registered_account_state
 
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
@@ -31,13 +32,9 @@ log = logging.getLogger("risk_monitor")
 
 HL_API = "https://api.hyperliquid.xyz/info"
 
-from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
-ADDR = resolve_main_wallet(required=True)
-VAULT = _resolve_vault(required=False) or ""
-
 POLL_INTERVAL = 30
 PID_FILE = Path("data/daemon/risk_monitor.pid")
-SIGNAL_LOG = Path("data/research/markets/xyz_brentoil/signals.jsonl")
+SIGNAL_LOG = Path("data/research/risk_monitor_signals.jsonl")
 
 # Alert thresholds
 DRAWDOWN_ALERT_PCT = 8.0      # Alert if down >8% from entry
@@ -70,23 +67,51 @@ def _hl(payload: dict) -> dict:
         return {}
 
 
-def _get_xyz_position() -> dict | None:
-    """Get BRENTOIL position from xyz clearinghouse."""
-    state = _hl({"type": "clearinghouseState", "user": ADDR, "dex": "xyz"})
-    positions = state.get("assetPositions", [])
-    for p in positions:
-        pos = p.get("position", {})
-        if "BRENTOIL" in pos.get("coin", "").upper():
-            return pos
-    return None
+def _get_live_price(coin: str) -> float:
+    """Get current mid price for any native or xyz market."""
+    try:
+        mids = _hl({"type": "allMids"}) or {}
+        if coin in mids:
+            return float(mids[coin])
+    except Exception:
+        pass
+    try:
+        mids_xyz = _hl({"type": "allMids", "dex": "xyz"}) or {}
+        if coin in mids_xyz:
+            return float(mids_xyz[coin])
+        bare = coin.replace("xyz:", "")
+        for k, v in mids_xyz.items():
+            if k == bare or k.replace("xyz:", "") == bare:
+                return float(v)
+    except Exception:
+        pass
+    try:
+        book = _hl({"type": "l2Book", "coin": coin})
+        levels = book.get("levels", [])
+        if len(levels) >= 2 and levels[0] and levels[1]:
+            return (float(levels[0][0]["px"]) + float(levels[1][0]["px"])) / 2
+    except Exception:
+        pass
+    return 0.0
 
 
-def _get_brentoil_price() -> float:
-    """Get current BRENTOIL mid price."""
-    book = _hl({"type": "l2Book", "coin": "xyz:BRENTOIL"})
-    levels = book.get("levels", [])
-    if len(levels) >= 2 and levels[0] and levels[1]:
-        return (float(levels[0][0]["px"]) + float(levels[1][0]["px"])) / 2
+def _calc_drawdown_pct(entry: float, price: float, size: float) -> float:
+    if entry <= 0 or price <= 0:
+        return 0.0
+    if size > 0 and price < entry:
+        return ((entry - price) / entry) * 100
+    if size < 0 and price > entry:
+        return ((price - entry) / entry) * 100
+    return 0.0
+
+
+def _calc_liq_distance_pct(price: float, liq: float, size: float) -> float:
+    if liq <= 0 or price <= 0:
+        return 0.0
+    if size > 0 and price > liq:
+        return ((price - liq) / price) * 100
+    if size < 0 and liq > price:
+        return ((liq - price) / price) * 100
     return 0.0
 
 
@@ -127,88 +152,96 @@ def run():
     log.info("Risk monitor started — polling every %ds", POLL_INTERVAL)
     _tg_send(token, chat_id, "Risk monitor online. Watching your positions.")
 
-    price_history = deque(maxlen=RAPID_DROP_WINDOW)
+    price_history: dict[str, deque] = {}
     last_alert_time = 0
     ALERT_COOLDOWN = 300  # 5 min between repeated alerts
 
     while running:
         try:
-            pos = _get_xyz_position()
-            price = _get_brentoil_price()
             now = time.time()
-
-            if not pos or price <= 0:
-                # No position or no price — check vault BTC instead
-                vault_state = _hl({"type": "clearinghouseState", "user": VAULT})
-                # Just log and continue
+            bundle = fetch_registered_account_state()
+            positions = bundle.get("positions", [])
+            if not positions:
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            entry = float(pos.get("entryPx", 0))
-            size = float(pos.get("szi", 0))
-            upnl = float(pos.get("unrealizedPnl", 0))
-            liq = float(pos.get("liquidationPx", 0))
-            lev = pos.get("leverage", {})
-            lev_val = lev.get("value", 0) if isinstance(lev, dict) else 0
+            cycle_alerts: list[str] = []
+            status_lines: list[str] = []
 
-            # Track price for rapid drop detection
-            price_history.append(price)
+            for pos in positions:
+                coin = str(pos.get("coin", "?"))
+                account_label = pos.get("account_label", pos.get("account_role", "Account"))
+                price = _get_live_price(coin)
+                if price <= 0:
+                    continue
 
-            # Calculate metrics
-            drawdown_pct = ((entry - price) / entry * 100) if size > 0 and price < entry else 0
-            dist_to_liq_pct = ((price - liq) / price * 100) if liq > 0 and price > liq else 0
+                entry = float(pos.get("entry", 0))
+                size = float(pos.get("size", 0))
+                upnl = float(pos.get("upnl", 0))
+                liq = float(pos.get("liq") or 0)
+                lev_val = pos.get("leverage", 0)
 
-            # Log every poll
-            _log_signal({
-                "type": "risk_poll",
-                "price": price,
-                "entry": entry,
-                "size": size,
-                "upnl": upnl,
-                "liq": liq,
-                "leverage": lev_val,
-                "drawdown_pct": round(drawdown_pct, 2),
-                "dist_to_liq_pct": round(dist_to_liq_pct, 2),
-            })
+                history = price_history.setdefault(coin, deque(maxlen=RAPID_DROP_WINDOW))
+                history.append(price)
 
-            alerts = []
+                drawdown_pct = _calc_drawdown_pct(entry, price, size)
+                dist_to_liq_pct = _calc_liq_distance_pct(price, liq, size)
 
-            # Check drawdown
-            if drawdown_pct > DRAWDOWN_ALERT_PCT:
-                alerts.append(f"DRAWDOWN: -{drawdown_pct:.1f}% from entry ${entry:.2f}")
+                _log_signal({
+                    "type": "risk_poll",
+                    "coin": coin,
+                    "account": account_label,
+                    "price": price,
+                    "entry": entry,
+                    "size": size,
+                    "upnl": upnl,
+                    "liq": liq,
+                    "leverage": lev_val,
+                    "drawdown_pct": round(drawdown_pct, 2),
+                    "dist_to_liq_pct": round(dist_to_liq_pct, 2),
+                })
 
-            # Check proximity to liquidation
-            if 0 < dist_to_liq_pct < LIQ_WARNING_PCT:
-                alerts.append(f"LIQ WARNING: only {dist_to_liq_pct:.1f}% above liq ${liq:.2f}")
+                pos_alerts = []
+                if drawdown_pct > DRAWDOWN_ALERT_PCT:
+                    pos_alerts.append(f"DRAWDOWN: -{drawdown_pct:.1f}% from entry ${entry:.2f}")
 
-            if 0 < dist_to_liq_pct < LIQ_EMERGENCY_PCT:
-                alerts.append(f"EMERGENCY: {dist_to_liq_pct:.1f}% from liquidation! Consider reducing leverage.")
-                # TODO: auto-reduce leverage via exchange API when wired up
+                if 0 < dist_to_liq_pct < LIQ_WARNING_PCT:
+                    pos_alerts.append(f"LIQ WARNING: only {dist_to_liq_pct:.1f}% from liq ${liq:.2f}")
 
-            # Check rapid drop
-            if len(price_history) >= RAPID_DROP_WINDOW:
-                oldest = price_history[0]
-                drop_pct = (oldest - price) / oldest * 100
-                if drop_pct > RAPID_DROP_PCT:
-                    alerts.append(f"RAPID DROP: -{drop_pct:.1f}% in {RAPID_DROP_WINDOW * POLL_INTERVAL // 60}min")
+                if 0 < dist_to_liq_pct < LIQ_EMERGENCY_PCT:
+                    pos_alerts.append(f"EMERGENCY: {dist_to_liq_pct:.1f}% from liquidation")
 
-            # Send alerts (with cooldown)
-            if alerts and (now - last_alert_time) > ALERT_COOLDOWN:
-                msg = (
-                    f"RISK ALERT\n"
-                    f"BRENTOIL: ${price:.2f} | uPnL: ${upnl:+.2f}\n"
-                    f"Entry: ${entry:.2f} | Liq: ${liq:.2f}\n"
-                    f"Leverage: {lev_val}x\n\n"
-                    + "\n".join(f"  {a}" for a in alerts)
+                if len(history) >= RAPID_DROP_WINDOW:
+                    oldest = history[0]
+                    if oldest > 0:
+                        if size > 0:
+                            drop_pct = (oldest - price) / oldest * 100
+                        else:
+                            drop_pct = (price - oldest) / oldest * 100
+                        if drop_pct > RAPID_DROP_PCT:
+                            pos_alerts.append(
+                                f"RAPID MOVE: {drop_pct:.1f}% in {RAPID_DROP_WINDOW * POLL_INTERVAL // 60}min"
+                            )
+
+                if pos_alerts:
+                    liq_str = f"{liq:.2f}" if liq > 0 else "N/A"
+                    cycle_alerts.append(
+                        f"{account_label} {coin}: ${price:.2f} | uPnL ${upnl:+.2f} | "
+                        f"liq ${liq_str}\n  " + "\n  ".join(pos_alerts)
+                    )
+
+                status_lines.append(
+                    f"{account_label} {coin} ${price:.2f} uPnL ${upnl:+.2f} "
+                    f"liq {dist_to_liq_pct:.1f}% away"
                 )
-                _tg_send(token, chat_id, msg)
-                log.warning("ALERT: %s", "; ".join(alerts))
+
+            if cycle_alerts and (now - last_alert_time) > ALERT_COOLDOWN:
+                _tg_send(token, chat_id, "RISK ALERT\n\n" + "\n\n".join(cycle_alerts[:6]))
+                log.warning("ALERT: %s", " | ".join(a.splitlines()[0] for a in cycle_alerts))
                 last_alert_time = now
 
-            # Quiet periodic log
-            if int(now) % 300 < POLL_INTERVAL:  # ~every 5 min
-                log.info("BRENTOIL $%.2f | uPnL $%+.2f | liq $%.2f (%.1f%% away) | %dx",
-                         price, upnl, liq, dist_to_liq_pct, lev_val)
+            if status_lines and int(now) % 300 < POLL_INTERVAL:
+                log.info(" | ".join(status_lines[:6]))
 
         except Exception as e:
             log.error("Risk monitor error: %s", e)
