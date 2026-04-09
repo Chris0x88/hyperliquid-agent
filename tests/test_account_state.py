@@ -149,3 +149,65 @@ def test_heartbeat_fetch_account_state_uses_shared_equity_totals(monkeypatch):
     assert state["main_equity"] == 120.0
     assert state["vault_equity"] == 50.0
     assert state["sub_equity"] == 30.0
+
+
+def test_heartbeat_fetch_account_state_includes_sub_wallet_positions(monkeypatch):
+    monkeypatch.setattr("common.heartbeat._get_main_account", lambda: "0xmain")
+    monkeypatch.setattr("common.heartbeat._get_vault_address", lambda: "")
+    monkeypatch.setattr("common.heartbeat._get_sub_accounts", lambda: ["0xsub1"])
+    monkeypatch.setattr("common.heartbeat._fetch_open_trigger_orders", lambda *args, **kwargs: [])
+    monkeypatch.setattr("common.heartbeat._fetch_funding_rates", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        "common.account_state.fetch_registered_account_state",
+        lambda: {
+            "account": {"total_equity": 150.0},
+            "accounts": [
+                {"role": "main", "total_equity": 100.0},
+                {"role": "sub1", "total_equity": 50.0},
+            ],
+            "positions": [],
+            "alerts": [],
+            "escalation": "L0",
+        },
+    )
+
+    class _Resp:
+        def __init__(self, payload):
+            self.status_code = 200
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, json=None, timeout=10):
+        payload = json or {}
+        user = payload.get("user")
+        dex = payload.get("dex")
+        if payload.get("type") == "clearinghouseState" and user == "0xmain" and not dex:
+            return _Resp({"marginSummary": {"accountValue": 100}, "assetPositions": []})
+        if payload.get("type") == "clearinghouseState" and user == "0xsub1" and not dex:
+            return _Resp({
+                "marginSummary": {"accountValue": 50},
+                "assetPositions": [
+                    {"position": {"coin": "ETH", "szi": "2", "entryPx": "2000", "positionValue": "4100", "unrealizedPnl": "100", "leverage": {"value": "3"}}}
+                ],
+            })
+        if payload.get("type") == "clearinghouseState" and dex == "xyz":
+            return _Resp({"marginSummary": {"accountValue": 0}, "assetPositions": []})
+        if payload.get("type") == "spotClearinghouseState":
+            return _Resp({"balances": []})
+        if payload.get("type") == "metaAndAssetCtxs":
+            return _Resp([{"universe": []}, []])
+        return _Resp({})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    state = _fetch_account_state(HeartbeatConfig())
+
+    sub_pos = next(p for p in state["positions"] if p["coin"] == "ETH")
+    assert sub_pos["account"] == "sub1"
+    assert sub_pos["wallet_address"] == "0xsub1"
+    assert state["sub_equity"] == 50.0

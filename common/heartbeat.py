@@ -621,12 +621,14 @@ def run_heartbeat(
         tcoin = trig.get("coin", "")
         if not tcoin:
             continue
-        existing_stops.setdefault(tcoin, []).append(trig)
+        acct_key = trig.get("_account", "")
+        key = f"{acct_key}:{tcoin}"
+        existing_stops.setdefault(key, []).append(trig)
         ot = str(trig.get("orderType", ""))
         if "Take Profit" in ot:
-            existing_tps_by_coin.setdefault(tcoin, []).append(trig)
+            existing_tps_by_coin.setdefault(key, []).append(trig)
         elif "Stop" in ot:
-            existing_sls.setdefault(tcoin, []).append(trig)
+            existing_sls.setdefault(key, []).append(trig)
         # else: unrecognised trigger type — conservative: skip both dicts
 
     # ── Conviction Engine: load thesis states ────────────────────────────────
@@ -683,6 +685,8 @@ def run_heartbeat(
         upnl_pct = pos.get("upnl_pct", 0)
         margin_used = pos.get("margin_used", 0)
         account_label = pos.get("account", "main")
+        wallet_address = pos.get("wallet_address", "")
+        trig_key = f"{account_label}:{coin}"
 
         # Authority check — skip assets set to 'off'
         if not is_watched(coin):
@@ -750,7 +754,7 @@ def run_heartbeat(
         # BUG-FIX 2026-04-08 HB-2 (guard): use `existing_sls` (SL-only dict)
         # instead of `existing_stops` (combined SL+TP dict) so that a lone TP
         # on a coin does not masquerade as an existing SL.
-        has_stop = bool(existing_sls.get(coin))
+        has_stop = bool(existing_sls.get(trig_key))
         pos_summary["has_stop"] = has_stop
 
         # Compute stop price and place if needed
@@ -768,15 +772,7 @@ def run_heartbeat(
             elif not dry_run:
                 # Place the stop via HL Exchange API
                 try:
-                    from parent.hl_proxy import HLProxy
-                    from cli.hl_adapter import DirectHLProxy
-
-                    # Determine which proxy to use based on account
-                    if account_label == "vault":
-                        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
-                    else:
-                        hl = HLProxy(testnet=False, account_address=_get_main_account())
-                    proxy = DirectHLProxy(hl)
+                    proxy = _build_proxy_for_position(account_label, wallet_address)
 
                     # Stop side is opposite of position: long pos → sell stop
                     stop_side = "sell" if side == "long" else "buy"
@@ -824,18 +820,12 @@ def run_heartbeat(
             # also breaks when entry price drifts (partial fills, averaging).
             # Fix: use `existing_tps_by_coin` populated by explicit orderType
             # check above ("Take Profit" in orderType) — no heuristic needed.
-            existing_tps_for_coin = existing_tps_by_coin.get(coin, [])
+            existing_tps_for_coin = existing_tps_by_coin.get(trig_key, [])
             if not existing_tps_for_coin:
                 valid_tp = (side == "long" and tp_price > entry) or (side != "long" and tp_price < entry)
                 if valid_tp:
                     try:
-                        from parent.hl_proxy import HLProxy
-                        from cli.hl_adapter import DirectHLProxy
-                        if account_label == "vault":
-                            hl = HLProxy(testnet=False, vault_address=_get_vault_address())
-                        else:
-                            hl = HLProxy(testnet=False, account_address=_get_main_account())
-                        proxy = DirectHLProxy(hl)
+                        proxy = _build_proxy_for_position(account_label, wallet_address)
                         tp_side = "sell" if side == "long" else "buy"
                         tp_oid = proxy.place_tp_trigger_order(
                             instrument=coin, side=tp_side,
@@ -904,13 +894,7 @@ def run_heartbeat(
                 pos_summary["profit_take_blocked"] = "vault tactical disabled"
             elif take_size >= 0.001:
                 try:
-                    from parent.hl_proxy import HLProxy
-                    from cli.hl_adapter import DirectHLProxy
-                    if account_label == "vault":
-                        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
-                    else:
-                        hl = HLProxy(testnet=False, account_address=_get_main_account())
-                    proxy = DirectHLProxy(hl)
+                    proxy = _build_proxy_for_position(account_label, wallet_address)
                     close_side = "sell" if side == "long" else "buy"
                     fill = proxy.place_order(
                         instrument=coin, side=close_side, size=take_size,
@@ -1075,10 +1059,7 @@ def run_heartbeat(
 
                     if ok and add_size >= 0.001:
                         try:
-                            from parent.hl_proxy import HLProxy
-                            from cli.hl_adapter import DirectHLProxy
-                            hl = HLProxy(testnet=False, account_address=_get_main_account())
-                            proxy = DirectHLProxy(hl)
+                            proxy = _build_proxy_for_position(account_label, wallet_address)
                             add_side = "buy" if side == "long" else "sell"
                             fill = proxy.place_order(
                                 instrument=coin, side=add_side, size=add_size,
@@ -1131,7 +1112,7 @@ def run_heartbeat(
                 if account_label == "vault":
                     hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                 else:
-                    hl = HLProxy(testnet=False, account_address=_get_main_account())
+                    hl = HLProxy(testnet=False, account_address=wallet_address or _get_main_account())
                 hl._ensure_client()
                 # xyz markets need the full "xyz:COIN" format for the SDK
                 hl._exchange.update_leverage(int(target_lev), coin, is_cross=True)
@@ -1315,10 +1296,15 @@ _ESC_ORDER = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 # Wallet addresses — resolved lazily from ~/.hl-agent/wallets.json
 # Set via: hl wallet register / hl wallet set-vault
-from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
+from common.account_resolver import (
+    resolve_main_wallet,
+    resolve_sub_wallets,
+    resolve_vault_address as _resolve_vault,
+)
 
 _MAIN_ACCOUNT_CACHE: Optional[str] = None
 _VAULT_ADDRESS_CACHE: Optional[str] = None
+_SUB_ACCOUNTS_CACHE: Optional[list[str]] = None
 
 
 def _get_main_account() -> str:
@@ -1343,13 +1329,22 @@ def _get_vault_address() -> str:
     return addr
 
 
+def _get_sub_accounts() -> list[str]:
+    """Lazily resolve configured sub-wallets."""
+    global _SUB_ACCOUNTS_CACHE
+    if _SUB_ACCOUNTS_CACHE is not None:
+        return _SUB_ACCOUNTS_CACHE
+    _SUB_ACCOUNTS_CACHE = list(resolve_sub_wallets() or [])
+    return _SUB_ACCOUNTS_CACHE
+
+
 # Backwards compat — computed properties would be ideal but these are module-level
 # so we use the lazy functions everywhere in _fetch_account_state
 MAIN_ACCOUNT = ""  # Use _get_main_account() instead
 VAULT_ADDRESS = ""  # Use _get_vault_address() instead
 
 
-def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
+def _parse_positions_from_raw(raw: dict, account_label: str, wallet_address: str = "") -> list[dict]:
     """Parse position dicts from raw HL clearinghouseState response.
 
     Follows Hummingbot's parsing pattern:
@@ -1424,6 +1419,7 @@ def _parse_positions_from_raw(raw: dict, account_label: str) -> list[dict]:
             "cum_funding_all_time": round(cum_funding_all_time, 6),
             "margin_used": round(float(pos_data.get("marginUsed", 0)), 2),
             "account": account_label,
+            "wallet_address": wallet_address,
         })
     return positions
 
@@ -1508,6 +1504,18 @@ def _fetch_funding_rates(dex: str = None) -> dict[str, float]:
     return {}
 
 
+def _build_proxy_for_position(account_label: str, wallet_address: str = ""):
+    """Build an exchange proxy for the wallet that owns a position."""
+    from parent.hl_proxy import HLProxy
+    from cli.hl_adapter import DirectHLProxy
+
+    if account_label == "vault":
+        hl = HLProxy(testnet=False, vault_address=_get_vault_address())
+    else:
+        hl = HLProxy(testnet=False, account_address=wallet_address or _get_main_account())
+    return DirectHLProxy(hl)
+
+
 def _fetch_account_state(config: HeartbeatConfig) -> dict:
     """Fetch account state from BOTH wallets on HL API.
 
@@ -1518,13 +1526,11 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     Returns a dict with keys: main_equity, vault_equity, total_equity,
     positions (combined list from both accounts).
     """
-    from parent.hl_proxy import HLProxy
-    from cli.hl_adapter import DirectHLProxy
-
     # Resolve addresses lazily (not at module-load time)
     main_acct = _get_main_account()
     vault_addr = _get_vault_address()
-    if not main_acct and not vault_addr:
+    sub_accounts = _get_sub_accounts()
+    if not main_acct and not vault_addr and not sub_accounts:
         raise RuntimeError(
             "No wallets configured. Run: hl wallet register"
         )
@@ -1532,6 +1538,7 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     all_positions = []
     main_equity = 0.0
     vault_equity = 0.0
+    sub_equity = 0.0
     # BUG-FIX 2026-04-08 HB-1: `all_triggers` was only defined inside the
     # `if main_acct:` block (line ~1572), so a vault-only configuration
     # (main_acct empty, vault_addr set) would raise NameError when the vault
@@ -1559,60 +1566,77 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
         resp.raise_for_status()
         return resp.json()
 
-    # 1. Fetch main account — default clearinghouse
+    wallet_specs: list[tuple[str, str, bool]] = []
     if main_acct:
+        wallet_specs.append(("main", main_acct, True))
+    if vault_addr:
+        wallet_specs.append(("vault", vault_addr, False))
+    for idx, addr in enumerate(sub_accounts, start=1):
+        wallet_specs.append((f"sub{idx}", addr, True))
+
+    wallet_equities: dict[str, float] = {}
+    for role, address, include_xyz in wallet_specs:
+        wallet_total = 0.0
         try:
-            raw_main = _hl_post({
-                "type": "clearinghouseState", "user": main_acct
-            })
-            main_equity = _get_equity_from_state(raw_main)
-            all_positions.extend(_parse_positions_from_raw(raw_main, "main"))
+            raw_main = _hl_post({"type": "clearinghouseState", "user": address})
+            wallet_total += _get_equity_from_state(raw_main)
+            all_positions.extend(_parse_positions_from_raw(raw_main, role, wallet_address=address))
         except Exception as e:
-            log.warning("Main account default clearinghouse failed: %s", e)
+            log.warning("%s default clearinghouse failed: %s", role, e)
 
         time.sleep(_RATE_LIMIT_DELAY)
 
-        # 2. Fetch main account — xyz clearinghouse (oil positions)
-        try:
-            xyz_data = _hl_post({
-                "type": "clearinghouseState", "user": main_acct, "dex": "xyz"
-            })
-            xyz_equity = _get_equity_from_state(xyz_data)
-            if xyz_equity > 0:
-                main_equity += xyz_equity
-            xyz_positions = _parse_positions_from_raw(xyz_data, "main_xyz")
-            all_positions.extend(xyz_positions)
-            if xyz_positions:
-                log.info("Found %d xyz position(s)", len(xyz_positions))
-        except Exception as e:
-            log.debug("XYZ clearinghouse query failed: %s", e)
+        if include_xyz:
+            try:
+                xyz_data = _hl_post({
+                    "type": "clearinghouseState", "user": address, "dex": "xyz"
+                })
+                xyz_equity = _get_equity_from_state(xyz_data)
+                if xyz_equity > 0:
+                    wallet_total += xyz_equity
+                xyz_label = f"{role}_xyz"
+                xyz_positions = _parse_positions_from_raw(xyz_data, xyz_label, wallet_address=address)
+                all_positions.extend(xyz_positions)
+                if xyz_positions:
+                    log.info("Found %d xyz position(s) on %s", len(xyz_positions), role)
+            except Exception as e:
+                log.debug("%s xyz clearinghouse query failed: %s", role, e)
 
-        time.sleep(_RATE_LIMIT_DELAY)
+            time.sleep(_RATE_LIMIT_DELAY)
 
-        # 3. Fetch spot balances (USDC may be idle in spot)
         try:
-            spot_data = _hl_post({
-                "type": "spotClearinghouseState", "user": main_acct
-            })
+            spot_data = _hl_post({"type": "spotClearinghouseState", "user": address})
             spot_usdc = 0.0
             for bal in spot_data.get("balances", []):
                 if bal.get("coin") == "USDC":
                     spot_usdc = float(bal.get("total", 0))
             if spot_usdc > 0:
-                main_equity += spot_usdc
-                log.info("Main spot USDC: $%.2f", spot_usdc)
+                wallet_total += spot_usdc
+                log.info("%s spot USDC: $%.2f", role, spot_usdc)
         except Exception as e:
-            log.debug("Spot balance query failed: %s", e)
+            log.debug("%s spot balance query failed: %s", role, e)
 
         time.sleep(_RATE_LIMIT_DELAY)
 
-        # 4. Fetch trigger orders for stop-loss detection (main + xyz)
-        main_triggers = _fetch_open_trigger_orders(main_acct)
+        try:
+            main_triggers = _fetch_open_trigger_orders(address)
+            for trig in main_triggers:
+                trig["_account"] = role
+            all_triggers.extend(main_triggers)
+        except Exception:
+            pass
         time.sleep(_RATE_LIMIT_DELAY)
-        xyz_triggers = _fetch_open_trigger_orders(main_acct, dex="xyz")
-        all_triggers = main_triggers + xyz_triggers
+        if include_xyz:
+            try:
+                xyz_triggers = _fetch_open_trigger_orders(address, dex="xyz")
+                for trig in xyz_triggers:
+                    trig["_account"] = f"{role}_xyz"
+                all_triggers.extend(xyz_triggers)
+            except Exception:
+                pass
+            time.sleep(_RATE_LIMIT_DELAY)
 
-        time.sleep(_RATE_LIMIT_DELAY)
+        wallet_equities[role] = wallet_total
 
     # 5. Fetch funding rates
     default_rates = _fetch_funding_rates()
@@ -1622,38 +1646,18 @@ def _fetch_account_state(config: HeartbeatConfig) -> dict:
     # Attach funding rates to positions
     for pos in all_positions:
         coin = pos["coin"]
-        if pos["account"] == "main_xyz":
+        if str(pos["account"]).endswith("_xyz"):
             pos["funding_rate"] = xyz_rates.get(coin, 0.0)
         else:
             pos["funding_rate"] = default_rates.get(coin, 0.0)
 
     time.sleep(_RATE_LIMIT_DELAY)
-
-    # 6. Fetch vault (BTC Power Law)
-    if vault_addr:
-        try:
-            raw_vault = _hl_post({
-                "type": "clearinghouseState", "user": vault_addr
-            })
-            vault_equity = _get_equity_from_state(raw_vault)
-            vault_positions = _parse_positions_from_raw(raw_vault, "vault")
-            all_positions.extend(vault_positions)
-
-            # Attach funding rates to vault positions
-            for pos in vault_positions:
-                pos["funding_rate"] = default_rates.get(pos["coin"], 0.0)
-
-            time.sleep(_RATE_LIMIT_DELAY)
-
-            # Fetch vault trigger orders
-            vault_triggers = _fetch_open_trigger_orders(vault_addr)
-            all_triggers.extend(vault_triggers)
-        except Exception as e:
-            log.warning("Failed to fetch vault state: %s", e)
+    main_equity = wallet_equities.get("main", 0.0)
+    vault_equity = wallet_equities.get("vault", 0.0)
+    sub_equity = sum(v for k, v in wallet_equities.items() if k.startswith("sub"))
 
     # Override account totals from the shared account model so heartbeat uses
     # the same equity numbers as Telegram commands, AI context, and reports.
-    sub_equity = 0.0
     account_rows: list[dict] = []
     try:
         from common.account_state import fetch_registered_account_state
