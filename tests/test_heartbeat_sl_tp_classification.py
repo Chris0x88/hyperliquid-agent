@@ -55,7 +55,7 @@ def _make_position(
     }
 
 
-def _sl_order(coin: str, trigger_px: float, side: str = "long") -> dict:
+def _sl_order(coin: str, trigger_px: float, side: str = "long", account: str = "main") -> dict:
     """Mimic a real HL Stop Market order from frontendOpenOrders."""
     return {
         "coin": coin,
@@ -64,10 +64,11 @@ def _sl_order(coin: str, trigger_px: float, side: str = "long") -> dict:
         "orderType": "Stop Market",
         "reduceOnly": True,
         "side": "sell" if side == "long" else "buy",
+        "_account": account,
     }
 
 
-def _tp_order(coin: str, trigger_px: float, side: str = "long") -> dict:
+def _tp_order(coin: str, trigger_px: float, side: str = "long", account: str = "main") -> dict:
     """Mimic a real HL Take Profit Market order from frontendOpenOrders."""
     return {
         "coin": coin,
@@ -76,6 +77,7 @@ def _tp_order(coin: str, trigger_px: float, side: str = "long") -> dict:
         "orderType": "Take Profit Market",
         "reduceOnly": True,
         "side": "sell" if side == "long" else "buy",
+        "_account": account,
     }
 
 
@@ -193,7 +195,7 @@ class TestHB2SLSkippedWhenTPExists:
         TP was in the dict — SL placement was silently skipped.
         """
         coin = "xyz:BRENTOIL"
-        tp = _tp_order(coin, trigger_px=90.0, side="long")
+        tp = _tp_order(coin, trigger_px=90.0, side="long", account="main_xyz")
 
         account_state = {
             "equity": 10_000.0,
@@ -240,8 +242,8 @@ class TestHB2SLSkippedWhenTPExists:
     def test_sl_marked_present_when_both_sl_and_tp_exist(self):
         """has_stop must be True when BOTH SL and TP are present."""
         coin = "xyz:GOLD"
-        sl = _sl_order(coin, trigger_px=2_800.0, side="long")
-        tp = _tp_order(coin, trigger_px=3_200.0, side="long")
+        sl = _sl_order(coin, trigger_px=2_800.0, side="long", account="main_xyz")
+        tp = _tp_order(coin, trigger_px=3_200.0, side="long", account="main_xyz")
 
         account_state = {
             "equity": 10_000.0,
@@ -332,6 +334,7 @@ class TestHB3TPMisclassifiedOnShort:
             "orderType": "Stop Market",   # SL for a short is above entry
             "reduceOnly": True,
             "side": "buy",
+            "_account": "main",
         }
         tp_short = {
             "coin": coin,
@@ -340,6 +343,7 @@ class TestHB3TPMisclassifiedOnShort:
             "orderType": "Take Profit Market",  # TP for a short is below entry
             "reduceOnly": True,
             "side": "buy",
+            "_account": "main",
         }
         trigger_orders = [sl_short, tp_short]
 
@@ -398,6 +402,7 @@ class TestHB3TPMisclassifiedOnShort:
             "orderType": "Stop Market",
             "reduceOnly": True,
             "side": "buy",
+            "_account": "main",
         }
 
         account_state = {

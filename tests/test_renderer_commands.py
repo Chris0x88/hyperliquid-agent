@@ -45,15 +45,39 @@ MOCK_ORDER = {
 
 # ── cmd_status ───────────────────────────────────────────────────────────────
 
+_MOCK_BUNDLE = {
+    "account": {
+        "native_equity": 1000.0,
+        "xyz_equity": 0.0,
+        "spot_usdc": 0.0,
+        "total_equity": 1000.0,
+    },
+    "accounts": [
+        {"label": "Main", "native_equity": 1000.0, "xyz_equity": 0.0, "spot_usdc": 0.0, "total_equity": 1000.0},
+    ],
+    "positions": [
+        {
+            "coin": "BTC", "size": 1.0, "entry": 50000.0, "upnl": 500.0,
+            "liq": "25000", "leverage": 2, "dex": "", "account_role": "main",
+            "account_label": "Main",
+        },
+    ],
+}
+
+_EMPTY_BUNDLE = {
+    "account": {"native_equity": 0.0, "xyz_equity": 0.0, "spot_usdc": 0.0, "total_equity": 0.0},
+    "accounts": [{"label": "Main", "native_equity": 0.0, "xyz_equity": 0.0, "spot_usdc": 0.0, "total_equity": 0.0}],
+    "positions": [],
+}
+
+
 class TestCmdStatus:
     def _run(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._hl_post", return_value={"balances": [{"coin": "USDC", "total": "1000"}]}),
-            patch("cli.telegram_bot._get_all_positions", return_value=[MOCK_POSITION]),
+            patch("common.account_state.fetch_registered_account_state", return_value=_MOCK_BUNDLE),
             patch("cli.telegram_bot._get_current_price", return_value=51000.0),
             patch("cli.telegram_bot._get_market_oi", return_value="OI: $1.2B"),
-            patch("cli.telegram_bot._get_account_values", return_value={"native": 2000.0, "xyz": 0.0}),
             patch("cli.telegram_bot._get_all_orders", return_value=[]),
         ):
             cmd_status(buf, "")
@@ -79,13 +103,17 @@ class TestCmdStatus:
     def test_no_positions(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._hl_post", return_value={"balances": []}),
-            patch("cli.telegram_bot._get_all_positions", return_value=[]),
-            patch("cli.telegram_bot._get_account_values", return_value={"native": 0.0, "xyz": 0.0}),
+            patch("common.account_state.fetch_registered_account_state", return_value=_EMPTY_BUNDLE),
             patch("cli.telegram_bot._get_all_orders", return_value=[]),
         ):
             cmd_status(buf, "")
         assert "No open positions" in buf.messages[0]["text"]
+
+    def test_fetch_failure_shows_diagnostic(self):
+        buf = BufferRenderer()
+        with patch("common.account_state.fetch_registered_account_state", return_value={}):
+            cmd_status(buf, "")
+        assert "unavailable" in buf.messages[0]["text"].lower()
 
 
 # ── cmd_price ────────────────────────────────────────────────────────────────
