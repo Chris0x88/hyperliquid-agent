@@ -21,17 +21,15 @@ def account_cmd(
 
     logging.basicConfig(level=logging.WARNING)
 
-    from cli.config import TradingConfig
     from cli.display import account_table
-    from cli.hl_adapter import DirectHLProxy
-    from parent.hl_proxy import HLProxy
+    from common.account_state import fetch_registered_account_state
 
-    cfg = TradingConfig()
-    private_key = cfg.get_private_key()
+    if mainnet:
+        logging.getLogger(__name__).warning(
+            "--mainnet is currently ignored by `hl account`; account resolution is driven by the configured wallets"
+        )
 
-    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-    hl = DirectHLProxy(raw_hl)
-    state = hl.get_account_state()
+    state = fetch_registered_account_state()
 
     if not state:
         typer.echo("Failed to fetch account state", err=True)

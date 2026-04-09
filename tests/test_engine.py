@@ -3,7 +3,7 @@ import pytest
 import tempfile
 import time
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from common.models import MarketSnapshot, StrategyDecision
 from parent.hl_proxy import HLFill
@@ -192,18 +192,22 @@ class TestPreflightCheck:
     def test_preflight_logs_warning_on_zero_balance(self):
         engine = _make_engine()
         engine.dry_run = False
-        engine.hl.get_account_state = lambda: {
-            "marginSummary": {"accountValue": "0"},
-        }
-        # Should not raise — just logs a warning
-        engine._preflight_check()
+        with patch("cli.engine.fetch_registered_account_state", return_value={"account": {"total_equity": 0.0}}):
+            # Should not raise — just logs a warning
+            engine._preflight_check()
+
+    def test_preflight_uses_aggregated_account_balance(self):
+        engine = _make_engine()
+        engine.dry_run = False
+        with patch("cli.engine.fetch_registered_account_state", return_value={"account": {"total_equity": 4321.0}}):
+            engine._preflight_check()
 
     def test_preflight_handles_failure(self):
         engine = _make_engine()
         engine.dry_run = False
-        engine.hl.get_account_state = MagicMock(side_effect=Exception("network"))
-        # Should not raise
-        engine._preflight_check()
+        with patch("cli.engine.fetch_registered_account_state", side_effect=Exception("network")):
+            # Should not raise — just logs a warning
+            engine._preflight_check()
 
 
 class TestTickTimeout:

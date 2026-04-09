@@ -295,3 +295,40 @@ class TestAccountTable:
         assert "$10500.00" in table  # total
         assert "$10000.00" in table  # perps
         assert "$500.00" in table  # spot usdc
+
+    def test_formats_aggregated_account_bundle(self):
+        state = {
+            "account": {
+                "total_equity": 15500.0,
+                "native_equity": 12000.0,
+                "xyz_equity": 3000.0,
+                "spot_usdc": 500.0,
+            },
+            "accounts": [
+                {
+                    "role": "main",
+                    "address": "0xMAIN",
+                    "total_equity": 10000.0,
+                    "native_equity": 9000.0,
+                    "xyz_equity": 500.0,
+                    "spot_usdc": 500.0,
+                },
+                {
+                    "role": "sub1",
+                    "address": "0xSUB1",
+                    "total_equity": 5500.0,
+                    "native_equity": 3000.0,
+                    "xyz_equity": 2500.0,
+                    "spot_usdc": 0.0,
+                },
+            ],
+            "positions": [
+                {"account_role": "sub1", "coin": "ETH", "size": 2.0, "entry": 2000.0, "upnl": 100.0}
+            ],
+        }
+        table = account_table(state)
+        assert "Total Equity: $15500.00" in table
+        assert "0xMAIN" in table
+        assert "0xSUB1" in table
+        assert "Open Positions" in table
+        assert "ETH" in table

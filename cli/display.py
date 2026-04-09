@@ -142,6 +142,39 @@ def strategy_table(registry: Dict[str, Dict[str, Any]]) -> str:
 
 def account_table(state: Dict[str, Any]) -> str:
     """Format account state for `hl account`."""
+    if "account" in state and "accounts" in state:
+        total = state.get("account", {})
+        lines = [
+            f"{BOLD}=== HL Account ==={RESET}",
+            f"Total Equity: ${float(total.get('total_equity', 0)):.2f}",
+            f"  Native:     ${float(total.get('native_equity', 0)):.2f}",
+            f"  XYZ:        ${float(total.get('xyz_equity', 0)):.2f}",
+            f"  Spot USDC:  ${float(total.get('spot_usdc', 0)):.2f}",
+        ]
+        accounts = state.get("accounts", [])
+        if accounts:
+            lines.append("")
+            lines.append(f"{BOLD}Wallets:{RESET}")
+            for row in accounts:
+                lines.append(
+                    f"  {row.get('role', '?'):<6} {row.get('address', 'N/A')}  "
+                    f"${float(row.get('total_equity', 0)):.2f} "
+                    f"(native ${float(row.get('native_equity', 0)):.2f} | "
+                    f"xyz ${float(row.get('xyz_equity', 0)):.2f} | "
+                    f"spot ${float(row.get('spot_usdc', 0)):.2f})"
+                )
+        positions = state.get("positions", [])
+        if positions:
+            lines.append("")
+            lines.append(f"{BOLD}Open Positions:{RESET}")
+            for pos in positions:
+                lines.append(
+                    f"  {pos.get('account_role', '?'):<6} {pos.get('coin', '?'):<12} "
+                    f"{float(pos.get('size', 0)):+.4f} @ ${float(pos.get('entry', 0)):.4f} "
+                    f"uPnL ${float(pos.get('upnl', 0)):+.2f}"
+                )
+        return "\n".join(lines)
+
     perp_value = state.get("account_value", 0)
     spot_usdc = state.get("spot_usdc", 0)
     total_value = perp_value + spot_usdc

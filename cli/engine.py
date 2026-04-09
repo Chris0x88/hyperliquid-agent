@@ -20,6 +20,7 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 from cli.display import shutdown_summary, tick_line
 from cli.order_manager import OrderManager
+from common.account_state import fetch_registered_account_state
 from execution.order_book import ManagedOrderBook
 
 log = logging.getLogger("engine")
@@ -493,12 +494,8 @@ class TradingEngine:
     def _preflight_check(self) -> None:
         """Verify account has funds before starting. Warns loudly if not."""
         try:
-            account = self.hl.get_account_state()
-            balance = 0.0
-            if "crossMarginSummary" in account:
-                balance = float(account["crossMarginSummary"].get("accountValue", 0))
-            elif "marginSummary" in account:
-                balance = float(account["marginSummary"].get("accountValue", 0))
+            bundle = fetch_registered_account_state()
+            balance = float(bundle.get("account", {}).get("total_equity", 0))
             if balance <= 0:
                 is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
                 if is_testnet:
