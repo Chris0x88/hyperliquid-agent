@@ -221,6 +221,16 @@ def daemon_start(
         clock.register(LessonAuthorIterator())
     except ImportError:
         pass
+    try:
+        from cli.daemon.iterators.entry_critic import EntryCriticIterator
+        clock.register(EntryCriticIterator())
+    except ImportError:
+        pass
+    try:
+        from cli.daemon.iterators.action_queue import ActionQueueIterator
+        clock.register(ActionQueueIterator())  # daily operator-ritual nudge sweep
+    except ImportError:
+        pass
     clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")

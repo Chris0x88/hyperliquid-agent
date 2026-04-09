@@ -1052,43 +1052,137 @@ def cmd_authority(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_todo(token: str, chat_id: str, args: str) -> None:
-    """Add or list todos. Usage: /todo <description> or /todo (to list)"""
-    todos_path = Path("data/todos.jsonl")
-    todos_path.parent.mkdir(parents=True, exist_ok=True)
+    """Add, list, search, done, dismiss, or show todos.
 
-    if not args.strip():
-        # List open todos
-        if not todos_path.exists():
-            tg_send(token, chat_id, "No todos. Use `/todo fix the chart labels`")
-            return
-        items = []
-        for line in todos_path.read_text().splitlines():
-            if line.strip():
-                try:
-                    item = json.loads(line)
-                    if item.get("status") == "open":
-                        items.append(item)
-                except json.JSONDecodeError:
-                    pass
+    Usage:
+        /todo                         — list open todos
+        /todo <description>           — add a new todo
+        /todo list [open|all|done]    — list with status filter
+        /todo search <query>          — substring search
+        /todo done <id>               — mark done
+        /todo dismiss <id> [note]     — mark dismissed
+        /todo show <id>               — full detail + event history
+
+    Event-sourced append-only. See modules/feedback_store.py.
+    """
+    from modules import feedback_store as fs
+
+    text = args.strip()
+
+    # Bare /todo → list open.
+    if not text:
+        items = [i for i in fs.load_todos() if i.status == "open"]
         if not items:
-            tg_send(token, chat_id, "No open todos.")
+            tg_send(token, chat_id, "No open todos. Use `/todo fix the chart labels`")
             return
         lines = ["*Open Todos*\n"]
-        for i, item in enumerate(items[-15:], 1):
-            ts = item.get("timestamp", "")[:10]
-            lines.append(f"`{i}.` {item.get('text', '?')} ({ts})")
+        for item in items[-15:]:
+            short = item.id[-4:]
+            ts = (item.timestamp or "")[:10]
+            lines.append(f"`{short}` {item.text[:80]} _({ts})_")
+        lines.append("\nUse `/todo done <id>` or `/todo show <id>`.")
         tg_send(token, chat_id, "\n".join(lines))
         return
 
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "telegram",
-        "text": args.strip()[:200],
-        "status": "open",
-    }
-    with open(todos_path, "a") as f:
-        f.write(json.dumps(entry) + "\n")
-    tg_send(token, chat_id, f"Todo added.\n`{args.strip()[:100]}`")
+    lower = text.lower()
+
+    # list subcommand
+    if lower == "list" or lower.startswith("list "):
+        rest = text[4:].strip().lower() or "open"
+        all_items = fs.load_todos()
+        if rest == "all":
+            items = all_items
+            header = f"*All Todos ({len(items)})*"
+        elif rest == "done":
+            items = [i for i in all_items if i.status == "done"]
+            header = f"*Done Todos ({len(items)})*"
+        else:
+            items = [i for i in all_items if i.status == "open"]
+            header = f"*Open Todos ({len(items)})*"
+        if not items:
+            tg_send(token, chat_id, f"{header}\n\n_(none)_")
+            return
+        lines = [header, ""]
+        for item in items[-15:]:
+            short = item.id[-4:]
+            marker = {"open": "•", "done": "✓", "dismissed": "×"}.get(item.status, "?")
+            ts = (item.timestamp or "")[:10]
+            lines.append(f"`{short}` {marker} {item.text[:80]} _({ts})_")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    # search subcommand
+    if lower.startswith("search "):
+        q = text[7:].strip()
+        matches = fs.search_todos(q, limit=10)
+        if not matches:
+            tg_send(token, chat_id, f"No todos matching `{q}`.")
+            return
+        lines = [f"*Todo search: `{q}` ({len(matches)} hits)*", ""]
+        for item in matches:
+            short = item.id[-4:]
+            marker = {"open": "•", "done": "✓", "dismissed": "×"}.get(item.status, "?")
+            lines.append(f"`{short}` {marker} {item.text[:100]}")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    # done / dismiss / show subcommands
+    if lower.startswith("done "):
+        prefix = text[5:].strip().split(None, 1)
+        target = prefix[0] if prefix else ""
+        note = prefix[1] if len(prefix) > 1 else ""
+        items = fs.load_todos()
+        item = fs.resolve_prefix(target, items)
+        if item is None:
+            tg_send(token, chat_id, f"No unique todo matching `{target}`. Try `/todo list`.")
+            return
+        fs.set_todo_status(item.id, "done", note=note)
+        tg_send(token, chat_id, f"*Todo done* `{item.id[-4:]}`\n{item.text[:100]}")
+        return
+
+    if lower.startswith("dismiss "):
+        prefix = text[8:].strip().split(None, 1)
+        target = prefix[0] if prefix else ""
+        note = prefix[1] if len(prefix) > 1 else ""
+        items = fs.load_todos()
+        item = fs.resolve_prefix(target, items)
+        if item is None:
+            tg_send(token, chat_id, f"No unique todo matching `{target}`. Try `/todo list`.")
+            return
+        fs.set_todo_status(item.id, "dismissed", note=note)
+        tg_send(token, chat_id, f"*Todo dismissed* `{item.id[-4:]}`")
+        return
+
+    if lower.startswith("show "):
+        target = text[5:].strip()
+        items = fs.load_todos()
+        item = fs.resolve_prefix(target, items)
+        if item is None:
+            tg_send(token, chat_id, f"No unique todo matching `{target}`.")
+            return
+        lines = [
+            f"*Todo {item.id}*",
+            f"Status: `{item.status}`",
+            f"Created: {item.timestamp[:19]}",
+            f"Source: {item.source}",
+        ]
+        if item.tags:
+            lines.append("Tags: " + ", ".join(f"`{t}`" for t in item.tags))
+        lines.append("")
+        lines.append(item.text)
+        if item.history:
+            lines.append("\n*History*")
+            for ev in item.history:
+                lines.append(
+                    f"  {ev.get('timestamp', '')[:19]} {ev.get('event', '?')} "
+                    f"{ev.get('from_status', '')}→{ev.get('to_status', ev.get('tag', ''))}"
+                )
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    # Default: bare text → add new todo.
+    new_id = fs.add_todo(text[:500])
+    tg_send(token, chat_id, f"Todo added `{new_id[-4:]}`.\n`{text[:100]}`")
 
 
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
@@ -1136,6 +1230,9 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /selftuneproposals [N] — pending structural proposals\n"
         "  /selftuneapprove <id> — approve + apply a proposal\n"
         "  /selftunereject <id> — reject a proposal\n"
+        "  /patterncatalog — L3 bot-pattern library state\n"
+        "  /patternpromote <id> — promote a pattern candidate into the live catalog\n"
+        "  /patternreject <id> — reject a pattern candidate\n"
         "\n*Lesson Corpus*\n"
         "  /lessons — recent trade post-mortems\n"
         "  /lesson <id> — view verbatim body\n"
@@ -1144,6 +1241,15 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /lessonauthorai [N|all] — author pending candidates via AI\n"
         "  /brutalreviewai — full deep audit of the codebase + trading state (AI)\n"
         "  /critique [N|symbol] — recent entry critiques (auto-fired on every new position)\n"
+        "\n*Chat History (historical oracle)*\n"
+        "  /chathistory — last 10 entries (alias /ch)\n"
+        "  /chathistory 25 — last N entries (max 50)\n"
+        "  /chathistory search <query> — substring search\n"
+        "  /chathistory stats — count, date range, roles, market-context coverage\n"
+        "\n*Discipline*\n"
+        "  /nudge — things Chris should do (restore drill, brutal review, lesson queue)\n"
+        "  /nudge overdue — only overdue items\n"
+        "  /nudge done <id> — mark a ritual done now\n"
         "\n*Agent Control*\n"
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
@@ -1158,8 +1264,8 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /health — app health check\n"
         "  /diag — error diagnostics\n"
         "  /bug text — report a bug\n"
-        "  /todo text — add a todo\n"
-        "  /feedback text — submit feedback\n"
+        "  /todo text — add todo (`list|search|done|dismiss|show`)\n"
+        "  /feedback text — feedback (`list|search|resolve|dismiss|tag|show`)\n"
         "  /guide — how to use this bot\n"
         "\n*AI Chat*\n"
         "  Type anything — AI responds with live data\n"
@@ -1514,76 +1620,201 @@ def cmd_bug(token: str, chat_id: str, args: str) -> None:
 
 
 def cmd_feedback(token: str, chat_id: str, args: str) -> None:
-    """Submit feedback. Usage: /feedback <text>"""
-    if not args.strip():
-        tg_send(token, chat_id, "*Feedback*\n\nUsage: `/feedback market updates need more detail on technicals`")
+    """Submit, list, search, resolve, dismiss, tag, or show feedback.
+
+    Usage:
+        /feedback <text>                     — add a new feedback item
+        /feedback list [open|all|resolved]   — list (default: open)
+        /feedback search <query>             — substring search
+        /feedback resolve <id> [note]        — mark resolved
+        /feedback dismiss <id> [note]        — mark won't-fix
+        /feedback tag <id> <tag>             — attach a tag
+        /feedback show <id>                  — full detail + event history
+
+    Historical: this is an event-sourced append-only log. Rows are
+    NEVER rewritten in place. See modules/feedback_store.py.
+    """
+    from modules import feedback_store as fs
+
+    text = args.strip()
+    if not text:
+        tg_send(token, chat_id,
+            "*Feedback*\n\n"
+            "Usage:\n"
+            "`/feedback market updates need more detail on technicals`\n"
+            "`/feedback list [open|all|resolved]`\n"
+            "`/feedback search <query>`\n"
+            "`/feedback resolve <id> [note]`\n"
+            "`/feedback dismiss <id> [note]`\n"
+            "`/feedback tag <id> <tag>`\n"
+            "`/feedback show <id>`")
         return
 
-    feedback_path = Path("data/feedback.jsonl")
-    feedback_path.parent.mkdir(parents=True, exist_ok=True)
+    lower = text.lower()
 
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "telegram",
-        "text": args.strip()[:1000],
-        "resolved": False,
-    }
-    with open(feedback_path, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+    # list subcommand
+    if lower == "list" or lower.startswith("list "):
+        rest = text[4:].strip().lower() or "open"
+        all_items = fs.load_feedback()
+        if rest == "all":
+            items = all_items
+            header = f"*All Feedback ({len(items)})*"
+        elif rest == "resolved":
+            items = [i for i in all_items if i.status == "resolved"]
+            header = f"*Resolved Feedback ({len(items)})*"
+        elif rest == "dismissed":
+            items = [i for i in all_items if i.status == "dismissed"]
+            header = f"*Dismissed Feedback ({len(items)})*"
+        else:
+            items = [i for i in all_items if i.status == "open"]
+            header = f"*Open Feedback ({len(items)})*"
+        if not items:
+            tg_send(token, chat_id, f"{header}\n\n_(none)_")
+            return
+        lines = [header, ""]
+        for item in items[-20:]:
+            short = item.id[-4:]
+            marker = {"open": "•", "resolved": "✓", "dismissed": "×", "wontfix": "×"}.get(item.status, "?")
+            ts = (item.timestamp or "")[:10]
+            preview = item.text[:80].replace("\n", " ")
+            lines.append(f"`{short}` {marker} {preview} _({ts})_")
+        lines.append("\nUse `/feedback show <id>` for detail.")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
 
-    tg_send(token, chat_id, f"*Feedback Recorded*\n\n`{args.strip()[:100]}`")
-    log.info("Feedback via Telegram: %s", args.strip()[:80])
+    # search subcommand
+    if lower.startswith("search "):
+        q = text[7:].strip()
+        matches = fs.search_feedback(q, limit=15)
+        if not matches:
+            tg_send(token, chat_id, f"No feedback matching `{q}`.")
+            return
+        lines = [f"*Feedback search: `{q}` ({len(matches)} hits)*", ""]
+        for item in matches:
+            short = item.id[-4:]
+            marker = {"open": "•", "resolved": "✓", "dismissed": "×"}.get(item.status, "?")
+            preview = item.text[:100].replace("\n", " ")
+            lines.append(f"`{short}` {marker} {preview}")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    # resolve / dismiss / tag / show subcommands
+    if lower.startswith("resolve "):
+        parts = text[8:].strip().split(None, 1)
+        target = parts[0] if parts else ""
+        note = parts[1] if len(parts) > 1 else ""
+        item = fs.resolve_prefix(target, fs.load_feedback())
+        if item is None:
+            tg_send(token, chat_id, f"No unique feedback matching `{target}`.")
+            return
+        fs.set_feedback_status(item.id, "resolved", note=note)
+        tg_send(token, chat_id, f"*Resolved* `{item.id[-4:]}`\n{item.text[:100]}")
+        return
+
+    if lower.startswith("dismiss "):
+        parts = text[8:].strip().split(None, 1)
+        target = parts[0] if parts else ""
+        note = parts[1] if len(parts) > 1 else ""
+        item = fs.resolve_prefix(target, fs.load_feedback())
+        if item is None:
+            tg_send(token, chat_id, f"No unique feedback matching `{target}`.")
+            return
+        fs.set_feedback_status(item.id, "dismissed", note=note)
+        tg_send(token, chat_id, f"*Dismissed* `{item.id[-4:]}`")
+        return
+
+    if lower.startswith("tag "):
+        parts = text[4:].strip().split(None, 1)
+        if len(parts) < 2:
+            tg_send(token, chat_id, "Usage: `/feedback tag <id> <tag>`")
+            return
+        target, tag = parts[0], parts[1].strip()
+        item = fs.resolve_prefix(target, fs.load_feedback())
+        if item is None:
+            tg_send(token, chat_id, f"No unique feedback matching `{target}`.")
+            return
+        fs.tag_feedback(item.id, tag)
+        tg_send(token, chat_id, f"*Tagged* `{item.id[-4:]}` with `{tag}`")
+        return
+
+    if lower.startswith("show "):
+        target = text[5:].strip()
+        item = fs.resolve_prefix(target, fs.load_feedback())
+        if item is None:
+            tg_send(token, chat_id, f"No unique feedback matching `{target}`.")
+            return
+        lines = [
+            f"*Feedback {item.id}*",
+            f"Status: `{item.status}`",
+            f"Created: {(item.timestamp or '')[:19]}",
+            f"Source: {item.source}",
+        ]
+        if item.tags:
+            lines.append("Tags: " + ", ".join(f"`{t}`" for t in item.tags))
+        lines.append("")
+        lines.append(item.text)
+        if item.history:
+            lines.append("\n*History*")
+            for ev in item.history:
+                kind = ev.get("event", "?")
+                ts = (ev.get("timestamp") or "")[:19]
+                detail = ev.get("to_status") or ev.get("tag") or ""
+                note = ev.get("note") or ""
+                suffix = f" — _{note}_" if note else ""
+                lines.append(f"  {ts} {kind} `{detail}`{suffix}")
+        tg_send(token, chat_id, "\n".join(lines))
+        return
+
+    # Default: bare text → add new feedback item.
+    new_id = fs.add_feedback(text[:1000])
+    tg_send(token, chat_id, f"*Feedback Recorded* `{new_id[-4:]}`\n\n`{text[:100]}`")
+    log.info("Feedback via Telegram (%s): %s", new_id, text[:80])
 
 
 def cmd_feedback_resolve(token: str, chat_id: str, args: str) -> None:
-    """Mark feedback item(s) as resolved. Usage: /feedback_resolve <number> or 'all'"""
-    feedback_path = Path("data/feedback.jsonl")
-    if not feedback_path.exists():
-        tg_send(token, chat_id, "No feedback file found.")
-        return
+    """Legacy admin shim — mark feedback as resolved by id, short prefix, or ``all``.
 
-    arg = args.strip().lower()
+    Historical note: the pre-2026-04-09 implementation read the whole
+    file, mutated entries in memory, and rewrote the file with
+    ``open(path, "w")``. That silently modified the very historical
+    rows Chris said he values most. This now dispatches to the
+    append-only event store — primary rows are never touched.
+    """
+    from modules import feedback_store as fs
+
+    arg = args.strip()
+    all_items = fs.load_feedback()
+
     if not arg:
-        # Show unresolved feedback with indices
-        lines = feedback_path.read_text().strip().split("\n")
-        unresolved = []
-        for i, line in enumerate(lines, 1):
-            entry = json.loads(line)
-            if not entry.get("resolved", False):
-                text_preview = entry.get("text", "")[:60]
-                date = entry.get("timestamp", "")[:10]
-                unresolved.append(f"`{i}.` {date} — {text_preview}")
+        unresolved = [i for i in all_items if i.status == "open"]
         if not unresolved:
             tg_send(token, chat_id, "*All feedback resolved!*")
-        else:
-            tg_send(token, chat_id, f"*Unresolved Feedback ({len(unresolved)})*\n\n" + "\n".join(unresolved) + "\n\nResolve: `/feedback_resolve <number>` or `all`")
+            return
+        lines = [f"*Unresolved Feedback ({len(unresolved)})*", ""]
+        for item in unresolved[-20:]:
+            short = item.id[-4:]
+            preview = item.text[:60].replace("\n", " ")
+            date = (item.timestamp or "")[:10]
+            lines.append(f"`{short}` {date} — {preview}")
+        lines.append("\nResolve: `/feedback_resolve <id>` or `all`")
+        tg_send(token, chat_id, "\n".join(lines))
         return
 
-    lines = feedback_path.read_text().strip().split("\n")
-    entries = [json.loads(line) for line in lines]
+    if arg.lower() == "all":
+        count = 0
+        for item in all_items:
+            if item.status == "open":
+                if fs.set_feedback_status(item.id, "resolved", note="bulk resolve"):
+                    count += 1
+        tg_send(token, chat_id, f"*Resolved {count} feedback item(s)*")
+        return
 
-    if arg == "all":
-        for e in entries:
-            e["resolved"] = True
-        count = len(entries)
-    else:
-        try:
-            idx = int(arg) - 1
-            if 0 <= idx < len(entries):
-                entries[idx]["resolved"] = True
-                count = 1
-            else:
-                tg_send(token, chat_id, f"Index {arg} out of range (1-{len(entries)})")
-                return
-        except ValueError:
-            tg_send(token, chat_id, "Usage: `/feedback_resolve <number>` or `all`")
-            return
-
-    with open(feedback_path, "w") as f:
-        for e in entries:
-            f.write(json.dumps(e) + "\n")
-
-    tg_send(token, chat_id, f"*Resolved {count} feedback item(s)*")
+    item = fs.resolve_prefix(arg, all_items)
+    if item is None:
+        tg_send(token, chat_id, f"No unique feedback matching `{arg}`.")
+        return
+    fs.set_feedback_status(item.id, "resolved")
+    tg_send(token, chat_id, f"*Resolved 1 feedback item*\n`{item.id[-4:]}` {item.text[:80]}")
 
 
 def cmd_news(token: str, chat_id: str, args: str) -> None:
@@ -2708,6 +2939,13 @@ from cli.telegram_commands.lessons import (  # noqa: E402
 )
 from cli.telegram_commands.brutal_review import cmd_brutalreviewai  # noqa: E402
 from cli.telegram_commands.entry_critic import cmd_critique  # noqa: E402
+from cli.telegram_commands.action_queue import cmd_nudge  # noqa: E402
+from cli.telegram_commands.chat_history import cmd_chathistory  # noqa: E402
+from cli.telegram_commands.patternlib import (  # noqa: E402
+    cmd_patterncatalog,
+    cmd_patternpromote,
+    cmd_patternreject,
+)
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2761,6 +2999,9 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/selftuneproposals` — list L2 structural proposals pending human review\n"
         "`/selftuneapprove <id>` — approve + atomically apply a proposal's config change\n"
         "`/selftunereject <id>` — reject a proposal (no file change)\n"
+        "`/patterncatalog` — sub-system 6 L3 bot-pattern library (live catalog + pending candidates)\n"
+        "`/patternpromote <id>` — promote a pending pattern candidate into the live catalog\n"
+        "`/patternreject <id>` — reject a pending pattern candidate (catalog untouched)\n"
         "\n📓 *Trade Lessons*\n"
         "`/lessons` — recent trade post-mortems the agent wrote after each close\n"
         "`/lesson 42` — full verbatim body of lesson #42\n"
@@ -2776,6 +3017,27 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "iterator auto-fires a critique on every new position (sizing / direction "
         "/ catalyst timing / liquidity / funding axes, plus suggestions and "
         "lesson recall). This command is the manual lookup for past entries.\n"
+        "\n💬 *Chat History — Historical Oracle*\n"
+        "Every Telegram message and assistant reply is appended to "
+        "`data/daemon/chat_history.jsonl` forever. The writer is append-only; "
+        "there is no rotation and no deletion. Going forward, each row also "
+        "carries a `market_context` snapshot (equity, positions, prices) so "
+        "future analysis can correlate each message with market state at the "
+        "time it was sent — priceless training signal as the bot matures.\n"
+        "`/chathistory` (or `/ch`) — last 10 entries with timestamps + roles\n"
+        "`/chathistory 25` — last N entries (max 50)\n"
+        "`/chathistory search oil ceasefire` — substring search across all rows\n"
+        "`/chathistory stats` — count, date range, role breakdown, "
+        "market-context coverage %, sibling `.bak*` backups\n"
+        "\n🪧 *Action Queue (things Chris should do)*\n"
+        "`/nudge` — list every operator ritual (restore drill, weekly brutal "
+        "review, thesis refresh, lesson queue, backup health, feedback triage). "
+        "The action_queue daemon iterator evaluates this list once a day and "
+        "posts a Telegram nudge if anything is overdue.\n"
+        "`/nudge overdue` — only show items that are past due.\n"
+        "`/nudge done <id>` — mark a ritual done now (resets the cadence window).\n"
+        "`/nudge add <kind> <days> <desc>` — add a custom time-based reminder.\n"
+        "`/nudge remove <id>` — drop a custom item.\n"
         "The agent sees the top recent lessons automatically in its system prompt; "
         "use these commands to browse and curate from Telegram.\n"
         "\n*Rule:* slash commands are fixed code. Anything that depends on AI "
@@ -2804,8 +3066,11 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "\n🛢️ *Watchlist Management*\n"
         "`/addmarket crude` — search and add a new market\n"
         "`/removemarket xyz:CL` — remove a market\n"
-        "\n📝 *Tracking*\n"
-        "`/bug`, `/todo`, `/feedback` — all picked up by Claude Code next session.\n"
+        "\n📝 *Tracking (append-only historical log)*\n"
+        "`/bug` — file a bug.\n"
+        "`/todo <text>` — add a todo. `/todo list|search|done|dismiss|show` for management.\n"
+        "`/feedback <text>` — leave feedback. `/feedback list|search|resolve|dismiss|tag|show` for management.\n"
+        "All three feed Claude Code next session. Rows are event-sourced — never rewritten in place.\n"
         "\n*Background*: Heartbeat checks every 2 min (stops, alerts, escalation). "
         "Thesis files drive conviction sizing. Claude Code (Opus) writes thesis, this bot reads and discusses.\n"
         "\n`/help` for full command list")
@@ -4245,12 +4510,18 @@ HANDLERS = {
     "/selftuneproposals": cmd_selftuneproposals,
     "/selftuneapprove": cmd_selftuneapprove,
     "/selftunereject": cmd_selftunereject,
+    "/patterncatalog": cmd_patterncatalog,
+    "/patternpromote": cmd_patternpromote,
+    "/patternreject": cmd_patternreject,
     "/lessons": cmd_lessons,
     "/lesson": cmd_lesson,
     "/lessonsearch": cmd_lessonsearch,
     "/lessonauthorai": cmd_lessonauthorai,
     "/brutalreviewai": cmd_brutalreviewai,
     "/critique": cmd_critique,
+    "/nudge": cmd_nudge,
+    "/chathistory": cmd_chathistory,
+    "/ch": cmd_chathistory,
     "status": cmd_status,
     "price": cmd_price,
     "orders": cmd_orders,
@@ -4309,6 +4580,9 @@ HANDLERS = {
     "selftuneproposals": cmd_selftuneproposals,
     "selftuneapprove": cmd_selftuneapprove,
     "selftunereject": cmd_selftunereject,
+    "patterncatalog": cmd_patterncatalog,
+    "patternpromote": cmd_patternpromote,
+    "patternreject": cmd_patternreject,
     "disrupt-update": cmd_disrupt_update,
     "lessons": cmd_lessons,
     "lesson": cmd_lesson,
@@ -4316,6 +4590,9 @@ HANDLERS = {
     "lessonauthorai": cmd_lessonauthorai,
     "brutalreviewai": cmd_brutalreviewai,
     "critique": cmd_critique,
+    "chathistory": cmd_chathistory,
+    "ch": cmd_chathistory,
+    "nudge": cmd_nudge,
     "/menu": cmd_menu,
     "menu": cmd_menu,
     "/close": cmd_close,
@@ -4388,12 +4665,17 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "selftuneproposals", "description": "List pending L2 structural proposals"},
         {"command": "selftuneapprove", "description": "/selftuneapprove <id> — approve + apply a proposal"},
         {"command": "selftunereject", "description": "/selftunereject <id> — reject a proposal"},
+        {"command": "patterncatalog", "description": "Bot-pattern library state (sub-system 6 L3)"},
+        {"command": "patternpromote", "description": "/patternpromote <id> — promote a candidate into the live catalog"},
+        {"command": "patternreject", "description": "/patternreject <id> — reject a candidate (catalog untouched)"},
         {"command": "lessons", "description": "Recent trade post-mortems from the lesson corpus"},
         {"command": "lesson", "description": "View/approve/reject a lesson by id"},
         {"command": "lessonsearch", "description": "BM25 search over the lesson corpus"},
         {"command": "lessonauthorai", "description": "Author pending lesson candidates via AI (dream cycle also runs this)"},
         {"command": "brutalreviewai", "description": "Run the Brutal Review Loop — full deep audit (AI)"},
         {"command": "critique", "description": "Show recent entry critiques (deterministic)"},
+        {"command": "chathistory", "description": "Browse the historical-oracle chat log (last N / search / stats)"},
+        {"command": "nudge", "description": "Things Chris should do — restore drill, brutal review, lesson queue"},
         {"command": "powerlaw", "description": "BTC power law model"},
         # Agent Control
         {"command": "authority", "description": "Who manages what"},

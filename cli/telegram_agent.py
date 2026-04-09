@@ -1438,8 +1438,125 @@ def _load_chat_history(limit: int = 20) -> List[Dict]:
     return recent
 
 
+def _build_market_context_snapshot() -> Optional[Dict]:
+    """Best-effort: read the latest account snapshot + tracked prices for the
+    chat row's ``market_context`` enrichment.
+
+    Returns a dict with ``equity_usd`` / ``positions`` / ``prices`` keys (each
+    value may be ``None`` if unavailable), or ``None`` if EVERY source failed.
+
+    This is an enrichment, NOT a gate. All exceptions are swallowed; the
+    caller must never let this block the chat write. The chat row is the
+    source of truth — market_context is opportunistic metadata that the user
+    explicitly asked for so future analysis can correlate each message with
+    market state at the time.
+    """
+    out: Dict = {"equity_usd": None, "positions": None, "prices": None}
+
+    # --- Equity + positions from the latest account snapshot -------------
+    try:
+        from cli.daemon.iterators.account_collector import (
+            AccountCollectorIterator,
+        )
+        # Prefer absolute path anchored to _PROJECT_ROOT so the read works
+        # regardless of the telegram bot's cwd.
+        snap_dir = str(_PROJECT_ROOT / "data" / "snapshots")
+        snap = AccountCollectorIterator.get_latest(snap_dir)
+        if snap:
+            # total_equity is the canonical field per cli/daemon/CLAUDE.md
+            # (perps native + xyz + spot USDC). Fall back to account_value.
+            eq = snap.get("total_equity")
+            if eq is None:
+                eq = snap.get("account_value")
+            if eq is not None:
+                try:
+                    out["equity_usd"] = float(eq)
+                except (TypeError, ValueError):
+                    pass
+
+            positions: List[Dict] = []
+            for pos_list_key in ("positions_native", "positions_xyz"):
+                for p in (snap.get(pos_list_key) or []):
+                    pos = p.get("position") if isinstance(p, dict) else None
+                    if not pos:
+                        continue
+                    coin = pos.get("coin") or ""
+                    # Coin prefix normalisation — CLAUDE.md §4 recurring bug:
+                    # xyz clearinghouse returns names WITH 'xyz:' prefix.
+                    # Strip for the chat row so downstream analysis is uniform.
+                    if isinstance(coin, str) and coin.startswith("xyz:"):
+                        instrument = coin[len("xyz:"):]
+                    else:
+                        instrument = coin or "?"
+                    try:
+                        szi = float(pos.get("szi") or 0)
+                    except (TypeError, ValueError):
+                        szi = 0.0
+                    side = "long" if szi > 0 else ("short" if szi < 0 else "flat")
+                    try:
+                        notional = float(pos.get("positionValue") or 0)
+                    except (TypeError, ValueError):
+                        notional = 0.0
+                    positions.append({
+                        "instrument": instrument,
+                        "side": side,
+                        "notional_usd": notional,
+                    })
+            out["positions"] = positions
+    except Exception:
+        # Any failure (import, filesystem, parse) degrades equity+positions
+        # to None. Chat write must remain bulletproof.
+        pass
+
+    # --- Prices (best-effort) ------------------------------------------
+    # Snapshots don't currently persist a prices dict, and live clearing-
+    # house calls would block the chat write path. Leave None unless a
+    # future snapshot schema adds it. Keep the key present so readers
+    # can treat the whole field uniformly.
+    try:
+        from cli.daemon.iterators.account_collector import (
+            AccountCollectorIterator,
+        )
+        snap_dir = str(_PROJECT_ROOT / "data" / "snapshots")
+        snap = AccountCollectorIterator.get_latest(snap_dir)
+        if snap and isinstance(snap.get("prices"), dict):
+            # Forward-compatible: if a future account_collector patch adds
+            # a `prices` key to the snapshot, we'll pick it up here for
+            # free without blocking on any network I/O.
+            prices = {}
+            for k, v in snap["prices"].items():
+                try:
+                    key = k.replace("xyz:", "") if isinstance(k, str) else str(k)
+                    prices[key] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            out["prices"] = prices
+    except Exception:
+        pass
+
+    # Return None only if literally nothing populated — otherwise keep the
+    # dict so readers can rely on the field's presence and shape.
+    if out["equity_usd"] is None and out["positions"] is None and out["prices"] is None:
+        return None
+    return out
+
+
 def _log_chat(role: str, text: str, user_name: str = "", model: str = "") -> None:
-    """Append a chat entry to history JSONL."""
+    """Append a chat entry to history JSONL.
+
+    IMPORTANT: this path is APPEND-ONLY. Chat history is a historical oracle
+    the user explicitly told us to preserve forever — there is NO rotation,
+    NO truncation, NO auto-deletion anywhere in the codebase. If you're
+    reading this because you're about to add a cleanup/rotation iterator:
+    don't. See docs/wiki/architecture/data-stores.md row for the rationale
+    and the `.bak*` sibling files for historical manual snapshots.
+
+    Every row also carries a best-effort ``market_context`` snapshot
+    (equity / positions / prices) so downstream analysis can correlate the
+    message with market state at the time. The enrichment is wrapped in
+    try/except and NEVER blocks the chat write — if the snapshot read
+    fails, ``market_context`` degrades to ``null`` and the row still lands.
+    """
     _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": int(time.time()),
@@ -1450,6 +1567,18 @@ def _log_chat(role: str, text: str, user_name: str = "", model: str = "") -> Non
         entry["user"] = user_name
     if model:
         entry["model"] = model
+
+    # Best-effort market-state correlation. Wrapped in try/except so a
+    # broken snapshot reader CANNOT block the chat write path.
+    try:
+        mc = _build_market_context_snapshot()
+        if mc is not None:
+            entry["market_context"] = mc
+    except Exception as e:
+        # Swallow completely — chat row is the source of truth, mc is
+        # opportunistic metadata.
+        log.debug("market_context enrichment failed (non-fatal): %s", e)
+
     with open(_HISTORY_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
