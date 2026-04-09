@@ -25,8 +25,8 @@ this wedge series:
 | L0 | Hard contracts (tests, SL+TP, schemas) | **Already shipped.** exchange_protection enforces SL+TP; tests live in `tests/`; every config file has a schema via the kill-switch reloader. No work needed here. |
 | L1 | Bounded auto-tune — journal-replay nudges params within hard min/max after each closed trade | **This wedge.** |
 | L2 | Reflect proposals — weekly structural change proposals to Telegram with 1-tap promote/reject | **This wedge.** |
-| L3 | Pattern library growth — classifier auto-adds new bot-pattern signatures | **Deferred to sub-system 6 phase 2.** Needs sub-system 4 classifier extension + versioned catalog + promotion UX. |
-| L4 | Shadow trading — proposals run in paper mode for ≥N closed trades before live | **Deferred to sub-system 6 phase 3.** Needs a paper-mode executor — separate surface, separate risk review. |
+| L3 | Pattern library growth — detects novel `(classification, direction, confidence_band, signals)` signatures in bot_patterns.jsonl, emits candidates for 1-tap promotion | **Shipped 2026-04-09.** Purely observational — classifier integration deferred. |
+| L4 | Shadow counterfactual eval — replays approved L2 proposals against the last N days of decisions, reports divergences + est. PnL delta | **Shipped 2026-04-09.** Look-back counterfactual only; forward paper executor deferred. |
 | L5 | ML overlay | **Deferred per SYSTEM doc §6.** Requires ≥100 closed trades first. Parked indefinitely. |
 
 **Why L1 + L2 first:** they are the two layers that deliver value without
