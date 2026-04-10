@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/OIL_BOT_PATTERN_SYSTEM.md
 status: Approved 2026-04-09. Sub-system 1 enters detailed spec.
 tags:

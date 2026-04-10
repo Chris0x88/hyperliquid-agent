@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 count: 68
 tags:
   - index
@@ -9,7 +9,7 @@ tags:
 
 # Telegram Commands Index
 
-_68 commands across 13 submodules. Last regenerated: 2026-04-09 16:05._
+_68 commands across 13 submodules. Last regenerated: 2026-04-09 16:36._
 
 Per CLAUDE.md: slash commands are FIXED CODE. Anything that depends on AI carries the `ai` suffix. Natural-language messages (not starting with `/`) route to the embedded agent.
 

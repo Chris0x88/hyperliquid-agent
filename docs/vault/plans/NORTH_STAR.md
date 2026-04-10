@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/NORTH_STAR.md
 status: Proposed, awaiting Tier 1 completion gate per ADR-011 §8:
 tags:

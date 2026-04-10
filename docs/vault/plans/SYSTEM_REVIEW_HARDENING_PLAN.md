@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/SYSTEM_REVIEW_HARDENING_PLAN.md
 status: Ready to execute — **start in a fresh session**, not this one.
 tags:

@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 iterator_name: rebalancer
 class_name: RebalancerIterator
 source_file: cli/daemon/iterators/rebalancer.py

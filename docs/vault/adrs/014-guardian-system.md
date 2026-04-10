@@ -1,6 +1,6 @@
 ---
 kind: adr
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 adr_file: docs/wiki/decisions/014-guardian-system.md
 tags:
   - adr

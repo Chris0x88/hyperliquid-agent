@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/AUDIT_FIX_PLAN.md
 status: unknown
 tags:

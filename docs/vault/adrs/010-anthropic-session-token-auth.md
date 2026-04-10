@@ -1,6 +1,6 @@
 ---
 kind: adr
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 adr_file: docs/wiki/decisions/010-anthropic-session-token-auth.md
 tags:
   - adr

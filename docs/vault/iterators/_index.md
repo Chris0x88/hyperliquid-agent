@@ -1,6 +1,6 @@
 ---
 kind: index
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 count: 36
 tags:
   - index
@@ -9,7 +9,7 @@ tags:
 
 # Iterators Index
 
-_36 iterators auto-generated from `cli/daemon/iterators/`. Last regenerated: 2026-04-09 16:05._
+_36 iterators auto-generated from `cli/daemon/iterators/`. Last regenerated: 2026-04-09 16:36._
 
 Iterators are the daemon's pluggable processors. Each one runs per tick (~120s cadence). See [[Tier-Ladder]] for which iterators activate in which tier, and [[Authority-Model]] for how per-asset delegation gates trade-touching iterators.
 

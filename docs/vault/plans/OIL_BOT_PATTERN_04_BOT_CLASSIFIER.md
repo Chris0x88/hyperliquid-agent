@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/OIL_BOT_PATTERN_04_BOT_CLASSIFIER.md
 status: parked. Comeback target: after ≥100 closed trades exist in
 tags:

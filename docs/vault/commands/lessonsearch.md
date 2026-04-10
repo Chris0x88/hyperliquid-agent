@@ -1,6 +1,6 @@
 ---
 kind: telegram_command
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 command: /lessonsearch
 submodule: lessons
 ai_dependent: false

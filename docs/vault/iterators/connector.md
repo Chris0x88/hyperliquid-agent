@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 iterator_name: connector
 class_name: ConnectorIterator
 source_file: cli/daemon/iterators/connector.py

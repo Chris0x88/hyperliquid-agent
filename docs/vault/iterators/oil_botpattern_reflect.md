@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 iterator_name: oil_botpattern_reflect
 class_name: OilBotPatternReflectIterator
 source_file: cli/daemon/iterators/oil_botpattern_reflect.py

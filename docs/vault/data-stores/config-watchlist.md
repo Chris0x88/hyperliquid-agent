@@ -1,6 +1,6 @@
 ---
 kind: config_file
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 path: data/config/watchlist.json
 is_kill_switch: false
 tags:

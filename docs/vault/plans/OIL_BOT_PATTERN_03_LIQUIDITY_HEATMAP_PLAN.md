@@ -1,6 +1,6 @@
 ---
 kind: plan
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 plan_file: docs/plans/OIL_BOT_PATTERN_03_LIQUIDITY_HEATMAP_PLAN.md
 status: unknown
 tags:

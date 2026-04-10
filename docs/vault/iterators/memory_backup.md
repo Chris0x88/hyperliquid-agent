@@ -1,6 +1,6 @@
 ---
 kind: iterator
-last_regenerated: 2026-04-09 16:05
+last_regenerated: 2026-04-09 16:36
 iterator_name: memory_backup
 class_name: MemoryBackupIterator
 source_file: cli/daemon/iterators/memory_backup.py
