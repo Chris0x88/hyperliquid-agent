@@ -1,0 +1,51 @@
+# web/ — Mission Control Platform
+
+Local web dashboard, control panel, and documentation site for the HyperLiquid Bot.
+
+## Packages
+
+| Directory | Purpose | Port |
+|-----------|---------|------|
+| `api/` | FastAPI backend — reads same data files as daemon/telegram bot | 8420 |
+| `dashboard/` | Next.js 15 + Bun frontend — monitoring cockpit + control panel | 3000 |
+| `docs/` | Astro Starlight documentation site (public-deployable) | 4321 |
+
+## Running
+
+```bash
+# Backend (from agent-cli/)
+.venv/bin/uvicorn web.api.app:create_app --factory --host 127.0.0.1 --port 8420
+
+# Frontend (from web/dashboard/)
+bun run dev
+
+# Docs (from web/docs/)
+bun run dev
+```
+
+## Architecture
+
+- Backend reads the same JSON/JSONL/YAML/SQLite files the daemon writes to
+- Data access layer (`api/readers/`) has abstract interfaces — swap for NautilusTrader/DB later
+- Frontend uses polling (10-60s) + SSE for real-time log streaming
+- All bound to 127.0.0.1 — local only
+- Bearer token auth (auto-generated on first launch, stored in `web/.auth_token`)
+
+## Design System
+
+- **Colors**: Primary #A26B32, Secondary #8F7156, Tertiary #87CAE6, Neutral #7E756F
+- **Fonts**: Space Grotesk (headings), Inter (body), Geist Mono (data)
+- **Theme tokens**: `dashboard/src/lib/theme.ts`
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/app.py` | FastAPI factory with CORS + auth |
+| `api/routers/*.py` | API endpoints (account, health, daemon, thesis, config, logs, etc.) |
+| `api/readers/*.py` | Data access layer (file-based, DB-swappable) |
+| `dashboard/src/app/page.tsx` | Dashboard home page |
+| `dashboard/src/app/control/page.tsx` | Control panel (iterators, config, authority) |
+| `dashboard/src/app/logs/page.tsx` | Log viewer with SSE streaming |
+| `dashboard/src/lib/theme.ts` | Design tokens |
+| `dashboard/src/lib/api.ts` | Typed API client |

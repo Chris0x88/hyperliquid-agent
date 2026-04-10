@@ -73,6 +73,14 @@ plists/*.plist
 # OpenClaw config has hardcoded local paths
 openclaw.json
 
+# Web dashboard build artifacts
+web/dashboard/node_modules/
+web/dashboard/.next/
+web/docs/node_modules/
+web/docs/dist/
+web/docs/.astro/
+web/.auth_token
+
 # IDE
 .vscode/
 .idea/

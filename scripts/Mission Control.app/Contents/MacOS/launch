@@ -1,0 +1,26 @@
+#!/bin/bash
+# Mission Control — one-click launcher
+# Double-click this .app to start all web services and open the dashboard
+
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+PROJECT="$(cd "$DIR/.." && pwd)"
+
+export PATH="$HOME/.bun/bin:$PROJECT/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+export HOME="${HOME:-/Users/cdi}"
+
+cd "$PROJECT" || exit 1
+
+# Start services (start_web.sh handles killing old processes)
+bash scripts/start_web.sh &
+
+# Wait for dashboard to come up, then open browser
+for i in $(seq 1 30); do
+    if curl -s -o /dev/null http://127.0.0.1:3000 2>/dev/null; then
+        open "http://127.0.0.1:3000"
+        exit 0
+    fi
+    sleep 1
+done
+
+# Fallback: open anyway
+open "http://127.0.0.1:3000"

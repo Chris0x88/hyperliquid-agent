@@ -1,0 +1,57 @@
+---
+title: HyperLiquid Bot
+description: An AI trading co-pilot for HyperLiquid — 24/7 risk management, conviction-driven sizing, and a real embedded agent.
+template: splash
+hero:
+  tagline: Your AI trading co-pilot for HyperLiquid. Open source. No fees. No telemetry. Your keys, your rules.
+  actions:
+    - text: Get Started
+      link: /getting-started/overview/
+      icon: right-arrow
+      variant: primary
+    - text: Architecture
+      link: /architecture/overview/
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What You Get
+
+<CardGrid stagger>
+  <Card title="Embedded AI Agent" icon="rocket">
+    Claude running inside the bot. Reads your codebase, executes tools, manages positions, learns from each trade. Parallel tool calls, streaming output, context compaction, and persistent memory.
+  </Card>
+  <Card title="Telegram Dashboard" icon="laptop">
+    Instant portfolio, charts, prices, orders, P&L, conviction state, and funding rates. Fixed commands hit the HyperLiquid API directly — zero AI credits per slash command.
+  </Card>
+  <Card title="Tick-Based Daemon" icon="setting">
+    Iterators run on a configurable clock: account state, risk gates, mandatory SL/TP enforcement, trailing stops, conviction-driven sizing, auto-research, profit lock, and the REFLECT loop.
+  </Card>
+  <Card title="Conviction Engine" icon="star">
+    Position sizing scales with thesis strength. Stale thesis files auto-clamp leverage. Kill switch built in. Thesis files in `data/thesis/` are the shared contract between you and the system.
+  </Card>
+  <Card title="Mandatory Stop & Take-Profit" icon="warning">
+    Every position MUST have both SL and TP on the exchange itself. No exceptions. No "I'll add it later." The daemon enforces this every tick using ATR-based stops.
+  </Card>
+  <Card title="Hardened Key Management" icon="approve-check">
+    Open Wallet Standard vault (AES-256-GCM) + macOS Keychain dual-write. API wallets only — the bot literally cannot withdraw your funds. If your key leaks, revoke it instantly.
+  </Card>
+</CardGrid>
+
+## Quick Links
+
+<CardGrid>
+  <Card title="5-Minute Setup" icon="document">
+    Python 3.13, a HyperLiquid account, and a Telegram bot token. [Start here →](/getting-started/installation/)
+  </Card>
+  <Card title="System Architecture" icon="open-book">
+    Four architecture generations from simple daemon to embedded Claude Code port. [Explore →](/architecture/overview/)
+  </Card>
+  <Card title="Trading Rules" icon="list-format">
+    Thesis-driven core markets, mandatory SL/TP, conviction sizing, and the oil long-only rule. [Read →](/trading/markets/)
+  </Card>
+  <Card title="Operations Runbook" icon="seti:config">
+    Day-to-day operation, health checks, tier promotion, and incident response. [View →](/operations/runbook/)
+  </Card>
+</CardGrid>
