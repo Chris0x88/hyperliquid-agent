@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "check_interval_s": 300,
   "catalysts_jsonl": "data/news/catalysts.jsonl",
   "headlines_jsonl": "data/news/headlines.jsonl",

@@ -57,3 +57,20 @@ markets:
     thesis_required: true
     max_leverage: 10
     exception_subsystems: []
+
+  CL:
+    direction_bias: "long_only"
+    asset_class: "commodity"
+    sub_class: "energy"
+    thesis_required: true
+    max_leverage: 10
+    roll_calendar: "monthly_nymex"
+    exception_subsystems: []
+
+  SP500:
+    direction_bias: "neutral"
+    asset_class: "equities"
+    sub_class: "index"
+    thesis_required: true
+    max_leverage: 10
+    exception_subsystems: []
