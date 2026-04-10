@@ -259,6 +259,11 @@ def daemon_start(
     except ImportError:
         pass
     try:
+        from cli.daemon.iterators.thesis_updater import ThesisUpdaterIterator
+        clock.register(ThesisUpdaterIterator())  # Haiku-powered news → conviction adjustment
+    except ImportError:
+        pass
+    try:
         from cli.daemon.iterators.lab import LabIterator
         clock.register(LabIterator())  # strategy development pipeline (kill switch OFF at ship)
     except ImportError:

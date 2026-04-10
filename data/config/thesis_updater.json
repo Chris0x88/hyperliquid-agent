@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "check_interval_s": 300,
+  "catalysts_jsonl": "data/news/catalysts.jsonl",
+  "headlines_jsonl": "data/news/headlines.jsonl",
+  "audit_jsonl": "data/thesis/audit.jsonl",
+  "news_log_jsonl": "data/thesis/news_log.jsonl",
+  "thesis_dir": "data/thesis",
+  "articles_dir": "data/news/articles",
+  "evidence_archive_dir": "data/thesis/evidence_archive",
+  "max_delta_per_event": 0.15,
+  "max_delta_per_24h": 0.30,
+  "go_flat_threshold": 0.10,
+  "archive_age_days": 30,
+  "archive_check_interval_h": 24,
+  "weekend_dampening_factor": 0.5,
+  "deep_fetch_max_per_hour": 5,
+  "cooldown_minutes_default": 60,
+  "haiku_model": "claude-haiku-4-5",
+  "macro_context": "Current dominant macro driver is the US-Iran war and oil supply. Oil price moves inversely drive BTC, GOLD, SILVER."
+}

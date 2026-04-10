@@ -38,6 +38,7 @@ TIER_ITERATORS = {
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
+        "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
@@ -76,6 +77,7 @@ TIER_ITERATORS = {
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
+        "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
@@ -116,6 +118,7 @@ TIER_ITERATORS = {
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
+        "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
         "telegram",
