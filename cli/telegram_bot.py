@@ -3737,7 +3737,6 @@ def cmd_diag(token: str, chat_id: str, _args: str) -> None:
 def cmd_thesis(token: str, chat_id: str, _args: str) -> None:
     """Show all thesis states with age and conviction. Usage: /thesis"""
     from common.thesis import ThesisState, DEFAULT_THESIS_DIR
-    from cli.daemon.iterators.thesis_engine import _WARN_AGE_H, _CLAMP_AGE_H
 
     states = ThesisState.load_all(DEFAULT_THESIS_DIR)
     if not states:
@@ -3748,17 +3747,16 @@ def cmd_thesis(token: str, chat_id: str, _args: str) -> None:
     for market, state in sorted(states.items()):
         age_h = state.age_hours
         raw_conv = state.conviction
-        # Mirror the in-memory clamp applied by ThesisEngineIterator
-        if age_h > _CLAMP_AGE_H:
-            state.conviction = raw_conv * 0.5
-            clamp_note = " ⚠️ clamped 50%"
-        else:
-            clamp_note = ""
         effective = state.effective_conviction()
+        clamp_note = ""
+        if state.is_very_stale:
+            clamp_note = " ⚠️ defensive"
+        elif state.is_stale:
+            clamp_note = " ⚠️ tapering"
 
-        if age_h > _CLAMP_AGE_H:
+        if state.is_very_stale:
             age_icon = "🔴"
-        elif age_h > _WARN_AGE_H:
+        elif state.is_stale:
             age_icon = "🟡"
         else:
             age_icon = "🟢"

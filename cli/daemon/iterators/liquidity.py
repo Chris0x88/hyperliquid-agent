@@ -89,18 +89,12 @@ class LiquidityIterator:
 
         self._last_regime = regime
 
-        # Store regime info in TickContext for other iterators to consume
-        # We use the alerts data dict as a lightweight metadata channel
-        ctx.alerts.append(Alert(
-            severity="info",
-            source="liquidity",
-            message=f"Liquidity: {regime.value.replace('_', ' ').title()}",
-            data={
-                "regime": regime.value,
-                "size_mult": REGIME_SIZE_MULT[regime],
-                "stop_mult": REGIME_STOP_MULT[regime],
-            },
-        ))
+        # Store regime info on ctx for other iterators (not as an alert)
+        ctx.liquidity_regime = {
+            "regime": regime.value,
+            "size_mult": REGIME_SIZE_MULT[regime],
+            "stop_mult": REGIME_STOP_MULT[regime],
+        }
 
     @staticmethod
     def _detect_regime() -> LiquidityRegime:

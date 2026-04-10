@@ -27,7 +27,8 @@ bun run dev
 
 - Backend reads the same JSON/JSONL/YAML/SQLite files the daemon writes to
 - Data access layer (`api/readers/`) has abstract interfaces — swap for NautilusTrader/DB later
-- Frontend uses polling (10-60s) + SSE for real-time log streaming
+- Frontend uses polling (3-60s depending on page) + SSE for real-time log streaming
+- Charts page: 3s tick polling for live candle updates via `series.update()`
 - All bound to 127.0.0.1 — local only
 - Bearer token auth (auto-generated on first launch, stored in `web/.auth_token`)
 

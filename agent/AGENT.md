@@ -37,7 +37,7 @@ funding = check_funding("BRENTOIL")
 ```
 
 ### Trading (READ)
-`status()` `live_price(market)` `analyze_market(coin)` `market_brief(market)` `check_funding(coin)` `get_orders()` `trade_journal(limit)` `thesis_state(market)` `daemon_health()` `get_calendar(days_ahead, market)` `get_research(market)` `get_technicals(coin)`
+`account_summary()` `live_price(market)` `analyze_market(coin)` `market_brief(market)` `check_funding(coin)` `get_orders()` `trade_journal(limit)` `get_signals(source, limit)` `get_calendar(days_ahead, market)` `get_research(market)` `get_technicals(coin)`
 
 ### Trading (WRITE — approval required)
 `place_trade(coin, side, size)` — side is "buy" or "sell" only

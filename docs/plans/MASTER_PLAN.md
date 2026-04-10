@@ -29,7 +29,7 @@ contract, the authority model, and the historical-oracles vision.**
 | **Authority model** | Per-asset via `common/authority.py` (`agent` / `manual` / `off`); default `manual`; persisted in `data/authority.json` |
 | **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER. **Active edge: oil + BTC.** GOLD + SILVER theses stale since early April — conviction engine auto-clamps (safe). WTI (CL) + SP500 added to `markets.yaml` but no thesis files yet. |
 | **Multi-market config** | `data/config/markets.yaml` + `common/markets.py` `MarketRegistry` |
-| **Agent runtime** | Embedded Claude Code port, session-token auth, no API keys |
+| **Agent runtime** | Embedded Claude Code port, session-token auth, no API keys. Agent tools extracted to `cli/agent_tools.py` (READ auto-exec, WRITE with approval, DISPLAY bypass LLM). Continuous typing indicator. |
 | **Test suite** | Green. Run: `cd agent-cli && .venv/bin/python -m pytest tests/ -q` |
 | **Daemon iterators** | See `cli/daemon/iterators/` and `cli/daemon/tiers.py` |
 | **Telegram commands** | See `def cmd_*` in `cli/telegram_bot.py` and `cli/telegram_commands/*.py` |
@@ -61,10 +61,9 @@ disabled, manually enabled per `f622708`),
 
 ## Active Workstreams
 
-### 1. System-Wide Hardening (shipped 2026-04-10)
+### 1. System-Wide Hardening (shipped 2026-04-10, continued 2026-04-11)
 
-20 commits in a single day covering infrastructure, reliability, and
-correctness across the stack:
+20+ commits covering infrastructure, reliability, and correctness:
 
 - **Shared account state** — unified native + xyz + spot USDC equity
   across all surfaces (daemon, CLI, heartbeat, daily report, risk monitor)
@@ -76,6 +75,12 @@ correctness across the stack:
   entries), total_equity instead of native-only
 - **Market structure** — 1m candle cache for oil classifier
 - **Plain-English daemon alerts** — all Telegram messages rewritten
+- **Agent harness rewrite** — tool definitions extracted to `cli/agent_tools.py`,
+  trade evaluator to `cli/trade_evaluator.py`, continuous typing indicator,
+  DISPLAY_TOOLS (calendar/research/technicals) bypass LLM commentary,
+  calendar alerts auto-injected into agent context
+- **Live chart candles** — 3s tick endpoint (`/charts/candles/{coin}/tick`),
+  `series.update()` for real-time candle movement without full redraw
 
 ### 2. News → Thesis Pipeline (shipped 2026-04-10)
 
@@ -108,8 +113,7 @@ Full article deep-fetch (pass 2) rate limited to 5/hour.
 
 Full local web UI for the trading system:
 
-- **FastAPI backend** (:8420) — 12 API routers reading same data files
-  as daemon/Telegram
+- **FastAPI backend** (:8420) — see `web/api/routers/` for current routers
 - **Next.js 15 dashboard** (:3000) — Dashboard (equity curve, positions,
   health, iterators, thesis cards, news feed), Charts (candlestick +
   Bollinger + SMA/EMA), Control (kill switches, config editor, authority),
@@ -176,10 +180,9 @@ markdown checklist fails to fix.
 - **WTI + SP500 in markets.yaml but no thesis files.** Added `f622708`
   but no `data/thesis/` JSONs exist yet. They'll be watchlist-only until
   theses are authored.
-- **Context Engine not wired to Telegram agent.** Built but the
-  `telegram_agent.py` handler doesn't call it yet.
-- **Streaming agent output not wired to Telegram.** Agent thinks for 30+s
-  and user sees nothing until done.
+- **Context Engine partially wired.** Calendar alerts + DISPLAY_TOOLS
+  (get_calendar, get_research, get_technicals) now in agent context.
+  Full intent-classification pre-fetch loop not yet active.
 - **Dream consolidation marks complete but doesn't call agent tools.**
 - **`telegram_bot.py` is large.** Incremental extraction to
   `cli/telegram_commands/` submodules continues.

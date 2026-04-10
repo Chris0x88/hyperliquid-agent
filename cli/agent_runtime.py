@@ -158,10 +158,12 @@ def build_lessons_section(
 
 # Tools that are safe to run concurrently (all READ tools)
 CONCURRENT_SAFE_TOOLS = {
-    "market_brief", "account_summary", "status", "live_price",
+    "market_brief", "account_summary", "live_price",
     "analyze_market", "check_funding", "get_orders", "trade_journal",
-    "get_signals", "thesis_state", "daemon_health",
+    "get_signals", "introspect_self", "get_calendar", "get_research",
+    "get_technicals", "search_lessons", "get_lesson",
     "read_file", "search_code", "list_files", "web_search", "memory_read",
+    "get_errors", "get_feedback", "read_reference",
 }
 
 
