@@ -167,14 +167,22 @@ function IndicatorToggle({
   );
 }
 
+// ─── Chart handle exposed to parent via ref ──────────────────────────────────
+
+interface ChartHandle {
+  updateTick: (candles: Candle[]) => void;
+}
+
 // ─── Main Chart Component ─────────────────────────────────────────────────────
 
 function CandleChart({
   candles,
   indicators,
+  handleRef,
 }: {
   candles: Candle[];
   indicators: IndicatorState;
+  handleRef: React.MutableRefObject<ChartHandle | null>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -290,6 +298,29 @@ function CandleChart({
       priceLineVisible: false,
     });
 
+    // ── Expose tick updater to parent ─────────────────────────────────────
+    handleRef.current = {
+      updateTick: (tickCandles: Candle[]) => {
+        for (const c of tickCandles) {
+          candleSeriesRef.current?.update({
+            time: c.time as Time,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+          });
+          volumeSeriesRef.current?.update({
+            time: c.time as Time,
+            value: c.volume,
+            color:
+              c.close >= c.open
+                ? "rgba(34, 197, 94, 0.35)"
+                : "rgba(239, 68, 68, 0.35)",
+          });
+        }
+      },
+    };
+
     // ── Resize observer ─────────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
@@ -302,10 +333,11 @@ function CandleChart({
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
+      handleRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Update data when candles change ────────────────────────────────────────
+  // ── Update data when candles change (full load) ─────────────────────────────
   useEffect(() => {
     if (!candles.length) return;
 
@@ -385,7 +417,10 @@ export default function ChartsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [livePrice, setLivePrice] = useState<Candle | null>(null);
+  const chartHandleRef = useRef<ChartHandle | null>(null);
 
+  // ── Full candle load (initial + 60s refresh) ────────────────────────────────
   const fetchCandles = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -400,6 +435,9 @@ export default function ChartsPage() {
       const data: CandleResponse = await res.json();
       setCandles(data.candles);
       setLastUpdated(new Date());
+      if (data.candles.length > 0) {
+        setLivePrice(data.candles[data.candles.length - 1]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -412,11 +450,32 @@ export default function ChartsPage() {
     fetchCandles();
   }, [fetchCandles]);
 
-  // Auto-refresh every 3s — live tail keeps current candle up-to-date
+  // Full refresh every 60s (reloads indicators, catches new candle boundaries)
   useEffect(() => {
-    const id = window.setInterval(() => { fetchCandles(); }, 3_000);
+    const id = window.setInterval(fetchCandles, 60_000);
     return () => window.clearInterval(id);
   }, [fetchCandles]);
+
+  // ── Live tick poll (3s) — uses series.update(), no chart redraw ────────────
+  useEffect(() => {
+    const id = window.setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/charts/candles/${market}/tick?interval=${interval}`
+        );
+        if (!res.ok) return;
+        const data: CandleResponse = await res.json();
+        if (data.candles.length > 0) {
+          chartHandleRef.current?.updateTick(data.candles);
+          setLivePrice(data.candles[data.candles.length - 1]);
+          setLastUpdated(new Date());
+        }
+      } catch {
+        // silent — tick failures are non-critical
+      }
+    }, 3_000);
+    return () => window.clearInterval(id);
+  }, [market, interval]);
 
   const toggleIndicator = (key: keyof IndicatorState) => {
     setIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -577,27 +636,25 @@ export default function ChartsPage() {
             </div>
           )}
 
-          <CandleChart candles={candles} indicators={indicators} />
+          <CandleChart candles={candles} indicators={indicators} handleRef={chartHandleRef} />
         </div>
 
-        {/* Card footer */}
+        {/* Card footer — live price from tick */}
         {lastUpdated && (
           <div
             className="px-5 py-2 flex items-center justify-between"
             style={{ borderTop: `1px solid ${t.colors.border}` }}
           >
             <div className="flex items-center gap-4 text-[11px]" style={{ color: t.colors.textDim }}>
-              {/* Last price stat */}
-              {candles.length > 0 && (() => {
-                const last = candles[candles.length - 1];
+              {livePrice && (() => {
                 const prev = candles.length > 1 ? candles[candles.length - 2] : null;
-                const change = prev ? ((last.close - prev.close) / prev.close) * 100 : null;
+                const change = prev ? ((livePrice.close - prev.close) / prev.close) * 100 : null;
                 return (
                   <>
                     <span>
                       Last:{" "}
                       <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>
-                        {last.close.toLocaleString(undefined, {
+                        {livePrice.close.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 4,
                         })}

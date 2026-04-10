@@ -178,6 +178,41 @@ async def get_candles(
         cache.close()
 
 
+@router.get("/candles/{coin}/tick")
+async def get_candle_tick(
+    coin: str,
+    interval: str = Query(default="1h"),
+):
+    """Live tick — returns just the current + previous candle from HL API.
+
+    Lightweight endpoint for high-frequency polling (every 2-3s).
+    Also persists to cache so the DB stays current (INSERT OR REPLACE
+    overwrites partial candles with updated data).
+    """
+    if interval not in INTERVAL_MS:
+        raise HTTPException(status_code=400, detail=f"Invalid interval '{interval}'")
+
+    canonical = _resolve_coin(coin)
+    interval_ms = INTERVAL_MS[interval]
+    candles = _fetch_live_tail(canonical, interval, interval_ms)
+
+    # Persist to cache — keeps DB current without waiting for daemon
+    if candles and _DB_PATH.exists():
+        try:
+            hl_coin = _HL_COIN_NAME.get(canonical, canonical)
+            cache = CandleCache(db_path=str(_DB_PATH))
+            cache.store_candles(hl_coin, interval, [
+                {"t": c["time"] * 1000, "o": str(c["open"]), "h": str(c["high"]),
+                 "l": str(c["low"]), "c": str(c["close"]), "v": str(c["volume"])}
+                for c in candles
+            ])
+            cache.close()
+        except Exception:
+            pass  # non-critical — display still works
+
+    return {"coin": canonical, "interval": interval, "candles": candles}
+
+
 @router.get("/candles/{coin}/meta")
 async def get_candle_meta(coin: str):
     """Available intervals and date range for a coin."""
