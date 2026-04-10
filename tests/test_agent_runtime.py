@@ -313,18 +313,57 @@ class TestStreamResult:
         assert r.stop_reason == ""
 
 
-class TestContextCompaction:
-    def test_short_conversation_no_compact(self):
-        from cli.agent_runtime import should_compact
+class TestAccordionTruncate:
+    def test_short_conversation_unchanged(self):
+        from cli.agent_runtime import accordion_truncate
         messages = [{"role": "user", "content": "hello"}]
-        assert should_compact(messages, "opus") is False
+        result = accordion_truncate(messages)
+        assert result == messages
 
-    def test_long_conversation_triggers_compact(self):
-        from cli.agent_runtime import should_compact
-        # Create messages that exceed the threshold
-        big_content = "x" * 800_000  # ~200K tokens, exceeds any model
-        messages = [{"role": "user", "content": big_content}]
-        assert should_compact(messages, "opus") is True
+    def test_large_old_tool_results_truncated(self):
+        from cli.agent_runtime import accordion_truncate
+        big_tool_output = "[Tool result for live_price]: " + "x" * 200_000
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "check price"},
+            {"role": "assistant", "content": "Let me check."},
+            {"role": "tool", "content": big_tool_output},
+            {"role": "assistant", "content": "Price is $100."},
+            # These are the last 4 — protected
+            {"role": "user", "content": "thanks"},
+            {"role": "assistant", "content": "you're welcome"},
+            {"role": "user", "content": "now what?"},
+            {"role": "assistant", "content": "let me think"},
+        ]
+        result = accordion_truncate(messages, trigger_threshold=10_000)
+        # The old tool output should be truncated
+        tool_msg = result[3]
+        assert len(tool_msg["content"]) < 500
+        assert "discarded for length" in tool_msg["content"]
+        # Recent messages should be intact
+        assert result[-1]["content"] == "let me think"
+        assert result[-2]["content"] == "now what?"
+
+    def test_recent_messages_protected(self):
+        from cli.agent_runtime import accordion_truncate
+        big_content = "x" * 200_000
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": big_content},  # old, will truncate
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "recent big " + "y" * 1000},  # in last 4
+            {"role": "assistant", "content": "recent response"},
+            {"role": "user", "content": "final"},
+            {"role": "assistant", "content": "done"},
+        ]
+        result = accordion_truncate(messages, trigger_threshold=10_000)
+        # System prompt untouched
+        assert result[0]["content"] == "system"
+        # The old big user message should be truncated
+        assert len(result[1]["content"]) <= 600
+        # Last 4 messages protected — user[3], assistant[4], user[5], assistant[6]
+        assert "recent big" in result[3]["content"]
+        assert result[-1]["content"] == "done"
 
     def test_context_window_varies_by_model(self):
         from cli.agent_runtime import get_context_window

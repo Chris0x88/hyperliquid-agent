@@ -439,410 +439,72 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     response["_streamed"] = True
     response["_msg_id"] = msg_id
     return response
+import threading
 
+class TypingIndicator:
+    """Continuously sends Telegram 'typing' action every 4 seconds."""
+    def __init__(self, token: str, chat_id: str):
+        self.token = token
+        self.chat_id = chat_id
+        self._stop_event = threading.Event()
+        self._thread = None
 
-# ── Intent-based pre-fetch ───────────────────────────────────────────────
+    def start(self):
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
-# Market keyword → canonical coin key (as used in thesis filenames / watchlist)
-_PREFETCH_MARKET_KEYWORDS: dict[str, str] = {
-    "oil": "BRENTOIL",
-    "brent": "BRENTOIL",
-    "brentoil": "BRENTOIL",
-    "wti": "BRENTOIL",
-    "cl": "BRENTOIL",
-    "crude": "BRENTOIL",
-    "btc": "BTC",
-    "bitcoin": "BTC",
-    "gold": "GOLD",
-    " au ": "GOLD",   # space-padded to avoid matching "auto", "australia" etc.
-    "silver": "SILVER",
-    " ag ": "SILVER",  # space-padded to avoid matching "agent" etc.
-}
+    def stop(self):
+        if self._thread:
+            self._stop_event.set()
+            self._thread.join(timeout=1.0)
+            self._thread = None
 
-# Topic keyword → short tag used internally
-_PREFETCH_TOPIC_KEYWORDS: dict[str, str] = {
-    "position": "positions",
-    "pnl": "positions",
-    "trade": "positions",
-    "entry": "positions",
-    "exit": "positions",
-    "portfolio": "positions",
-    "fund": "funding",
-    "funding": "funding",
-    "thesis": "thesis",
-    "conviction": "thesis",
-    "signal": "signals",
-    "technical": "signals",
-    "rsi": "signals",
-    "macd": "signals",
-    "catalyst": "catalysts",
-    "news": "catalysts",
-    "event": "catalysts",
-    "heatmap": "zones",
-    "liquidity": "zones",
-    "wall": "zones",
-    "lesson": "lessons",
-    "review": "lessons",
-    "risk": "risk",
-    "liq": "risk",
-    "liquidation": "risk",
-    "status": "health",
-    "health": "health",
-    "daemon": "health",
-}
+    def _loop(self):
+        # Fire immediately, then every 4s
+        while not self._stop_event.is_set():
+            _tg_typing(self.token, self.chat_id)
+            self._stop_event.wait(4.0)
 
-# Thesis filename mapping: coin key → data/thesis/<filename>
-_THESIS_FILE_MAP: dict[str, str] = {
-    "BRENTOIL": "xyz_brentoil_state.json",
-    "BTC": "btc_perp_state.json",
-    "GOLD": "xyz_gold_state.json",
-    "SILVER": "xyz_silver_state.json",
-}
+# ── Semantic Triage Router ─────────────────────────────────────────────
 
-_PREFETCH_MAX_CHARS = 2000  # hard cap on total pre-fetch output
-
-
-def _prefetch_for_message(user_text: str, account_state: dict, market_snapshots: dict) -> str:
-    """Deterministic keyword-driven pre-fetch: inject relevant data before the LLM sees the message.
-
-    Reads ONLY from local cached files and the already-fetched account_state /
-    market_snapshots dicts — NO new API calls, NO agent tool invocations.
-    Every data source is individually try/except'd; any failure is silently
-    skipped so this function can never crash handle_ai_message.
-
-    Returns a formatted string ready to inject as context, or "" if nothing
-    was detected / fetched.
+def llm_triage(text: str) -> str:
+    """Classify user intent into one or more Sub-Agent classes.
+    
+    Returns a comma-separated string of intents from: TRADING, OPERATIONS, CODING, CHAT.
     """
-    msg_lower = " " + user_text.lower() + " "  # pad so word-boundary checks work
-
-    # ── 1. Detect markets ────────────────────────────────────────────────
-    detected_markets: list[str] = []
-    for kw, coin in _PREFETCH_MARKET_KEYWORDS.items():
-        if kw in msg_lower and coin not in detected_markets:
-            detected_markets.append(coin)
-
-    # ── 2. Detect topics ─────────────────────────────────────────────────
-    detected_topics: set[str] = set()
-    for kw, tag in _PREFETCH_TOPIC_KEYWORDS.items():
-        if kw in msg_lower:
-            detected_topics.add(tag)
-
-    # If nothing at all was detected, return empty — don't inject noise
-    if not detected_markets and not detected_topics:
-        return ""
-
-    parts: list[str] = ["--- PRE-FETCHED DATA (programmatic, not AI-generated) ---"]
-
-    # ── 3. Per-market blocks ─────────────────────────────────────────────
-    for coin in detected_markets:
-        coin_parts: list[str] = []
-
-        # 3a. Live price + snapshot (from already-built market_snapshots)
-        try:
-            # market_snapshots keys may be display names like "BRENTOIL" or
-            # "xyz:BRENTOIL". Search case-insensitively.
-            bare = coin.replace("xyz:", "")
-            snap_text = None
-            for k, v in market_snapshots.items():
-                k_bare = k.replace("xyz:", "")
-                if k_bare.upper() == bare.upper():
-                    snap_text = v
-                    break
-            if snap_text:
-                coin_parts.append(f"[SNAPSHOT {coin}]\n{snap_text[:600]}")
-        except Exception:
-            pass
-
-        # 3b. Current position (from account_state)
-        try:
-            positions = account_state.get("positions", [])
-            for pos in positions:
-                pos_coin = pos.get("coin", "").replace("xyz:", "")
-                if pos_coin.upper() == coin.replace("xyz:", "").upper():
-                    size = pos.get("size", 0)
-                    direction = "LONG" if size > 0 else "SHORT"
-                    entry = pos.get("entry", 0)
-                    upnl = pos.get("upnl", 0)
-                    lev = pos.get("leverage", "?")
-                    liq = pos.get("liq")
-                    pos_line = (
-                        f"[POSITION {coin}] {direction} size={abs(size):.4f} "
-                        f"entry=${entry:,.2f} uPnL=${upnl:,.2f} lev={lev}x"
-                    )
-                    if liq:
-                        pos_line += f" liq=${float(liq):,.2f}"
-                    coin_parts.append(pos_line)
-                    break
-            else:
-                coin_parts.append(f"[POSITION {coin}] No open position")
-        except Exception:
-            pass
-
-        # 3c. Thesis (always include for detected markets unless only "signals" topic)
-        if not detected_topics or "thesis" in detected_topics or not detected_topics.isdisjoint(
-            {"signals", "catalysts", "positions", "funding", "risk", "lessons", "zones", "health"}
-        ):
-            try:
-                tf_name = _THESIS_FILE_MAP.get(coin.replace("xyz:", ""))
-                if tf_name:
-                    tf_path = _PROJECT_ROOT / "data" / "thesis" / tf_name
-                    if tf_path.exists():
-                        td = json.loads(tf_path.read_text())
-                        direction = td.get("direction", "?")
-                        conv = float(td.get("conviction", 0))
-                        summary = (td.get("thesis_summary") or td.get("summary", ""))[:200]
-                        inv = (td.get("invalidation_conditions") or "")[:120]
-                        tp = td.get("take_profit_price")
-                        sl_price = td.get("stop_loss_price")
-                        thesis_line = f"[THESIS {coin}] {direction} conviction={conv:.2f}"
-                        if tp:
-                            thesis_line += f" TP=${tp}"
-                        if sl_price:
-                            thesis_line += f" SL=${sl_price}"
-                        if summary:
-                            thesis_line += f" | {summary}"
-                        if inv:
-                            thesis_line += f" | INVALIDATION: {inv}"
-                        coin_parts.append(thesis_line)
-            except Exception:
-                pass
-
-        # 3d. Latest signal summary (from market_snapshots — already rendered)
-        if "signals" in detected_topics or not detected_topics:
-            try:
-                bare = coin.replace("xyz:", "")
-                for k, v in market_snapshots.items():
-                    k_bare = k.replace("xyz:", "")
-                    if k_bare.upper() == bare.upper() and "Signal" in v:
-                        # Extract just the signal line(s)
-                        sig_lines = [ln for ln in v.splitlines() if "Signal" in ln or "RSI" in ln or "MECH" in ln]
-                        if sig_lines:
-                            coin_parts.append(f"[SIGNALS {coin}] " + " | ".join(sig_lines[:3]))
-                        break
-            except Exception:
-                pass
-
-        # 3e. Catalysts (from news/catalysts.jsonl)
-        if "catalysts" in detected_topics or not detected_topics:
-            try:
-                cat_path = _PROJECT_ROOT / "data" / "news" / "catalysts.jsonl"
-                if cat_path.exists():
-                    bare = coin.replace("xyz:", "").upper()
-                    upcoming: list[dict] = []
-                    import time as _time
-                    now_ts = _time.time()
-                    with cat_path.open() as fh:
-                        for ln in fh:
-                            ln = ln.strip()
-                            if not ln:
-                                continue
-                            try:
-                                ev = json.loads(ln)
-                            except Exception:
-                                continue
-                            # Match by instruments list or headline containing coin name
-                            instruments = [str(i).replace("xyz:", "").upper() for i in ev.get("instruments", [])]
-                            if bare not in instruments:
-                                continue
-                            # Filter to upcoming events (event_date in future or within 12h past)
-                            ev_date_str = ev.get("event_date", "")
-                            if ev_date_str:
-                                try:
-                                    from datetime import datetime, timezone
-                                    ev_dt = datetime.fromisoformat(ev_date_str.replace("Z", "+00:00"))
-                                    ev_ts = ev_dt.timestamp()
-                                    if ev_ts < now_ts - 43200:  # skip events >12h old
-                                        continue
-                                    upcoming.append((ev_ts, ev))
-                                except Exception:
-                                    upcoming.append((0, ev))
-                            else:
-                                upcoming.append((0, ev))
-                    upcoming.sort(key=lambda x: x[0])
-                    if upcoming:
-                        cat_lines = []
-                        for _, ev in upcoming[:3]:
-                            cat = f"{ev.get('event_date', '?')[:16]} [{ev.get('category', '?')}] sev={ev.get('severity', '?')}"
-                            rat = ev.get("rationale", "")[:80]
-                            if rat:
-                                cat += f" — {rat}"
-                            cat_lines.append(cat)
-                        coin_parts.append(f"[CATALYSTS {coin}]\n" + "\n".join(cat_lines))
-            except Exception:
-                pass
-
-        # 3f. Journal (last 5 entries for this market)
-        if "positions" in detected_topics or not detected_topics:
-            try:
-                journal_dir = _PROJECT_ROOT / "data" / "daemon" / "journal"
-                bare = coin.replace("xyz:", "").upper()
-                tick_entries: list[dict] = []
-                # ticks.jsonl holds the rolling journal
-                ticks_file = journal_dir / "ticks.jsonl"
-                if ticks_file.exists():
-                    from collections import deque as _deque
-                    tail = _deque(maxlen=200)
-                    with ticks_file.open() as fh:
-                        for ln in fh:
-                            if ln.strip():
-                                tail.append(ln)
-                    for ln in tail:
-                        try:
-                            entry_j = json.loads(ln)
-                        except Exception:
-                            continue
-                        prices = entry_j.get("prices", {})
-                        # Only include if the coin appears in prices
-                        has_coin = any(
-                            k.replace("xyz:", "").upper() == bare
-                            for k in prices
-                        )
-                        if has_coin:
-                            tick_entries.append(entry_j)
-                if tick_entries:
-                    last = tick_entries[-1]
-                    prices = last.get("prices", {})
-                    price_val = next(
-                        (v for k, v in prices.items() if k.replace("xyz:", "").upper() == bare),
-                        None,
-                    )
-                    if price_val:
-                        coin_parts.append(f"[JOURNAL {coin}] Last tick price=${float(price_val):,.2f} | n_pos={last.get('n_positions', '?')} n_alerts={last.get('n_alerts', '?')}")
-            except Exception:
-                pass
-
-        if coin_parts:
-            parts.extend(coin_parts)
-
-    # ── 4. Topic-only blocks (no specific market) ─────────────────────────
-
-    # Funding rates
-    if "funding" in detected_topics:
-        try:
-            # Try cached funding data from daemon state
-            state_path = _PROJECT_ROOT / "data" / "daemon" / "state.json"
-            if state_path.exists():
-                state = json.loads(state_path.read_text())
-                funding = state.get("funding_rates") or state.get("funding") or {}
-                if funding:
-                    coins_to_show = detected_markets if detected_markets else list(funding.keys())[:6]
-                    fund_lines = []
-                    for c in coins_to_show:
-                        bare = c.replace("xyz:", "")
-                        for k, v in funding.items():
-                            if k.replace("xyz:", "").upper() == bare.upper():
-                                fund_lines.append(f"{bare}: {v}")
-                                break
-                    if fund_lines:
-                        parts.append("[FUNDING RATES]\n" + "\n".join(fund_lines))
-        except Exception:
-            pass
-
-    # Liquidity zones / heatmap
-    if "zones" in detected_topics:
-        try:
-            zones_path = _PROJECT_ROOT / "data" / "heatmap" / "zones.jsonl"
-            if zones_path.exists():
-                coins_filter = {c.replace("xyz:", "").upper() for c in detected_markets} if detected_markets else None
-                from collections import deque as _deque2
-                tail_z = _deque2(maxlen=500)
-                with zones_path.open() as fh:
-                    for ln in fh:
-                        if ln.strip():
-                            tail_z.append(ln)
-                zone_rows: list[dict] = []
-                for ln in tail_z:
-                    try:
-                        z = json.loads(ln)
-                    except Exception:
-                        continue
-                    inst = z.get("instrument", "").upper()
-                    if coins_filter and inst not in coins_filter:
-                        continue
-                    zone_rows.append(z)
-                # Show 5 most recent unique zones
-                seen: set[str] = set()
-                zone_lines: list[str] = []
-                for z in reversed(zone_rows):
-                    key_z = f"{z.get('instrument')}_{z.get('side')}_{z.get('centroid', 0):.1f}"
-                    if key_z in seen:
-                        continue
-                    seen.add(key_z)
-                    zone_lines.append(
-                        f"{z.get('instrument')} {z.get('side')} @ ${z.get('centroid', 0):.2f} "
-                        f"(${z.get('notional_usd', 0):,.0f} notional)"
-                    )
-                    if len(zone_lines) >= 5:
-                        break
-                if zone_lines:
-                    parts.append("[LIQUIDITY ZONES]\n" + "\n".join(zone_lines))
-        except Exception:
-            pass
-
-    # Lessons
-    if "lessons" in detected_topics:
-        try:
-            from common import memory as _cmem
-            query = " ".join(detected_markets) if detected_markets else "oil trading"
-            lessons = _cmem.search_lessons(query=query, limit=3)
-            if lessons:
-                lesson_lines = []
-                for les in lessons:
-                    title = les.get("title") or les.get("summary", "")[:80]
-                    market = les.get("market", "")
-                    lesson_lines.append(f"[{market}] {title}")
-                parts.append("[LESSONS]\n" + "\n".join(lesson_lines))
-        except Exception:
-            pass
-
-    # Risk / liquidation data
-    if "risk" in detected_topics:
-        try:
-            positions = account_state.get("positions", [])
-            equity = account_state.get("account", {}).get("total_equity", 0)
-            risk_lines = []
-            for pos in positions:
-                pos_coin = pos.get("coin", "")
-                liq = pos.get("liq")
-                entry = pos.get("entry", 0)
-                if liq and entry:
-                    liq_f = float(liq)
-                    dist_pct = abs(liq_f - entry) / entry * 100 if entry else 0
-                    risk_lines.append(f"{pos_coin}: liq=${liq_f:,.2f} ({dist_pct:.1f}% from entry)")
-            if risk_lines:
-                liq_hdr = f"[RISK] equity=${equity:,.2f}"
-                parts.append(liq_hdr + "\n" + "\n".join(risk_lines))
-        except Exception:
-            pass
-
-    # Daemon health
-    if "health" in detected_topics:
-        try:
-            state_path = _PROJECT_ROOT / "data" / "daemon" / "state.json"
-            if state_path.exists():
-                state = json.loads(state_path.read_text())
-                escalation = state.get("escalation_level", "?")
-                risk_gate = state.get("risk_gate", "?")
-                last_tick = state.get("last_tick_ts")
-                import time as _time2
-                if last_tick:
-                    age_s = int(_time2.time() - last_tick)
-                    age_str = f"{age_s}s ago"
-                else:
-                    age_str = "unknown"
-                parts.append(f"[DAEMON HEALTH] escalation={escalation} risk_gate={risk_gate} last_tick={age_str}")
-        except Exception:
-            pass
-
-    # If we only have the header line, nothing was actually fetched
-    if len(parts) <= 1:
-        return ""
-
-    # Hard cap on total output
-    result = "\n".join(parts)
-    if len(result) > _PREFETCH_MAX_CHARS:
-        result = result[:_PREFETCH_MAX_CHARS] + "\n[... pre-fetch truncated at 2000 chars ...]"
-    return result
+    prompt = (
+        "Classify the following user message from a Telegram trading bot into one or more categories:\n"
+        "- TRADING: The user is talking about markets, placing a trade, taking profit, setting stops, asking about signals/RSI, or updating their thesis.\n"
+        "- OPERATIONS: The user wants to see account balance, positions, open orders, live price, or system daemon health/errors.\n"
+        "- CODING: The user is asking to read codebase files, list directories, run bash commands, edit files, or debug.\n"
+        "- CHAT: The user is having a general conversation, asking you to search the web, or read reference docs.\n\n"
+        "Return ONLY the category word(s) separated by commas, nothing else. If it spans multiple, include both. "
+        "If it is ambiguous regarding a trade/market, ALWAYS default to TRADING.\n\n"
+        f"Message: {text}"
+    )
+    
+    try:
+        response = _call_anthropic([{"role": "user", "content": prompt}], model_override="claude-haiku-4-5")
+        content = (response.get("content") or "").strip().upper()
+        if not content:
+            return "TRADING,OPERATIONS" # safe fallback
+        # Sanitize to exact words
+        valid = {"TRADING", "OPERATIONS", "CODING", "CHAT"}
+        found = []
+        for word in content.replace(",", " ").split():
+            clean = "".join(c for c in word if c.isalpha())
+            if clean in valid and clean not in found:
+                found.append(clean)
+        
+        # If model hallucinated and returned nothing valid, use fallback
+        if not found:
+            return "TRADING,OPERATIONS"
+            
+        return ",".join(found)
+    except Exception as e:
+        log.warning("Triage classification failed: %s. Falling back to TRADING,OPERATIONS.", e)
+        return "TRADING,OPERATIONS"
 
 
 def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") -> None:
@@ -858,86 +520,88 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
         # Send typing indicator
         _tg_typing(token, chat_id)
+    
+        typing_indicator = TypingIndicator(token, chat_id)
+        typing_indicator.start()
+        
+        if True:
+            # Triage Intent Router
+            intent_routes = llm_triage(text)
+            log.info("[turn] triage intent: %s", intent_routes)
 
-        # Build messages for LLM
-        system_prompt = _build_system_prompt()
-        live_context = _build_live_context()
-        history = _load_chat_history(_MAX_HISTORY)
+            # Import tool definitions
+            from cli.agent_tools import (
+                TOOL_DEFS, execute_tool, is_write_tool,
+                store_pending, format_confirmation,
+            )
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-        ]
-        # Live context as first user message — changes every call, so keeping it
-        # OUT of the system prompt lets the static system prompt + tools stay cached.
-        messages.append({"role": "user", "content": f"[LIVE CONTEXT — auto-injected, not from user]\n{live_context}"})
-        messages.append({"role": "assistant", "content": "Understood. I have the latest market data."})
+            # Filter tools based on intent
+            available_tools = []
+            if "TRADING" in intent_routes:
+                allowed = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "market_brief", "search_lessons", "live_price", "analyze_market", "get_signals", "check_funding", "get_calendar", "get_research", "get_technicals"}
+                available_tools.extend(t for t in TOOL_DEFS if t["function"]["name"] in allowed)
+            if "OPERATIONS" in intent_routes:
+                allowed = {"account_summary", "get_orders", "get_errors", "get_feedback", "live_price", "daemon_health", "check_funding", "get_calendar", "get_technicals"}
+                available_tools.extend(t for t in TOOL_DEFS if t["function"]["name"] in allowed and t not in available_tools)
+            if "CODING" in intent_routes:
+                allowed = {"read_file", "search_code", "list_files", "edit_file", "run_bash"}
+                available_tools.extend(t for t in TOOL_DEFS if t["function"]["name"] in allowed and t not in available_tools)
+            if "CHAT" in intent_routes or not available_tools:
+                allowed = {"web_search", "memory_read", "read_reference", "introspect_self"}
+                available_tools.extend(t for t in TOOL_DEFS if t["function"]["name"] in allowed and t not in available_tools)
 
-        # Intent-based pre-fetch: deterministically inject relevant data BEFORE
-        # chat history so the LLM has it in context without needing to call tools.
-        # Uses account_state + market_snapshots already cached by _build_live_context.
-        try:
-            _as = _CACHE.get("account_state", {}).get("data", {})
-            _ms = _CACHE.get("market_snapshots", {}).get("data", {})
-            prefetch_text = _prefetch_for_message(text, _as, _ms)
-            if prefetch_text:
-                messages.append({"role": "user", "content": f"[PRE-FETCHED DATA — programmatic, not from user]\n{prefetch_text}"})
-                messages.append({"role": "assistant", "content": "Understood. I have the pre-fetched data for this query."})
-        except Exception as _pf_err:
-            log.debug("pre-fetch failed (non-fatal): %s", _pf_err)
+            # Build messages for LLM
+            system_prompt = _build_system_prompt()
+            
+            # Inject Semantic Recall lessons if TRADING
+            if "TRADING" in intent_routes:
+                try:
+                    from cli.agent_runtime import build_lessons_section
+                    lessons_str = build_lessons_section(query=text, limit=3)
+                    if lessons_str:
+                        system_prompt += "\n\n" + lessons_str
+                except Exception as e:
+                    log.warning("Failed to inject semantic memory: %s", e)
 
-        # Context Engine v2: intent-classified enriched context (additional data
-        # sources beyond the keyword prefetch above — bot classifier, supply
-        # disruptions, evaluations, proposals, calendar, learnings).
-        try:
-            from modules.context_engine import classify_intent, assemble_context
-            _as2 = _CACHE.get("account_state", {}).get("data", {})
-            _ms2 = _CACHE.get("market_snapshots", {}).get("data", {})
-            intent = classify_intent(text)
-            enriched = assemble_context(intent, _as2, _ms2)
-            if enriched:
-                messages.append({"role": "user", "content": f"[ENRICHED CONTEXT — programmatic, not from user]\n{enriched}"})
-                messages.append({"role": "assistant", "content": "Understood. I have the enriched context data."})
-        except Exception as _ce_err:
-            log.debug("context engine v2 failed (non-fatal): %s", _ce_err)
+            live_context = _build_live_context()
+            history = _load_chat_history(_MAX_HISTORY)
 
-        # Add chat history as conversation turns.
-        # Skip entries whose text is empty/whitespace (e.g. an assistant turn
-        # that _sanitize_assistant_history stripped down to nothing). Anthropic
-        # rejects empty text content blocks with HTTP 400.
-        for entry in history[:-1]:  # exclude the message we just logged
-            txt = entry.get("text", "")
-            if not (isinstance(txt, str) and txt.strip()):
-                continue
-            messages.append({"role": entry["role"], "content": txt})
-        # Add current user message
-        messages.append({"role": "user", "content": text})
+            messages = [
+                {"role": "system", "content": system_prompt},
+            ]
+            # Live context as first user message — changes every call, so keeping it
+            # OUT of the system prompt lets the static system prompt + tools stay cached.
+            messages.append({"role": "user", "content": f"[LIVE CONTEXT — auto-injected, not from user]\n{live_context}"})
+            messages.append({"role": "assistant", "content": "Understood. I have the latest market data."})
 
-        # Import tool definitions
-        from cli.agent_tools import (
-            TOOL_DEFS, execute_tool, is_write_tool,
-            store_pending, format_confirmation,
-        )
+            # Add chat history as conversation turns.
+            # Skip entries whose text is empty/whitespace (e.g. an assistant turn
+            # that _sanitize_assistant_history stripped down to nothing). Anthropic
+            # rejects empty text content blocks with HTTP 400.
+            for entry in history[:-1]:  # exclude the message we just logged
+                txt = entry.get("text", "")
+                if not (isinstance(txt, str) and txt.strip()):
+                    continue
+                messages.append({"role": entry["role"], "content": txt})
+            # Add current user message
+            messages.append({"role": "user", "content": text})
 
-        # First call — route based on model.
-        # Sonnet/Opus: use Agent SDK (no streaming, but only path that works
-        # for premium models with session tokens).
-        # Haiku: use streaming for real-time Telegram output.
-        active_model = _get_active_model()
-        log.info("[turn] handling message with model=%s user=%s", active_model, user_name or "?")
-        use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model)
+            # First call — route based on model.
+            # Sonnet/Opus: use Agent SDK (no streaming, but only path that works
+            # for premium models with session tokens).
+            # Haiku: use streaming for real-time Telegram output.
+            active_model = _get_active_model()
+            log.info("[turn] handling message with model=%s user=%s", active_model, user_name or "?")
+            use_cli = (_is_anthropic_model(active_model) and "haiku" not in active_model)
 
-        if use_cli:
-            _tg_typing(token, chat_id)
-            response = _call_openrouter(messages, tools=TOOL_DEFS)
-        else:
-            try:
-                response = _tg_stream_response(token, chat_id, messages, tools=TOOL_DEFS)
-            except Exception as e:
-                log.warning("Streaming failed, falling back: %s", e)
-                response = _call_openrouter(messages, tools=TOOL_DEFS)
-
-        # Track if we fell back from Anthropic rate limit — stay on fallback for remaining loops
-        _session_fallback_model = None  # Disabled — was causing silent failures on tool loops
+            if use_cli:
+                response = _call_openrouter(messages, tools=available_tools)
+            else:
+                try:
+                    response = _tg_stream_response(token, chat_id, messages, tools=available_tools)
+                except Exception as e:
+                    log.warning("Streaming failed, falling back: %s", e)
+                    response = _call_openrouter(messages, tools=available_tools)
 
         # Tool-calling loop: handles three modes (tried in order):
         # 1. Native function calling (paid models)
@@ -1063,38 +727,18 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
             _tg_typing(token, chat_id)
 
-            # Check if context needs compaction
-            from cli.agent_runtime import should_compact, build_compact_messages
-            model = _get_active_model()
-            if should_compact(messages, model):
-                log.info("Context compaction triggered at %d messages", len(messages))
-                compact_msgs = build_compact_messages(messages)
-                # Background task — use Haiku via SDK direct (not CLI binary).
-                # The CLI binary path adds 60-90s latency and runs synchronously
-                # in the user's request thread, blocking the bot from handling
-                # the next message. Compaction is a summarisation task where
-                # Haiku is fine. F3 originally routed this through the user's
-                # selected model but that wedged the bot — see post-mortem.
-                summary_response = _call_anthropic(compact_msgs, model_override="claude-haiku-4-5")
-                summary = summary_response.get("content", "")
-                if summary:
-                    # Replace messages with summary + current user message
-                    system_msg = messages[0]  # preserve system prompt
-                    messages = [
-                        system_msg,
-                        {"role": "user", "content": f"[Previous conversation summary]:\n{summary}"},
-                        {"role": "assistant", "content": "Understood. I have the conversation context. Continuing."},
-                    ]
-                    log.info("Context compacted to %d messages", len(messages))
+            # Context size management using Claude Code accordion style truncation
+            from cli.agent_runtime import accordion_truncate
+            messages = accordion_truncate(messages)
 
             # Token optimisation: use Haiku for tool iterations (cheaper, higher rate limits).
             # Only the FINAL response needs Sonnet/Opus.
             # Haiku handles tool dispatch (read_file, search_code etc) just fine.
             model = _get_active_model()
             if _is_anthropic_model(model) and "haiku" not in model:
-                response = _call_anthropic(messages, tools=TOOL_DEFS, model_override="claude-haiku-4-5")
+                response = _call_anthropic(messages, tools=available_tools, model_override="claude-haiku-4-5")
             else:
-                response = _call_openrouter(messages, tools=TOOL_DEFS)
+                response = _call_openrouter(messages, tools=available_tools)
 
         # Extract final text response
         response_text = response.get("content") or ""
@@ -1156,7 +800,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     pass
 
         # Log memory intent instead of raw sanitized response
-        _log_chat("assistant", memory_intent)
+        _log_chat("assistant", memory_intent, tg_text=tg_text)
 
         # Memory dream — auto-consolidate learnings
         try:
@@ -1219,6 +863,9 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             _tg_send_plain(token, chat_id, f"AI error: {e}\n\nUse /status or /help for fixed commands.")
         except Exception:
             pass
+            
+    finally:
+        typing_indicator.stop()
 
 
 _SYSTEM_PROMPT_INPUT_CAP = 20_000  # ~5000 tokens per file
@@ -1502,8 +1149,18 @@ def _build_live_context() -> str:
         fetch_alerts = [a for a in account_state.get("alerts", []) if "Failed to fetch" in a]
         alert_prefix = ("\n".join(fetch_alerts) + "\n") if fetch_alerts else ""
 
+        # Inject strict python-based system evaluations (claw-code pattern)
+        evals = ""
+        try:
+            from cli.trade_evaluator import build_system_evaluations
+            eval_text = build_system_evaluations()
+            if eval_text:
+                evals = f"\n{eval_text}\n"
+        except Exception as e:
+            log.warning(f"trade_evaluator failed to run: {e}")
+
         footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
-        return f"{header}\n{alert_prefix}{assembled.text}\n{footer}"
+        return f"{header}\n{alert_prefix}{evals}{assembled.text}\n{footer}"
 
     except Exception as e:
         log.warning("Context harness failed, using fallback: %s", e)
@@ -2002,7 +1659,7 @@ def _build_market_context_snapshot() -> Optional[Dict]:
     return out
 
 
-def _log_chat(role: str, text: str, user_name: str = "", model: str = "") -> None:
+def _log_chat(role: str, text: str, user_name: str = "", model: str = "", tg_text: str = "") -> None:
     """Append a chat entry to history JSONL.
 
     IMPORTANT: this path is APPEND-ONLY. Chat history is a historical oracle
@@ -2024,6 +1681,9 @@ def _log_chat(role: str, text: str, user_name: str = "", model: str = "") -> Non
         "role": role,
         "text": text,
     }
+    if tg_text:
+        entry["tg_text"] = tg_text
+        
     if user_name:
         entry["user"] = user_name
     if model:

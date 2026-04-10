@@ -557,6 +557,79 @@ TOOL_DEFS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_calendar",
+            "description": (
+                "Get upcoming calendar events: contract rollovers (WTI/Brent roll dates, "
+                "blended oracle weights), macro events (OPEC, EIA, FOMC, NFP), and "
+                "geopolitical deadlines. Returns events within the next N days."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days_ahead": {
+                        "type": "integer",
+                        "description": "How many days ahead to look. Default 7.",
+                        "default": 7,
+                    },
+                    "market": {
+                        "type": "string",
+                        "description": "Filter by market: 'oil', 'btc', 'macro', or 'all'. Default 'all'.",
+                        "default": "all",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_research",
+            "description": (
+                "Read market research notes, including detailed contract rollover analysis, "
+                "supply mechanics, convergence studies, and deep research. Use this when "
+                "the user asks about HOW something works (e.g. 'how does WTI rollover work') "
+                "or wants past research recalled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "market": {
+                        "type": "string",
+                        "description": "Market slug: 'xyz_cl', 'xyz_brentoil', 'btc', 'xyz_gold', 'xyz_sp500'",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional keyword to filter notes (e.g. 'rollover', 'supply', 'convergence')",
+                    },
+                },
+                "required": ["market"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_technicals",
+            "description": (
+                "Get current technical indicators for a market: RSI (1h/4h/1d), "
+                "Bollinger Band position, EMA trend, ATR, and recent price action. "
+                "Pre-computed from candle data — no LLM interpretation needed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "market": {
+                        "type": "string",
+                        "description": "Market identifier, e.g. 'xyz:BRENTOIL', 'BTC', 'xyz:CL'",
+                    },
+                },
+                "required": ["market"],
+            },
+        },
+    },
 ]
 
 
@@ -1462,6 +1535,203 @@ def _tool_get_lesson(args: dict) -> str:
     return "\n".join(header_lines)
 
 
+def _tool_get_calendar(args: dict) -> str:
+    """Surface upcoming calendar events from all calendar JSON files."""
+    from datetime import datetime, timedelta, timezone
+
+    days_ahead = min(max(1, args.get("days_ahead", 7)), 90)
+    market_filter = args.get("market", "all").lower()
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=days_ahead)
+
+    calendar_dir = _PROJECT_ROOT / "data" / "calendar"
+    if not calendar_dir.exists():
+        return "No calendar data directory found."
+
+    events = []
+
+    # 1. Load brent/WTI rollover calendars
+    for rollfile in ["brent_rollover.json"]:
+        path = calendar_dir / rollfile
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                for entry in data.get("brent_futures", []):
+                    ltd = entry.get("last_trading")
+                    if ltd:
+                        try:
+                            dt = datetime.fromisoformat(ltd).replace(tzinfo=timezone.utc)
+                            if now - timedelta(days=1) <= dt <= cutoff:
+                                days_until = (dt - now).days
+                                events.append({
+                                    "date": ltd,
+                                    "days_until": days_until,
+                                    "name": f"BRENT Roll — {entry.get('contract', '?')} last trading",
+                                    "impact": "high",
+                                    "market": "oil",
+                                    "details": f"Delivery month: {entry.get('delivery_month', '?')}",
+                                })
+                        except ValueError:
+                            pass
+            except Exception:
+                pass
+
+    # 2. Load quarterly/annual/weekly events
+    for calfile in ["quarterly.json", "annual.json"]:
+        path = calendar_dir / calfile
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            for ev in data.get("events", []):
+                date_str = ev.get("date")
+                if not date_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
+                    if now - timedelta(days=1) <= dt <= cutoff:
+                        mkt = ev.get("market", "macro")
+                        if market_filter != "all" and market_filter != mkt:
+                            continue
+                        days_until = (dt - now).days
+                        events.append({
+                            "date": date_str,
+                            "days_until": days_until,
+                            "name": ev.get("name", "?"),
+                            "impact": ev.get("impact", "?"),
+                            "market": mkt,
+                            "details": ev.get("notes", ""),
+                        })
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+
+    # 3. Load weekly template for today's day
+    weekly_path = calendar_dir / "weekly_template.json"
+    if weekly_path.exists():
+        try:
+            weekly = json.loads(weekly_path.read_text())
+            today_name = now.strftime("%A").lower()
+            if today_name in weekly:
+                day_info = weekly[today_name]
+                events.append({
+                    "date": now.strftime("%Y-%m-%d"),
+                    "days_until": 0,
+                    "name": f"TODAY ({today_name.title()})",
+                    "impact": "info",
+                    "market": "macro",
+                    "details": f"Volume: {day_info.get('volume_norm', '?')}. {day_info.get('notes', '')}",
+                })
+        except Exception:
+            pass
+
+    if not events:
+        return f"No calendar events in the next {days_ahead} days."
+
+    events.sort(key=lambda e: e.get("date", ""))
+    lines = [f"📅 Calendar — next {days_ahead} days ({len(events)} events):"]
+    for ev in events:
+        d = ev["days_until"]
+        when = "TODAY" if d <= 0 else f"in {d}d"
+        lines.append(f"  [{ev['date']}] ({when}) [{ev['impact'].upper()}] {ev['name']}")
+        if ev.get("details"):
+            lines.append(f"    {ev['details'][:200]}")
+
+    return "\n".join(lines)
+
+
+def _tool_get_research(args: dict) -> str:
+    """Read market research notes from the data/research/markets/ directory."""
+    market = args.get("market", "").lower().replace(":", "_").replace("-", "_")
+    query = args.get("query", "").lower()
+
+    research_dir = _PROJECT_ROOT / "data" / "research" / "markets" / market
+    if not research_dir.exists():
+        # Try common aliases
+        aliases = {
+            "wti": "xyz_cl", "cl": "xyz_cl", "oil": "xyz_brentoil",
+            "brent": "xyz_brentoil", "brentoil": "xyz_brentoil",
+            "gold": "xyz_gold", "silver": "xyz_silver", "sp500": "xyz_sp500",
+        }
+        market = aliases.get(market, market)
+        research_dir = _PROJECT_ROOT / "data" / "research" / "markets" / market
+        if not research_dir.exists():
+            return f"No research directory for market '{market}'. Available: {[d.name for d in (_PROJECT_ROOT / 'data' / 'research' / 'markets').iterdir() if d.is_dir()]}"
+
+    # Collect all .md files from the market directory
+    notes = []
+    for md_file in sorted(research_dir.rglob("*.md")):
+        rel = md_file.relative_to(research_dir)
+        if query:
+            # Flexible match: check if query or any 3+ char substring appears in filename or content
+            filename_lower = str(rel).lower()
+            content_preview = md_file.read_text()[:1000].lower()
+            search_text = filename_lower + " " + content_preview
+            # Match if query appears OR if query stem (first 4 chars) appears
+            query_stem = query[:4] if len(query) > 4 else query
+            if query not in search_text and query_stem not in search_text:
+                continue
+        notes.append((str(rel), md_file))
+
+    if not notes:
+        return f"No research notes matching '{query}' for {market}."
+
+    # Build output — read each note (capped)
+    lines = [f"📚 Research for {market} ({len(notes)} notes):"]
+    total_chars = 0
+    for rel_path, file_path in notes:
+        content = file_path.read_text()
+        if total_chars + len(content) > _MAX_RESPONSE_CHARS:
+            remaining = _MAX_RESPONSE_CHARS - total_chars
+            if remaining > 200:
+                lines.append(f"\n--- {rel_path} ---")
+                lines.append(content[:remaining] + "\n[...TRUNCATED]")
+            else:
+                lines.append(f"\n[{len(notes) - notes.index((rel_path, file_path))} more notes not shown — narrow with query param]")
+            break
+        lines.append(f"\n--- {rel_path} ---")
+        lines.append(content)
+        total_chars += len(content)
+
+    return "\n".join(lines)
+
+
+def _tool_get_technicals(args: dict) -> str:
+    """Get current technical indicators for a market from candle data."""
+    market = args.get("market", "BTC")
+
+    try:
+        from modules.candle_cache import CandleCache
+        from common.market_snapshot import build_snapshot, render_snapshot
+        import requests as req
+
+        cache = CandleCache()
+
+        # Get current price
+        price = 0.0
+        for dex_flag in [None, "xyz"]:
+            payload: dict = {"type": "allMids"}
+            if dex_flag:
+                payload["dex"] = dex_flag
+            r = req.post("https://api.hyperliquid.xyz/info", json=payload, timeout=8)
+            if r.status_code == 200:
+                data = r.json()
+                if market in data:
+                    price = float(data[market])
+                    break
+
+        if not price:
+            return f"Could not fetch current price for {market}."
+
+        snap = build_snapshot(market, cache, price)
+        text = render_snapshot(snap, detail="full")
+        return text
+
+    except Exception as e:
+        return f"Technicals unavailable for {market}: {e}"
+
+
 # Dispatch table
 _TOOL_DISPATCH = {
     "market_brief": _tool_market_brief,
@@ -1491,6 +1761,9 @@ _TOOL_DISPATCH = {
     "read_reference": _tool_read_reference,
     "search_lessons": _tool_search_lessons,
     "get_lesson": _tool_get_lesson,
+    "get_calendar": _tool_get_calendar,
+    "get_research": _tool_get_research,
+    "get_technicals": _tool_get_technicals,
 }
 
 

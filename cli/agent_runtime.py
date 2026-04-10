@@ -4,7 +4,7 @@ Provides:
 - build_system_prompt(): Claude Code-quality prompt assembly
 - ToolExecutor: parallel tool execution with concurrency safety
 - stream_api_call(): SSE streaming for Anthropic + OpenRouter
-- should_compact() + compact_conversation(): context management
+- accordion_truncate(): Claude Code-style context management (strips old tool outputs)
 - should_dream() + build_dream_prompt(): memory consolidation
 
 Model-agnostic — works with any provider via telegram_agent.py adapters.
@@ -426,45 +426,60 @@ def get_context_window(model: str) -> int:
     return _CONTEXT_WINDOWS["default"]
 
 
-def should_compact(messages: List[Dict], model: str) -> bool:
-    """Check if conversation should be compacted.
-
-    Ported from Claude Code's autoCompact.ts — triggers when token count
-    exceeds (context_window - reserve - buffer).
+def accordion_truncate(messages: List[Dict], max_tokens: int = 100_000, trigger_threshold: int = 150_000) -> List[Dict]:
+    """Truncate old tool outputs to keep context manageable without losing the narrative.
+    
+    If total tokens exceed trigger_threshold, it combs backward through the
+    message history. Any message older than the last 4 messages (2 user/assistant turns)
+    that contains large tool-results text will have that text truncated.
     """
     token_count = estimate_tokens(messages)
-    context_window = get_context_window(model)
-    threshold = context_window - _COMPACT_RESERVE - _COMPACT_BUFFER
-    return token_count >= threshold
+    if token_count < trigger_threshold:
+        return messages
 
-
-_COMPACT_PROMPT = """Your task is to create a detailed summary of the conversation so far. This summary will replace the full conversation, so it must be comprehensive.
-
-Create a summary with these sections:
-1. **Primary Request and Intent** — What the user wants to accomplish
-2. **Key Facts** — Important data points, prices, positions, decisions
-3. **Actions Taken** — What tools were called and what they found
-4. **Current State** — Where things stand right now
-5. **Pending Tasks** — What still needs to be done
-6. **Important Context** — Any rules, constraints, or preferences mentioned
-
-Be specific with numbers, file paths, and technical details. This summary will be the only context available for future turns.
-
-CRITICAL: Respond with plain text only. Do NOT call any tools."""
-
-
-def build_compact_messages(messages: List[Dict]) -> List[Dict]:
-    """Build the compaction request — sends conversation to a fast model for summarization."""
-    # Format conversation for the summarizer
-    conversation = []
-    for m in messages:
-        role = m.get("role", "unknown")
-        content = str(m.get("content", ""))[:2000]  # cap per message for summarizer
-        conversation.append(f"[{role}]: {content}")
-
-    return [
-        {"role": "user", "content": _COMPACT_PROMPT + "\n\n---\n\nConversation to summarize:\n\n" + "\n\n".join(conversation)},
-    ]
+    # Keep a trailing budget of recent turns perfectly intact
+    # (system prompt is messages[0], we don't truncate that anyway)
+    protected_count = 4 
+    
+    truncated = []
+    for i, msg in enumerate(messages):
+        if i == 0 or i >= len(messages) - protected_count:
+            truncated.append(msg)
+            continue
+            
+        role = msg.get("role")
+        content = msg.get("content", "")
+        
+        # We only truncate text content
+        if isinstance(content, str) and len(content) > 500:
+            # Check if this is a tool result (either user or tool role passing tool results)
+            if role in ("tool", "user", "assistant") and ("[Tool result" in content or "live_price" in content or "account_summary" in content):
+                truncated.append({
+                    **msg,
+                    "content": content[:100] + "\n[...Tool output discarded for length to preserve context...]"
+                })
+            else:
+                truncated.append({
+                    **msg, 
+                    "content": content[:500] + "\n[...Truncated for length...]"
+                })
+        elif isinstance(content, list):
+            # For anthropic-style block content, we only truncate text blocks > 500 chars
+            new_content = []
+            for block in content:
+                if block.get("type") == "text" and len(block.get("text", "")) > 500:
+                    text_str = block["text"]
+                    if "[Tool result" in text_str or "live_price" in text_str:
+                        new_content.append({"type": "text", "text": text_str[:100] + "\n[...Tool output discarded for length to preserve context...]"})
+                    else:
+                        new_content.append({"type": "text", "text": text_str[:500] + "\n[...Truncated for length...]"})
+                else:
+                    new_content.append(block)
+            truncated.append({**msg, "content": new_content})
+        else:
+            truncated.append(msg)
+            
+    return truncated
 
 
 # ═══════════════════════════════════════════════════════════════════════
