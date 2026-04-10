@@ -68,7 +68,7 @@ class ThesisUpdaterIterator:
         self._started = True
         log.info("ThesisUpdaterIterator started — Haiku classifier active")
 
-    def on_tick(self, ctx: TickContext) -> None:
+    def tick(self, ctx: TickContext) -> None:
         if not self._started or not self._engine.enabled or not self._haiku_available:
             return
 
@@ -126,7 +126,7 @@ class ThesisUpdaterIterator:
                     "warning" if change.tier == "MAJOR" else "info"
                 )
                 ctx.alerts.append(Alert(
-                    level=level,
+                    severity=level,
                     source=self.name,
                     message=msg,
                 ))
@@ -134,7 +134,7 @@ class ThesisUpdaterIterator:
                 # If defensive mode, also signal Guard override
                 if change.defensive_mode and change.guard_override:
                     ctx.alerts.append(Alert(
-                        level="critical",
+                        severity="critical",
                         source=self.name,
                         message=(
                             f"⚡ GUARD OVERRIDE — {change.market}\n"
@@ -147,7 +147,7 @@ class ThesisUpdaterIterator:
                 go_flat = self._engine._config.get("go_flat_threshold", 0.10)
                 if change.conviction_after < go_flat:
                     ctx.alerts.append(Alert(
-                        level="critical",
+                        severity="critical",
                         source=self.name,
                         message=(
                             f"🔴 CONVICTION CRITICALLY LOW — {change.market}\n"

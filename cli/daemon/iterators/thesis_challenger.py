@@ -41,7 +41,7 @@ class ThesisChallengerIterator:
             for c in challenges:
                 msg = self._engine.format_alert(c)
                 ctx.alerts.append(Alert(
-                    level="critical",
+                    severity="critical",
                     source=self.name,
                     message=msg,
                 ))
@@ -55,7 +55,7 @@ class ThesisChallengerIterator:
             len(challenges),
         )
 
-    def on_tick(self, ctx: TickContext) -> None:
+    def tick(self, ctx: TickContext) -> None:
         if not self._started or not self._engine.enabled:
             return
 
@@ -71,7 +71,7 @@ class ThesisChallengerIterator:
         for c in challenges:
             msg = self._engine.format_alert(c)
             ctx.alerts.append(Alert(
-                level="critical",
+                severity="critical",
                 source=self.name,
                 message=msg,
             ))
