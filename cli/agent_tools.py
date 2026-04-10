@@ -28,6 +28,9 @@ _MAX_RESPONSE_CHARS = 12000
 # Write tools that require user approval before execution
 WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash"}
 
+# Display tools — pre-formatted output, send directly to Telegram without LLM commentary
+DISPLAY_TOOLS = {"get_calendar", "get_research", "get_technicals"}
+
 # Durable pending actions — file-backed so approvals survive bot restarts.
 _PENDING_FILE = _PROJECT_ROOT / "data" / "state" / "pending_actions.json"
 _pending_actions: Dict[str, dict] = {}

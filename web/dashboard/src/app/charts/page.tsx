@@ -412,9 +412,9 @@ export default function ChartsPage() {
     fetchCandles();
   }, [fetchCandles]);
 
-  // Auto-refresh every 60s
+  // Auto-refresh every 10s — live tail keeps current candle up-to-date
   useEffect(() => {
-    const id = window.setInterval(() => { fetchCandles(); }, 60_000);
+    const id = window.setInterval(() => { fetchCandles(); }, 10_000);
     return () => window.clearInterval(id);
   }, [fetchCandles]);
 

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
 
+import requests as http_requests
 from fastapi import APIRouter, HTTPException, Query
 
 # Ensure agent-cli is on the path for modules.* imports
@@ -16,9 +18,13 @@ if str(_project_root) not in sys.path:
 from modules.candle_cache import CandleCache, INTERVAL_MS
 from web.api.dependencies import DATA_DIR
 
+log = logging.getLogger("charts")
+
 router = APIRouter()
 
 _DB_PATH = DATA_DIR / "candles" / "candles.db"
+
+_HL_INFO_URL = "https://api.hyperliquid.xyz/info"
 
 # Coin name mapping — handle both native and xyz: prefix forms
 _COIN_ALIASES: dict[str, list[str]] = {
@@ -29,6 +35,62 @@ _COIN_ALIASES: dict[str, list[str]] = {
     "CL": ["CL", "xyz:CL"],
     "SP500": ["SP500", "xyz:SP500"],
 }
+
+# Which HL API coin name to use for live fetch (xyz perps need xyz: prefix)
+_HL_COIN_NAME: dict[str, str] = {
+    "BTC": "BTC",
+    "BRENTOIL": "xyz:BRENTOIL",
+    "GOLD": "xyz:GOLD",
+    "SILVER": "xyz:SILVER",
+    "CL": "xyz:CL",
+    "SP500": "xyz:SP500",
+}
+
+
+def _fetch_live_tail(coin: str, interval: str, interval_ms: int) -> list[dict]:
+    """Fetch the last 2 candles live from HL API for the current tick.
+
+    Returns candles in lightweight-charts format (time in seconds).
+    We fetch 2 candles so we also refresh the just-completed candle
+    with its final volume.
+    """
+    hl_coin = _HL_COIN_NAME.get(coin, coin)
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - 2 * interval_ms
+
+    try:
+        r = http_requests.post(
+            _HL_INFO_URL,
+            json={
+                "type": "candleSnapshot",
+                "req": {
+                    "coin": hl_coin,
+                    "interval": interval,
+                    "startTime": start_ms,
+                    "endTime": now_ms,
+                },
+            },
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return []
+        raw = r.json()
+        if not isinstance(raw, list):
+            return []
+        return [
+            {
+                "time": int(c["t"]) // 1000,
+                "open": float(c["o"]),
+                "high": float(c["h"]),
+                "low": float(c["l"]),
+                "close": float(c["c"]),
+                "volume": float(c["v"]),
+            }
+            for c in raw
+        ]
+    except Exception as e:
+        log.debug("Live tail fetch failed for %s %s: %s", coin, interval, e)
+        return []
 
 
 def _resolve_coin(coin: str) -> str | None:
@@ -98,10 +160,16 @@ async def get_candles(
             for r in rows
         ]
 
-        # Deduplicate by time (keep last) and sort
+        # Fetch live tail (last 2 candles) from HL API — overwrites
+        # stale/partial cached candles with real-time data
+        live = _fetch_live_tail(canonical, interval, interval_ms)
+
+        # Deduplicate by time — live data wins over cached
         seen: dict[int, dict] = {}
         for c in candles:
             seen[c["time"]] = c
+        for c in live:
+            seen[c["time"]] = c  # live overwrites cached
         candles = sorted(seen.values(), key=lambda x: x["time"])
 
         return {"coin": canonical, "interval": interval, "candles": candles}

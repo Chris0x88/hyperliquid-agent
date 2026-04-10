@@ -533,6 +533,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             from cli.agent_tools import (
                 TOOL_DEFS, execute_tool, is_write_tool,
                 store_pending, format_confirmation,
+                DISPLAY_TOOLS,
             )
 
             # Filter tools based on intent
@@ -646,10 +647,15 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                 results = execute_parsed_calls(code_parsed, TOOL_REGISTRY, CORE_WRITE_TOOLS)
 
                 result_parts = []
+                display_only_names = set()
+                has_write = False
+                has_error = False
                 for r in results:
                     if r.error:
                         result_parts.append(f"[{r.name}] ERROR: {r.error}")
+                        has_error = True
                     elif r.data.get("_pending"):
+                        has_write = True
                         # WRITE tool — go through approval flow
                         fn_args = r.data.get("kwargs", {})
                         # Also merge positional args
@@ -671,7 +677,18 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                     else:
                         rendered = render_for_ai(r.name, r.data)
                         result_parts.append(f"[{r.name}] {rendered}")
+                        if r.name in DISPLAY_TOOLS:
+                            display_only_names.add(r.name)
                         log.info("Read tool %s executed via code parser", r.name)
+
+                # Display tools: send directly, skip LLM commentary
+                if display_only_names and not has_write and not has_error and len(display_only_names) == len(results):
+                    display_text = "\n\n".join(p.split("] ", 1)[1] if "] " in p else p for p in result_parts)
+                    if display_text:
+                        _tg_send_markdown(token, chat_id, display_text)
+                        _log_chat("assistant", f"[display tool: {', '.join(display_only_names)}]", tg_text=display_text)
+                        typing_indicator.stop()
+                        return
 
                 messages.append({
                     "role": "system",
@@ -697,6 +714,18 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                 # Execute READ tools in parallel
                 if read_calls:
                     parallel_results = execute_tools_parallel(read_calls, execute_tool)
+
+                    # Display tools: send result directly to Telegram, skip LLM commentary
+                    read_names = {tc.get("function", {}).get("name", "") for tc in read_calls}
+                    if read_names and read_names <= DISPLAY_TOOLS and not write_calls:
+                        display_text = "\n\n".join(result for _, _, result in parallel_results if result)
+                        if display_text:
+                            _tg_send_markdown(token, chat_id, display_text)
+                            _log_chat("assistant", f"[display tool: {', '.join(read_names)}]", tg_text=display_text)
+                            typing_indicator.stop()
+                            return
+                        # Fall through if somehow empty
+
                     for tool_id, tool_name, result in parallel_results:
                         if response.get("tool_calls"):
                             messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})

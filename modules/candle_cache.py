@@ -103,7 +103,7 @@ class CandleCache:
             ))
 
         cursor = self._conn.executemany(
-            "INSERT OR IGNORE INTO candles (coin, interval, timestamp_ms, open, high, low, close, volume, source) "
+            "INSERT OR REPLACE INTO candles (coin, interval, timestamp_ms, open, high, low, close, volume, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
