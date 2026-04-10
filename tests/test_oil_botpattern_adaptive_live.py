@@ -103,11 +103,14 @@ def _write_config(d, **overrides):
 
 
 def _ctx(brentoil_price=67.00):
+    from parent.risk_manager import RiskGate
     c = MagicMock()
     c.alerts = []
     c.order_queue = []
     c.balances = {"USDC": Decimal("100000")}
+    c.total_equity = 100_000.0
     c.prices = {"BRENTOIL": Decimal(str(brentoil_price))}
+    c.risk_gate = RiskGate.OPEN
     return c
 
 

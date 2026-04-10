@@ -4,6 +4,26 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-10 — Mission Control Web Dashboard (Phase 1-6)
+
+**Built:** Full local web dashboard + docs site + control panel for the trading system.
+
+**Architecture:**
+- FastAPI backend (:8420) — 12 API routers reading same data files as daemon/telegram
+- Next.js 15 dashboard (:3000) — 7 pages: Dashboard, Charts, Control, Logs, Strategies, Alerts, Thesis Editor
+- Astro Starlight docs (:4321) — 20 documentation pages with Pagefind search
+- Design system: Primary #A26B32, Space Grotesk + Inter fonts, dark theme
+
+**Pages:** Dashboard (equity curve, positions, health, iterators, thesis cards, news feed), Charts (candlestick + Bollinger Bands + SMA/EMA overlays via lightweight-charts v5), Control (40+ iterator kill switches, config editor with save/diff, authority matrix), Thesis Editor (conviction sliders, direction, TP, invalidation conditions), Logs (SSE streaming, 6 sources), Strategies (Oil Bot Pattern SS1-6, PnL, brakes, decision journal), Alerts (5 tabs, 7 data sources, severity badges).
+
+**Bug fix — stale .next dev cache:** When subagents added `lightweight-charts` and new page components in parallel, the running Next.js dev server didn't regenerate its webpack vendor chunks. Pages returned 500 with `Cannot find module './vendor-chunks/lightweight-charts.js'`. Fix: `start_web.sh` now always does `rm -rf .next && bun run build` before starting production server. Root cause: dev HMR doesn't handle cold-added npm deps reliably.
+
+**Launcher:** `scripts/Mission Control.app` — double-click macOS app that starts all services and opens browser. Desktop symlink created.
+
+**Telegram:** `/restartall` restarts daemon + heartbeat + telegram + web (already existed). `/restart` is bot-only (safe during security incidents).
+
+---
+
 ## 2026-04-10 — News → Thesis Pipeline + Self-Improvement Engines
 
 **Root cause:** Trump 2-week ceasefire announced April 7-8. News ingestion

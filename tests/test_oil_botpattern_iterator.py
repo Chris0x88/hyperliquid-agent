@@ -70,11 +70,14 @@ def _write_config(d, *, enabled=True, shorts=False, **overrides):
 
 
 def _ctx(equity_usd=100_000, brentoil_price=67.42):
+    from parent.risk_manager import RiskGate
     c = MagicMock()
     c.alerts = []
     c.order_queue = []
     c.balances = {"USDC": Decimal(str(equity_usd))}
+    c.total_equity = float(equity_usd)
     c.prices = {"BRENTOIL": Decimal(str(brentoil_price))}
+    c.risk_gate = RiskGate.OPEN  # account-wide brake default
     return c
 
 
@@ -117,11 +120,20 @@ def test_master_kill_switch_off(tmp_path):
     assert not Path(f"{tmp_path}/decisions.jsonl").exists()
 
 
-def test_iterator_registered_in_rebalance_and_opportunistic_only():
+def test_iterator_registered_in_all_three_tiers():
+    """Sub-system 5 is registered in WATCH + REBALANCE + OPPORTUNISTIC.
+
+    Previously this test asserted oil_botpattern was NOT in WATCH, back
+    when the iterator was exit/write-only. With shadow mode
+    (decisions_only=true), the iterator needs to tick in WATCH so Rung 1
+    (shadow in WATCH) in the activation runbook actually works. WATCH
+    has no execution_engine or exchange_protection, so any accidentally-
+    emitted OrderIntent has no consumer anyway — double safety.
+    """
     from cli.daemon.tiers import iterators_for_tier
+    assert "oil_botpattern" in iterators_for_tier("watch")
     assert "oil_botpattern" in iterators_for_tier("rebalance")
     assert "oil_botpattern" in iterators_for_tier("opportunistic")
-    assert "oil_botpattern" not in iterators_for_tier("watch")
 
 
 # ---------------------------------------------------------------------------
