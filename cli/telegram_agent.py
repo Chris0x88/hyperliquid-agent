@@ -769,6 +769,21 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             else:
                 response = _call_openrouter(messages, tools=available_tools)
 
+        # Final synthesis: if tool loop ran and user selected a premium model,
+        # re-synthesise with the premium model. Haiku fetched the data; now the
+        # premium model produces the judgment the user reads.
+        # (Designed in commit 9926345 — "Only the FINAL response needs Sonnet/Opus")
+        active_model = _get_active_model()
+        used_haiku_override = (_is_anthropic_model(active_model) and "haiku" not in active_model)
+        if _loop > 0 and used_haiku_override:
+            try:
+                log.info("[turn] final synthesis with %s (tool loop used Haiku)", active_model)
+                # Strip tools from final call — no more tool calling, just synthesis
+                response = _call_openrouter(messages, tools=None)
+            except Exception as e:
+                log.warning("Premium model final synthesis failed, using Haiku response: %s", e)
+                # Fall through — use the last Haiku response we already have
+
         # Extract final text response
         response_text = response.get("content") or ""
         # Clean any remaining tool call syntax from final response
@@ -946,7 +961,7 @@ def _build_system_prompt() -> str:
     against agent-writable inputs (notably MEMORY.md via the dream
     cycle) inflating the prompt beyond control.
     """
-    from cli.agent_runtime import build_system_prompt, build_lessons_section
+    from cli.agent_runtime import build_system_prompt
 
     # Load domain-specific files (hard-capped)
     agent_md = _read_capped(_AGENT_MD, "AGENT.md")
@@ -956,21 +971,13 @@ def _build_system_prompt() -> str:
     memory_path = _PROJECT_ROOT / "data" / "agent_memory" / "MEMORY.md"
     memory_content = _read_capped(memory_path, "MEMORY.md")
 
-    # Pull top recent lessons from the lesson corpus for prompt injection.
-    # Empty query → recency fallback. build_lessons_section() returns "" when
-    # the corpus is empty, disabled, or the DB query raises — all failures
-    # are swallowed so lesson injection cannot break the agent.
-    lessons_section = ""
-    try:
-        lessons_section = build_lessons_section(limit=5)
-    except Exception as e:
-        log.warning("lessons section failed to build: %s", e)
-
+    # Lessons are injected by the caller via BM25 relevance (query-targeted),
+    # not here by recency. This avoids double-injection into the system prompt.
     return build_system_prompt(
         agent_md=agent_md,
         soul_md=soul_md,
         memory_content=memory_content,
-        lessons_section=lessons_section,
+        lessons_section="",
     )
 
 

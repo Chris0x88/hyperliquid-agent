@@ -20,7 +20,7 @@ Core engines plus utilities. Pure computation (zero I/O) — `_guard` classes ha
 | CONTEXT | `context_engine.py` | Intent classification + data pre-fetch | Kill switch OFF at ship. Not yet wired to Telegram agent. |
 | LAB | `lab_engine.py` | Strategy development pipeline | Kill switch OFF at ship. CLI: `hl lab`. |
 | ARCHITECT | `architect_engine.py` | Mechanical self-improvement proposals | Kill switch OFF at ship. 12h cadence, zero LLM. CLI: `hl architect`. |
-| WORKFLOW | `workflow_engine.py` | Composable step DAG for context assembly | Infrastructure for Context/Lab/Architect engines. |
+| WORKFLOW | `workflow_engine.py` | Composable step DAG for context assembly | **Not yet built.** Context/Lab/Architect work independently without it. |
 
 ## Key Utilities
 

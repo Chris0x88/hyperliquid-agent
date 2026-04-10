@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { theme as t } from "@/lib/theme";
+import { getHealth } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -15,6 +17,20 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [systemOk, setSystemOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = () =>
+      getHealth()
+        .then((h) => setSystemOk(h.processes.daemon.running && h.processes.telegram_bot.running))
+        .catch(() => setSystemOk(false));
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const statusColor = systemOk === null ? t.colors.textMuted : systemOk ? t.colors.success : "#ef4444";
+  const statusLabel = systemOk === null ? "Checking..." : systemOk ? "System Online" : "System Degraded";
 
   return (
     <aside
@@ -107,10 +123,10 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <div
             className="w-2 h-2 rounded-full"
-            style={{ background: t.colors.success, boxShadow: `0 0 6px ${t.colors.success}` }}
+            style={{ background: statusColor, boxShadow: `0 0 6px ${statusColor}` }}
           />
           <span className="text-[11px]" style={{ color: t.colors.textMuted }}>
-            System Online
+            {statusLabel}
           </span>
         </div>
       </div>

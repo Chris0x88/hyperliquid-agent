@@ -11,7 +11,7 @@ Model-agnostic — works with any provider via telegram_agent.py adapters.
 """
 from __future__ import annotations
 
-import asyncio
+
 import json
 import logging
 import re
