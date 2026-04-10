@@ -170,6 +170,19 @@ class BotPatternStrategyIterator:
             float(self._config["drawdown_brakes"]["monthly_max_loss_pct"]),
         )
 
+        # Account-wide risk gate — set by the `risk` iterator's composable
+        # ProtectionChain (MaxDrawdown + DailyLoss + StoplossGuard + Ruin).
+        # When COOLDOWN or CLOSED, ZERO new entries from ANY strategy.
+        # This is the cross-strategy brake above the per-strategy drawdown
+        # brakes: sub-system 5's own brakes can pass while the account-wide
+        # gate is tripped (e.g. due to losses in another strategy), and the
+        # account-wide gate must still win.
+        if not brakes_blocked:
+            gate_blocked, gate_reason = self._risk_gate_blocks(ctx)
+            if gate_blocked:
+                brakes_blocked = True
+                brake_reason = gate_reason
+
         # Pre-load shared inputs once per tick
         patterns_by_inst = self._load_latest_patterns_by_instrument()
         catalysts_24h = self._load_upcoming_catalysts(now)
@@ -684,9 +697,53 @@ class BotPatternStrategyIterator:
     def _load_state(self) -> StrategyState:
         return read_state(self._config.get("state_json", "data/strategy/oil_botpattern_state.json"))
 
-    def _equity_from_ctx(self, ctx: TickContext) -> float:
+    def _risk_gate_blocks(self, ctx: TickContext) -> tuple[bool, str]:
+        """Return (blocked, reason) if the account-wide risk gate prevents new entries.
+
+        The `risk` iterator sets ctx.risk_gate based on the composable
+        ProtectionChain:
+          - OPEN      → normal ops, returns (False, "")
+          - COOLDOWN  → no new entries, existing positions keep running
+          - CLOSED    → no new entries + strategies should de-risk
+
+        Sub-system 5 treats both COOLDOWN and CLOSED as entry-blocking. We
+        don't force-close existing shadow positions on a gate trip —
+        they're paper and their own SL/TP + adaptive evaluator manage
+        exits. Live positions are handled by exchange_protection / the
+        existing funding + adaptive exit paths.
+        """
+        gate = getattr(ctx, "risk_gate", None)
+        if gate is None:
+            return (False, "")
         try:
-            total = 0.0
+            from parent.risk_manager import RiskGate
+        except ImportError:
+            return (False, "")
+        if gate == RiskGate.OPEN:
+            return (False, "")
+        value = getattr(gate, "value", str(gate))
+        return (True, f"account-wide risk gate: {value}")
+
+    def _equity_from_ctx(self, ctx: TickContext) -> float:
+        """Return account equity for sizing + brake checks.
+
+        Prefers ``ctx.total_equity`` which is the bug-fix (2026-04-08)
+        parallel field that sums native + xyz + spot USDC. This matches
+        what /status and the drawdown brake alerts report.
+
+        Falls back to summing ``ctx.balances`` (native-only) when
+        total_equity hasn't been populated yet (connector tick 0 or
+        adapter unavailable). On an xyz-heavy account, the fallback may
+        read 0 because native USDC can legitimately be zero —
+        ``check_drawdown_brakes`` then blocks all new entries with
+        "equity ≤ 0", which is the WRONG behavior during shadow mode.
+        Using total_equity avoids that dead-lock.
+        """
+        try:
+            total = float(getattr(ctx, "total_equity", 0.0) or 0.0)
+            if total > 0:
+                return total
+            # Fallback: sum ctx.balances (legacy path)
             for bal in ctx.balances.values():
                 total += float(bal)
             return total

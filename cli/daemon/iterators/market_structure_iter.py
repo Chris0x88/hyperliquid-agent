@@ -25,6 +25,14 @@ log = logging.getLogger("daemon.market_structure")
 # Recompute every 5 minutes — indicators on 1h/4h candles barely move each tick
 RECOMPUTE_INTERVAL_S = 300
 
+# Markets that consume 1m candles from the cache (sub-system 4 classifier).
+# Kept narrow to limit API load — 1m candles for 10 markets × 5min refresh
+# = 120 requests/hour, whereas 2 markets = 24 requests/hour.
+_OIL_CLASSIFIER_MARKETS = frozenset({
+    "xyz:BRENTOIL",
+    "xyz:CL",
+})
+
 
 class MarketStructureIterator:
     """Computes MarketSnapshot for each tracked market and injects into TickContext."""
@@ -66,23 +74,39 @@ class MarketStructureIterator:
     def _refresh_candles(self, markets: set, lookback_hours: int = 168) -> None:
         """Fetch fresh candles from HL API for all markets and store in cache.
 
-        Mirrors telegram_agent._refresh_candle_cache — fetches 1h, 4h, 1d for
-        every market. Only fetches if data is >1h stale to avoid hammering the API.
+        Mirrors telegram_agent._refresh_candle_cache — fetches 1h, 4h, 1d
+        for every market on a 1h staleness threshold, and 1m on a 5-min
+        threshold for the oil instruments (sub-system 4 classifier
+        consumer). The 1m extension was added 2026-04-09 — prior to
+        that, bot_classifier had to direct-fetch from HL per poll
+        because the cache never held 1m data.
         """
         if not self._cache:
             return
 
         now_ms = int(time.time() * 1000)
-        intervals = ["1h", "4h", "1d"]
+        # Per-interval staleness + lookback policy
+        refresh_policy = [
+            # (interval, stale_after_ms, lookback_ms, market_filter)
+            ("1h", 3_600_000, lookback_hours * 3_600_000, None),
+            ("4h", 3_600_000, lookback_hours * 3_600_000, None),
+            ("1d", 3_600_000, lookback_hours * 3_600_000, None),
+            # 1m: cache only for the oil classifier's targets, 5-min
+            # staleness, 120-minute lookback (lines up with
+            # bot_classifier's 60-min lookback window + a safety buffer).
+            ("1m", 300_000, 120 * 60_000, _OIL_CLASSIFIER_MARKETS),
+        ]
 
         for coin in markets:
-            for interval in intervals:
+            for interval, stale_after_ms, lookback_ms, market_filter in refresh_policy:
+                if market_filter is not None and coin not in market_filter:
+                    continue
                 try:
                     date_range = self._cache.date_range(coin, interval)
-                    if date_range and (now_ms - date_range[1]) < 3_600_000:
+                    if date_range and (now_ms - date_range[1]) < stale_after_ms:
                         continue  # Fresh enough
 
-                    start_ms = date_range[1] if date_range else now_ms - (lookback_hours * 3_600_000)
+                    start_ms = date_range[1] if date_range else now_ms - lookback_ms
 
                     payload = {
                         "type": "candleSnapshot",

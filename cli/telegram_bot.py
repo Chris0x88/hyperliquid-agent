@@ -895,6 +895,48 @@ def cmd_restart(token: str, chat_id: str, _args: str) -> None:
     threading.Thread(target=_delayed_exit, daemon=True).start()
 
 
+def cmd_restartall(token: str, chat_id: str, _args: str) -> None:
+    """Restart ALL services including Mission Control web dashboard."""
+    import subprocess
+    import os
+
+    uid = os.getuid()
+    services = [
+        "com.hyperliquid.daemon",
+        "com.hyperliquid.heartbeat",
+        "com.hyperliquid.telegram",
+        "com.hyperliquid.web",
+    ]
+
+    results = []
+    for svc in services:
+        try:
+            r = subprocess.run(
+                ["launchctl", "kickstart", "-k", f"gui/{uid}/{svc}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                results.append(f"  {svc}: restarted")
+            else:
+                # Service might not be loaded yet
+                results.append(f"  {svc}: not loaded (skip)")
+        except Exception as e:
+            results.append(f"  {svc}: error ({e})")
+
+    msg = "🔄 *Restarting ALL services (including web)*\n\n" + "\n".join(results)
+    msg += "\n\n_Dashboard: http://127.0.0.1:3000_"
+    msg += "\n_Docs: http://127.0.0.1:4321_"
+    msg += "\n\n_Telegram bot will reconnect in a few seconds._"
+    tg_send(token, chat_id, msg)
+
+    import threading
+    def _delayed_exit():
+        import time as _t
+        _t.sleep(2)
+        os._exit(0)
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+
+
 def cmd_signals(token: str, chat_id: str, args: str) -> None:
     """Show recent Pulse and Radar signals.
 
@@ -4664,6 +4706,7 @@ HANDLERS = {
     "briefai": cmd_briefai,
     "bai": cmd_briefai,
     "restart": cmd_restart,
+    "restartall": cmd_restartall,
     "signals": cmd_signals,
     "sig": cmd_signals,
     "delegate": cmd_delegate,
