@@ -9,7 +9,7 @@ feeds:
     poll_interval_s: 60
     weight: 0.9
     categories: [oil, energy]
-    enabled: true
+    enabled: false  # 2026-04-10: Reuters killed public RSS, returns HTTP 401
 
   - name: oilprice_main
     url: https://oilprice.com/rss/main
@@ -30,7 +30,7 @@ feeds:
     poll_interval_s: 60
     weight: 0.7
     categories: [macro, geopolitical]
-    enabled: true
+    enabled: false  # 2026-04-10: DNS resolution failure, feed URL invalid
 
 icals:
   - name: eia_weekly_petroleum
