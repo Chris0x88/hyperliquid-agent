@@ -4,6 +4,62 @@ Chronological record of architecture changes, incidents, and milestones. Most re
 
 ---
 
+## 2026-04-10 — News → Thesis Pipeline + Self-Improvement Engines
+
+**Root cause:** Trump 2-week ceasefire announced April 7-8. News ingestion
+captured headlines and created catalysts (`iran_deal`, `trump_oil_announcement`
+with severity 4-5 in catalysts.jsonl). But nothing connected catalysts to
+thesis review — the BRENTOIL thesis still said "TACTICAL SHORT" from April 3,
+referencing a passed April 6 deadline. The pipeline ended at `catalysts.jsonl`
+with no consumer.
+
+**What shipped:**
+
+1. **Thesis Challenger** (`modules/thesis_challenger.py`,
+   `cli/daemon/iterators/thesis_challenger.py`) — pure Python, zero LLM.
+   Pattern-matches catalysts against thesis `invalidation_conditions`. Tested
+   against real data: 47 raw matches → 5 actionable alerts (best per
+   condition dedup). Registered all tiers, default enabled.
+
+2. **Thesis Updater** (`modules/thesis_updater.py`,
+   `cli/daemon/iterators/thesis_updater.py`) — calls Haiku to classify each
+   catalyst (0-10 impact score). Direction-aware tiered response:
+   - CRITICAL (9-10): INSTANT defensive mode (Guard Phase 2, leverage halved)
+     if news hurts position. Conviction boost if news helps. No waiting for
+     price confirmation.
+   - MAJOR (7-8): conviction ±0.10-0.15, tighten stops
+   - MODERATE (4-6): conviction ±0.05-0.10, log evidence
+   - MINOR (0-3): log only
+   Guardrails: ±0.15/event, ±0.30/24h, direction NEVER flipped, weekend ×0.5.
+   Audit: `data/thesis/audit.jsonl`. Kill switch OFF at ship.
+
+3. **Context Engine** (`modules/context_engine.py`) — classifies Telegram
+   message intent, pre-fetches relevant data before LLM sees the question.
+   Not yet wired to agent.
+
+4. **Lab Engine** (`modules/lab_engine.py`) — strategy development pipeline
+   (discover → hypothesis → backtest → paper trade → graduated). CLI: `hl lab`.
+
+5. **Architect Engine** (`modules/architect_engine.py`) — mechanical issue
+   detection from autoresearch evaluations. 12h cadence, zero LLM. CLI:
+   `hl architect`.
+
+6. **Workflow Engine** (`modules/workflow_engine.py`) — composable step DAG
+   infrastructure used by Context/Lab/Architect engines.
+
+**Key design decision:** User pushed back on price confirmation for CRITICAL
+news — "If Hormuz reopens and oil drops 20%, we don't sit around waiting for
+confirmation. That's the whole point of collecting news." Changed design:
+CRITICAL tier acts on NEWS ALONE, instantly. Price data only used to UPGRADE
+moderate/major tiers (never downgrade).
+
+**Tests:** 42 new tests for thesis_updater, 3146 total suite green.
+
+**Remaining:** Telegram commands `/newslog`, `/audittrail`, `/overrule`.
+Context Engine wiring to Telegram agent. User thesis file updates.
+
+---
+
 ## 2026-04-09 (late evening++) — Guardian shut off + SYSTEM_REVIEW_HARDENING_PLAN launched
 
 A deliberate "pause and take stock" milestone. 68 commits, 452 files,

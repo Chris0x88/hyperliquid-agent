@@ -36,7 +36,9 @@ contract, the authority model, and the historical-oracles vision.**
 | **Memory.db backups** | Hourly atomic snapshots in `data/memory/backups/` (24h/7d/4w retention) |
 | **Lesson corpus** | Wired end-to-end (verified 2026-04-09); 1 synthetic row marked rejected; awaiting first real closed trade |
 | **Oil Bot Pattern System** | Sub-systems 1-5 SHIPPED, sub-system 6 L1+L2 SHIPPED — kill switches OFF on the trading paths |
-| **Historical oracles** | `chat_history.jsonl`, `feedback.jsonl`, `journal.jsonl`, lesson corpus, news catalysts, supply ledger — all append-only forever per NORTH_STAR P9 |
+| **News → Thesis Pipeline** | thesis_challenger (mechanical invalidation alerts) + thesis_updater (Haiku-powered conviction adjustment) — both kill switches OFF at ship. See workstream 6. |
+| **Self-improvement engines** | Context Engine (intent-based pre-fetch), Lab Engine (strategy dev pipeline), Architect Engine (mechanical issue detection) — all kill switches OFF at ship. See workstream 7. |
+| **Historical oracles** | `chat_history.jsonl`, `feedback.jsonl`, `journal.jsonl`, lesson corpus, news catalysts, supply ledger, thesis audit trail — all append-only forever per NORTH_STAR P9 |
 
 **What's running on real money right now**: heartbeat dip-add / trim
 against thesis files in `data/thesis/`, mandatory exchange-side SL+TP
@@ -49,7 +51,9 @@ delegation AND tier promotion to REBALANCE/OPPORTUNISTIC.**
 **What's parked behind kill switches** (registered, tested, INERT until
 manually flipped): `oil_botpattern` strategy engine (the only legal short
 path on oil), `oil_botpattern_tune` and `oil_botpattern_reflect` (sub-system
-6 self-improvement L1+L2), news_ingest dry-run severity floor.
+6 self-improvement L1+L2), news_ingest dry-run severity floor,
+`thesis_updater` (Haiku-powered news → conviction adjustment),
+`lab` (strategy development pipeline), `architect` (mechanical self-improvement).
 
 ---
 
@@ -108,7 +112,49 @@ top-5 validation.
 
 **Spec**: `docs/plans/BRUTAL_REVIEW_LOOP.md`.
 
-### 5. ADR-011 Two-App Quant Architecture (proposed, gated)
+### 6. News → Thesis Pipeline (shipped 2026-04-10, kill switches OFF)
+
+Closes the gap where news headlines were collected but never updated
+thesis conviction. Two new iterators, both registered all tiers:
+
+- **thesis_challenger** — pure Python, zero LLM. Pattern-matches
+  catalysts against thesis `invalidation_conditions`. Fires CRITICAL
+  Telegram alert when a ceasefire headline matches "April 6 Trump
+  deadline" at 90% confidence. Kill switch:
+  `data/config/thesis_challenger.json` (default: enabled).
+- **thesis_updater** — calls Haiku (cheap, fast) to classify each
+  catalyst's impact (0-10). CRITICAL (9-10): instant defensive mode
+  (Guard Phase 2, leverage halved) or conviction boost if news helps
+  position. MODERATE/MAJOR: smaller conviction deltas with price
+  confirmation upgrade. Guardrails: ±0.15/event, ±0.30/24h, direction
+  NEVER flipped, weekend ×0.5 dampening. Audit trail:
+  `data/thesis/audit.jsonl`. Kill switch: `data/config/thesis_updater.json`
+  (default: disabled).
+
+**Remaining:** Telegram commands `/newslog`, `/audittrail`, `/overrule`
+for user review and override. Full article deep-fetch (pass 2) rate
+limited to 5/hour.
+
+### 7. Self-Improvement Engines (shipped 2026-04-10, kill switches OFF)
+
+Three new engines to make the system learn and improve autonomously:
+
+- **Context Engine** (`modules/context_engine.py`) — classifies Telegram
+  message intent and pre-fetches relevant data (positions, thesis, trades,
+  market state) BEFORE the LLM sees the question. The model doesn't choose
+  what to look up — the data is put in front of it.
+- **Lab Engine** (`modules/lab_engine.py`) — autonomous strategy
+  development pipeline: discover → hypothesis → backtest → paper trade →
+  graduated. Multiple strategies per market. CLI: `hl lab`.
+- **Architect Engine** (`modules/architect_engine.py`) — reads autoresearch
+  evaluations and detects recurring patterns. Proposes config changes for
+  user approval. 12h cadence, zero LLM. CLI: `hl architect`.
+
+**Remaining:** Wiring Context Engine into Telegram agent message handler.
+Lab needs backtest harness integration. Architect needs Telegram approval
+flow (`/architect approve <id>`).
+
+### 8. ADR-011 Two-App Quant Architecture (proposed, gated)
 
 The NautilusTrader-inspired sibling app (`quant/` alongside `agent-cli/`)
 with Parquet data catalog. **Approved as ADR-011** (490 lines, status

@@ -123,6 +123,23 @@ hl daemon start --tier watch --mock --max-ticks 10  # safest test
 - `protection_audit` — read-only verifier that every open position has a sane
   exchange-side SL (catalyst C1').
 - `funding_tracker` — cumulative funding cost tracker (catalyst C2).
+- `thesis_challenger` — pure Python catalyst-vs-invalidation-condition
+  matcher. Pattern-matches new catalysts against thesis
+  `invalidation_conditions` strings. Fires CRITICAL alert on match.
+  Deduplicates to best match per condition. Kill switch:
+  `data/config/thesis_challenger.json` (default: enabled). All tiers.
+- `thesis_updater` — Haiku-powered news → thesis conviction adjustment.
+  Calls Haiku to classify each catalyst (0-10 impact score), then applies
+  direction-aware conviction deltas with guardrails (±0.15/event,
+  ±0.30/24h, no direction flip). CRITICAL news (9-10) triggers instant
+  defensive mode or conviction boost. Audit trail:
+  `data/thesis/audit.jsonl`. Kill switch:
+  `data/config/thesis_updater.json` (default: disabled). All tiers.
+- `lab` — strategy development pipeline (discover → hypothesis → backtest
+  → paper trade → graduated). Kill switch disabled at ship. All tiers.
+- `architect` — mechanical self-improvement. Reads autoresearch
+  evaluations, detects recurring patterns, proposes config changes. 12h
+  cadence, zero LLM. Kill switch disabled at ship. All tiers.
 
 ## Gotchas
 
