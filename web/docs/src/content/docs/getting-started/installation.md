@@ -1,20 +1,25 @@
 ---
 title: Installation
-description: Set up HyperLiquid Bot from scratch — Python 3.13, virtual environment, key management, and launchd configuration.
+description: Set up HyperLiquid Bot from scratch — Python 3.13, Bun, key management, and component startup.
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
 ## Prerequisites
 
-- **macOS** (launchd-based daemon management; Linux support is partial)
-- **Python 3.13** (`python3.13 --version`)
+- **macOS** (Keychain integration; Linux support is partial)
+- **Python 3.13** — `python3.13 --version`
+- **Bun** — for the web dashboard and docs site (`curl -fsSL https://bun.sh/install | bash`)
 - **A HyperLiquid account** with an API wallet (NOT your main private key)
 - **A Telegram bot** — create one via [@BotFather](https://t.me/BotFather)
-- **OpenRouter API key** (optional, for AI agent features)
+- **OpenRouter API key** (optional, for AI agent features — session token, not API key)
+
+<Aside type="caution" title="Session tokens only">
+Never use API keys for OpenRouter — session tokens only. API costs would be ruinous. The bot uses session tokens exclusively.
+</Aside>
 
 <Aside type="caution" title="Never use your main private key">
-Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds**. If your key is compromised, you can revoke it instantly and attackers cannot steal your balance.
+Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds**. If your key is compromised, revoke it instantly — attackers cannot steal your balance.
 </Aside>
 
 ---
@@ -35,7 +40,7 @@ Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds
 2. **Create an API wallet on HyperLiquid**
 
    1. Log in at [app.hyperliquid.xyz](https://app.hyperliquid.xyz/)
-   2. Go to **Portfolio → API Wallets → Generate**
+   2. Go to **Portfolio > API Wallets > Generate**
    3. Name it (e.g., `agent-bot`) and copy the private key immediately
    4. Import it into the encrypted keystore:
 
@@ -43,7 +48,7 @@ Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds
    python -m cli.main keys import
    ```
 
-   The key is stored in both the Open Wallet Standard (AES-256-GCM) vault and macOS Keychain — dual-write for resilience.
+   The key is stored in both the Open Wallet Standard vault (AES-256-GCM) and macOS Keychain — dual-write for resilience.
 
 3. **Configure environment**
 
@@ -56,37 +61,44 @@ Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds
    | Variable | Description |
    |----------|-------------|
    | `TELEGRAM_BOT_TOKEN` | From @BotFather |
-   | `TELEGRAM_CHAT_ID` | Your chat ID (from @userinfobot) |
-   | `OPENROUTER_API_KEY` | Optional — needed for AI agent features |
+   | `TELEGRAM_CHAT_ID` | Your chat ID (use @userinfobot to find it) |
    | `HL_WALLET_ADDRESS` | Your HyperLiquid vault/main address |
+   | `OPENROUTER_API_KEY` | Optional — session token for AI agent features |
 
-4. **Start the daemon in Watch mode**
-
-   ```bash
-   # Monitors only — no trading. Always start here.
-   python -m cli.main daemon start --tier watch
-   ```
-
-   WATCH tier runs all monitoring iterators but gates any autonomous trade placement. Verify it's working before promoting tiers.
-
-5. **Launch the Telegram bot**
+4. **Start the Telegram bot**
 
    ```bash
    python -m cli.telegram_bot
    ```
 
-   Send `/portfolio` to your bot in Telegram. You should see your current positions.
+   Send `/status` to your bot in Telegram. You should see your current positions and account state.
 
-6. **(Optional) Set up launchd for automatic start**
-
-   Copy the provided plist files to run the daemon and bot as background services:
+5. **Start the daemon in WATCH mode**
 
    ```bash
-   cp launchd/com.hyperliquid.daemon.plist ~/Library/LaunchAgents/
-   cp launchd/com.hyperliquid.telegram.plist ~/Library/LaunchAgents/
-   launchctl load ~/Library/LaunchAgents/com.hyperliquid.daemon.plist
-   launchctl load ~/Library/LaunchAgents/com.hyperliquid.telegram.plist
+   python -m cli.main daemon start --tier watch
    ```
+
+   WATCH tier runs all 42 monitoring iterators but gates any autonomous trade placement. Verify it's working with `/health` and `/readiness` in Telegram.
+
+6. **(Optional) Start the web dashboard**
+
+   ```bash
+   # Backend API (from agent-cli/)
+   .venv/bin/uvicorn web.api.app:create_app --factory --host 127.0.0.1 --port 8420
+
+   # Frontend (from agent-cli/web/dashboard/)
+   bun install && bun run dev
+
+   # Docs (from agent-cli/web/docs/)
+   bun install && bun run dev
+   ```
+
+   Dashboard at `http://localhost:3000`, API at `http://localhost:8420`, docs at `http://localhost:4321`. All bound to localhost only.
+
+7. **(Optional) Set up launchd for automatic start**
+
+   Create your own plist files in `~/Library/LaunchAgents/` to run the daemon and Telegram bot as background services. The repo does not ship plist files — configure them for your environment.
 
 </Steps>
 
@@ -94,14 +106,14 @@ Use an API wallet. HyperLiquid API wallets can trade but **cannot withdraw funds
 
 ## Verifying the Install
 
-Run the test suite to confirm everything is wired correctly:
+Run the test suite:
 
 ```bash
 cd agent-cli
 .venv/bin/python -m pytest tests/ -x -q
 ```
 
-All tests should pass. If you see failures, check that your `.env` has the required variables.
+All tests should pass. If you see failures, check that `.env` has the required variables.
 
 ---
 
@@ -109,22 +121,29 @@ All tests should pass. If you see failures, check that your `.env` has the requi
 
 ```
 agent-cli/
-├── .venv/                  # Python virtual environment
+├── .venv/                  # Python 3.13 virtual environment
 ├── cli/
-│   ├── telegram_bot.py     # Telegram dashboard
+│   ├── telegram_bot.py     # Telegram dashboard (slash commands + AI chat)
 │   ├── agent_runtime.py    # Embedded Claude agent
-│   └── daemon/             # Tick-based daemon engine
-├── common/                 # Shared libraries
+│   └── daemon/
+│       └── iterators/      # 42 daemon iterators
+├── common/                 # Shared libraries (exchange client, utils)
 ├── parent/                 # Exchange proxy + risk manager
 ├── modules/                # REFLECT, GUARD, RADAR, etc.
 ├── data/
-│   ├── thesis/             # Your thesis JSON files
+│   ├── thesis/             # Thesis JSON files (e.g., xyz_brentoil_state.json)
 │   ├── memory/             # memory.db + backups
-│   └── config/             # markets.yaml, kill switches
+│   ├── candles/            # candles.db (candle cache)
+│   ├── config/             # markets.yaml, kill switches
+│   └── agent_memory/       # MEMORY.md (agent memory, flat structure)
 ├── agent/
 │   ├── AGENT.md            # Agent system prompt
 │   └── SOUL.md             # Agent personality + trading rules
-└── .env                    # Your secrets (never commit this)
+├── web/
+│   ├── api/                # FastAPI backend (port 8420)
+│   ├── dashboard/          # Next.js frontend (port 3000)
+│   └── docs/               # Astro Starlight docs (port 4321)
+└── .env                    # Your secrets (NEVER commit this)
 ```
 
 ---
@@ -133,12 +152,14 @@ agent-cli/
 
 All key storage dual-writes to two locations for resilience:
 
-1. **OWS vault** — `data/keys/` encrypted with AES-256-GCM
+1. **OWS vault** — encrypted with AES-256-GCM, accessed via the CLI
 2. **macOS Keychain** — accessible via `python -m cli.main keys list`
 
 To rotate a key:
 
 ```bash
-python -m cli.main keys import  # adds new key
+python -m cli.main keys import   # adds new key
 python -m cli.main keys remove <old-key-name>
 ```
+
+Both stores are updated atomically. If one fails, the operation rolls back.

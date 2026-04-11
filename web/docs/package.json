@@ -6,6 +6,7 @@
     "dev": "astro dev --port 4321",
     "build": "astro build",
     "preview": "astro preview",
+    "serve": "astro build && bun serve.ts",
     "astro": "astro"
   },
   "devDependencies": {

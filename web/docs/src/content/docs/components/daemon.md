@@ -1,15 +1,17 @@
 ---
-title: Daemon & Iterators
-description: The tick-based engine that runs in the background, enforcing risk rules and managing positions every ~120 seconds.
+title: Daemon & Tick Engine
+description: A tick-based engine with 42 iterators, tiered execution, and circuit-breaker health monitoring.
 ---
 
 ## Overview
 
-The daemon is a Hummingbot-inspired tick engine running via launchd. Every ~120 seconds it fires a clock tick, builds a `TickContext` with live account state, and calls each active iterator in sequence.
+The daemon is the system's backbone — a tick-based engine that fires every ~120 seconds, builds a live context snapshot, and runs each active iterator in sequence. It enforces risk rules, manages positions, and routes alerts without human intervention.
+
+**42 iterators** live in `cli/daemon/iterators/`. The daemon activates a subset based on the current [tier](/architecture/tiers/).
 
 **Production status:** Running in WATCH tier on mainnet via launchd.
 
-Source: `cli/daemon/clock.py` (Clock class), `cli/daemon/context.py` (TickContext)
+Source: `cli/daemon/clock.py` (Clock), `cli/daemon/context.py` (TickContext)
 
 ---
 
@@ -17,58 +19,105 @@ Source: `cli/daemon/clock.py` (Clock class), `cli/daemon/context.py` (TickContex
 
 Each tick runs this sequence:
 
-1. Check control file for runtime commands (pause, stop, tier change)
-2. Rebuild active iterator set for the current tier
-3. Call `iterator.tick(ctx)` for each active iterator in order
-4. Execute queued `OrderIntent`s (if any)
-5. Persist state via `StateStore`
+1. **Control file check** — reads runtime commands (pause, stop, tier change)
+2. **Iterator set rebuild** — activates the correct iterator set for the current tier
+3. **Iterator loop** — calls `iterator.tick(ctx)` for each active iterator in order
+4. **Order execution** — executes queued `OrderIntent`s (REBALANCE+ tiers only)
+5. **State persistence** — writes state via `StateStore`
+
+The `TickContext` (`ctx`) is the hub object rebuilt each tick. It carries live account state, market snapshots, thesis states, and everything iterators need. Iterators read from and write to `ctx` — they never call the exchange directly.
 
 ---
 
-## Tiers and Iterator Sets
+## Iterator Lifecycle
 
-| Tier | Purpose | Key additions |
-|------|---------|---------------|
-| `watch` | Monitor-only, no autonomous entries | account_collector, thesis_engine, risk, telegram |
-| `rebalance` | Active position management | execution_engine, exchange_protection, guard, rebalancer, profit_lock |
-| `opportunistic` | Full autonomous trading | radar, pulse (opportunity scanners) |
+Every iterator implements three methods:
 
-See `TIER_ITERATORS` in `cli/daemon/tiers.py` for the exact iterator sets.
+| Method | When | Purpose |
+|--------|------|---------|
+| `on_start(ctx)` | Daemon startup | One-time initialization |
+| `tick(ctx)` | Every tick | Core logic |
+| `on_stop()` | Daemon shutdown | Cleanup |
 
 ---
 
-## Key Iterators
+## Key Iterators by Function
 
-All iterators live in `cli/daemon/iterators/`. Each implements `on_start(ctx)`, `tick(ctx)`, and `on_stop()`.
+### Data Collection
 
-| Iterator | What it does |
-|----------|-------------|
-| `account_collector` | Always first; fetches live account state from both clearinghouses |
-| `connector` | Market data connection; failure aborts the daemon |
-| `market_structure` | Computes `MarketSnapshot` for all watchlist markets |
-| `thesis_engine` | Reads AI thesis files into `ctx.thesis_states` |
-| `exchange_protection` | Mandatory SL/TP enforcement — places missing stops |
-| `execution_engine` | Conviction-based sizing (REBALANCE tier+) |
+| Iterator | Purpose |
+|----------|---------|
+| `account_collector` | Always runs first. Fetches live account state from both clearinghouses (native + xyz) |
+| `connector` | Market data connection. Failure aborts the tick |
+| `market_structure` | Computes `MarketSnapshot` (ATR, indicators) for all watchlist markets |
+
+### Thesis & Conviction
+
+| Iterator | Purpose |
+|----------|---------|
+| `thesis_engine` | Reads AI thesis files into `ctx.thesis_states`, applies staleness taper |
+| `execution_engine` | Conviction-based Druckenmiller sizing. Generates `OrderIntent`s (REBALANCE+) |
+
+### Protection & Risk
+
+| Iterator | Purpose |
+|----------|---------|
+| `protection_audit` | **Read-only** verifier. Checks every position has SL/TP, alerts if missing. Does NOT place orders |
+| `exchange_protection` | **Writes to exchange.** Places missing SL/TP, enforces ruin floor (REBALANCE+ only) |
+| `liquidation_monitor` | Tiered cushion alerts (info/warning/critical based on margin cushion %) |
+| `brent_rollover_monitor` | Detects Brent contract rollovers, alerts to avoid expiry traps |
 | `risk` | Wires the `ProtectionChain` into the tick loop |
+
+### Alerts & Communication
+
+| Iterator | Purpose |
+|----------|---------|
 | `telegram` | Severity-aware alert routing with dedup cooldowns |
-| `news_ingest` | Oil Bot-Pattern sub-system 1 — RSS/iCal catalyst ingestion (kill switch) |
+
+### Oil Bot-Pattern
+
+| Iterator | Purpose |
+|----------|---------|
+| `news_ingest` | Sub-system 1: RSS/iCal catalyst ingestion. Kill switch: `data/config/news_ingest.json` |
+
+### Self-Improvement Chain
+
+| Iterator | Purpose |
+|----------|---------|
+| `shadow_eval` | Paper-trades signals without real execution for backtesting |
+| `self_tune` | Proposes parameter adjustments based on performance data |
+| `lesson_author` | Extracts trade lessons for the FTS5 lesson corpus |
 
 ---
 
-## Health Window
+## Tier System
+
+Three tiers control which iterators are active. The daemon can only run in one tier at a time.
+
+| Tier | Iterators | Capability |
+|------|-----------|------------|
+| **WATCH** | 37 iterators | Read-only monitoring. No autonomous entries or order placement |
+| **REBALANCE** | Adds execution iterators | Active position management: sizing, SL/TP placement, rebalancing |
+| **OPPORTUNISTIC** | Everything | Full autonomous trading: opportunity scanners, radar, pulse |
+
+The active set is defined in `TIER_ITERATORS` in `cli/daemon/tiers.py`. See [Tier Architecture](/architecture/tiers/) for promotion/rollback checklists and per-asset tier assignments.
+
+---
+
+## Health Monitoring
+
+### HealthWindow Circuit Breaker
 
 `HealthWindow` (from `common/telemetry.py`) tracks errors in a 15-minute sliding window:
 
-- If errors exceed the budget (10 per window), the daemon auto-downgrades tier
-- The `Clock` circuit-breaks individual iterators after 5 consecutive failures
-- Failed iterators are skipped rather than crashing the tick
+- **Error budget:** 10 errors per window
+- **Budget exceeded:** Daemon auto-downgrades tier (e.g., REBALANCE falls back to WATCH)
+- **Iterator circuit-break:** After 5 consecutive failures, the Clock skips that iterator
+- **Graceful degradation:** Failed iterators are skipped, never crash the tick
 
----
+### Process Management
 
-## Process Management
-
-- **Single instance:** PID file at `data/daemon/daemon.pid`
-- **Startup:** SIGTERM → sleep → SIGKILL for any existing process
+- **Single instance:** PID file at `data/daemon/daemon.pid`. On startup, sends SIGTERM to any existing process, waits, then SIGKILL if needed
 - **launchd plist:** `com.hyperliquid.daemon` with `KeepAlive=true`
 
 ---

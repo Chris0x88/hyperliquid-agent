@@ -1,17 +1,16 @@
 ---
 title: AI Agent
-description: Embedded Claude agent runtime — a port of Claude Code architecture with parallel tools, streaming, and persistent memory.
+description: Embedded Claude agent runtime with parallel tools, streaming responses, persistent memory, and session-token authentication.
 ---
 
 ## What It Is
 
-The AI agent is a Claude Code architecture ported to Python. It's not an API-glued chatbot — it's a full agent runtime with:
+The AI agent is a Claude Code architecture ported to Python. It runs as a full agent runtime inside the bot, not an API-glued chatbot. Capabilities include:
 
 - **Parallel tool calls** — multiple tools execute simultaneously in one response
 - **SSE streaming** — responses stream to Telegram in real time
 - **Context compaction** — auto-summarizes history when approaching the context limit
-- **Persistent memory** — `data/agent_memory/MEMORY.md` survives across sessions
-- **autoDream consolidation** — after 24h or 3 sessions, dreams consolidate memory into long-term storage
+- **Persistent memory** — flat-file index plus SQLite FTS5 for lessons
 
 Source: `cli/agent_runtime.py`, `cli/telegram_agent.py`
 
@@ -19,42 +18,42 @@ Source: `cli/agent_runtime.py`, `cli/telegram_agent.py`
 
 ## Authentication
 
-The agent uses **session tokens only** — never API keys. This is critical:
+The agent uses **session tokens only** — never API keys. This is non-negotiable:
 
-- API keys cost money per token
-- Session tokens are free (same as claude.ai web interface)
+- API keys cost money per token and would bankrupt the user at scale
+- Session tokens are free (same mechanism as the claude.ai web interface)
 - The session token is stored in `~/.openclaw/agents/default/agent/auth-profiles.json`
-
-See [Anthropic Session Token Guide](/operations/security/) for how to obtain and rotate tokens.
 
 ---
 
 ## System Prompt
 
-The agent's personality and trading rules live in two files:
+The agent's personality, trading rules, and operational boundaries live in two files:
 
 | File | Purpose |
 |------|---------|
-| `agent/AGENT.md` | System prompt — context harness, tools, response protocol |
-| `agent/SOUL.md` | Trading rules, risk philosophy, market-specific rules |
+| `agent/AGENT.md` | System prompt: context harness, available tools, response protocol, formatting rules |
+| `agent/SOUL.md` | Trading philosophy, risk rules, market-specific constraints, conviction framework |
 
-These are injected into every agent session. The agent reads your codebase, thesis files, and trade history before responding.
+Both are injected into every agent session. The agent reads thesis files, account state, and trade history before responding.
 
 ---
 
 ## Tools
 
-The agent has access to Python function tools (not MCP). Key tools include:
+The agent uses Python function tools defined in `cli/agent_tools.py`. Not MCP — this is a recurring point of confusion.
 
-- Market data: price, OHLCV, funding rates, open interest
-- Account: positions, equity, orders
-- Trade execution: place/cancel orders (requires authority)
-- Thesis: read/write thesis files
-- Memory: search lesson corpus, write observations
-- Calendar: check upcoming events
-- Code execution: run Python in the venv
+Tools share one implementation with three renderers (Telegram, web, test). Key categories:
 
-Tools share one implementation with three renderers (Telegram, web, test).
+| Category | Examples |
+|----------|---------|
+| Market data | Price, OHLCV candles, funding rates, open interest |
+| Account | Positions, equity, open orders |
+| Trade execution | Place/cancel orders (requires delegated authority) |
+| Thesis | Read/write thesis files, update conviction |
+| Memory | Search lesson corpus, write observations |
+| Calendar | Check upcoming events (EIA, OPEC, Fed) |
+| Code execution | Run Python in the project venv |
 
 ---
 
@@ -62,12 +61,12 @@ Tools share one implementation with three renderers (Telegram, web, test).
 
 Before each response, the agent's context harness injects:
 
-1. Current account state (positions, equity)
-2. Active thesis files with conviction levels
-3. Calendar context (upcoming EIA reports, OPEC meetings, Fed decisions)
-4. Top 5 lessons from the FTS5 lesson corpus relevant to the current situation
-5. Recent Telegram message history (last N messages)
-6. Working state (current ATR values, prices)
+1. **Account state** — current positions, equity, margin usage
+2. **Active thesis files** — with conviction levels and staleness flags
+3. **Calendar context** — upcoming EIA reports, OPEC meetings, Fed decisions
+4. **Top lessons** — FTS5 search over the lesson corpus, ranked by relevance to the current situation
+5. **Recent messages** — last N Telegram messages for conversational context
+6. **Working state** — current ATR values, prices, market snapshots
 
 ---
 
@@ -75,36 +74,50 @@ Before each response, the agent's context harness injects:
 
 ```
 data/agent_memory/
-├── MEMORY.md           ← Index + active topics (read every session)
-└── topics/             ← Long-form topic files (lazy-loaded)
+  MEMORY.md              <-- Flat index file, read every session
+                              No topics/ subdirectory
 
-data/memory/memory.db
-└── lessons table       ← FTS5 full-text search over trade lessons
-    events table        ← Timestamped events log
-    action_log          ← Trade decisions + rationale
-    summaries           ← Compacted session summaries
+data/memory/memory.db    <-- SQLite database
+  lessons table           <-- FTS5 full-text search over trade lessons
+  events table            <-- Timestamped events log
+  action_log              <-- Trade decisions + rationale
+  summaries               <-- Compacted session summaries
 ```
+
+Key points:
+
+- `MEMORY.md` is a flat index with no subdirectories. It is read at the start of every agent session.
+- `memory.db` uses SQLite FTS5 for fast full-text search over the lesson corpus.
+- Lessons are written by the `lesson_author` daemon iterator and by the agent itself during REFLECT.
+- The agent can search lessons with the `search_lessons` tool, which queries the FTS5 index.
 
 ---
 
 ## REFLECT Loop
 
-The REFLECT iterator runs periodically to evaluate recent trades:
+The REFLECT process evaluates recent trades and extracts lessons:
 
 1. Pulls recent closed positions from `action_log`
 2. Grades entries via the entry critic
-3. Writes lessons to the FTS5 corpus
-4. Surfaces patterns for the agent to review
+3. Writes lessons to the FTS5 corpus in `memory.db`
+4. Surfaces patterns for the agent to review in future sessions
 
-This means the agent learns from each trade and injects top lessons into future decisions.
+This creates a feedback loop: the agent learns from each trade, and top lessons are injected into future decisions via context injection.
 
 ---
 
-## Routing: When Does AI Run?
+## Chat History
 
-The AI agent only runs when:
-1. A free-text Telegram message is received (not a slash command)
-2. A command ending in `ai` is called (e.g., `/briefai`)
-3. The daemon triggers an analysis task (e.g., thesis evaluation)
+Conversation history is persisted to `data/daemon/chat_history.jsonl` as newline-delimited JSON. Each entry includes the message, role, timestamp, and any tool calls/results. The `/chathistory` command exposes recent history in Telegram.
 
-Every other action is deterministic Python — zero AI credits consumed.
+---
+
+## When Does AI Run?
+
+The AI agent only runs in three scenarios:
+
+1. **Free-text Telegram message** — anything not starting with `/`
+2. **`ai`-suffixed command** — e.g., `/briefai`, `/brutalreviewai`, `/lessonauthorai`
+3. **Daemon-triggered analysis** — e.g., thesis evaluation, lesson authoring
+
+Every other interaction is deterministic Python. Zero AI credits consumed for slash commands.

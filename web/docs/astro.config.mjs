@@ -2,6 +2,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
+  trailingSlash: 'always',
   integrations: [
     starlight({
       title: 'HyperLiquid Bot Docs',
@@ -9,6 +10,9 @@ export default defineConfig({
       sidebar: [
         { label: 'Getting Started', autogenerate: { directory: 'getting-started' } },
         { label: 'Architecture', autogenerate: { directory: 'architecture' } },
+        { label: 'Components', autogenerate: { directory: 'components' } },
+        { label: 'Trading', autogenerate: { directory: 'trading' } },
+        { label: 'Operations', autogenerate: { directory: 'operations' } },
       ],
     }),
   ],

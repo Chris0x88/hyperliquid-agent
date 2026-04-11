@@ -1,111 +1,68 @@
----
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+# web/docs/ — Astro Starlight Documentation Site
 
-Default to using Bun instead of Node.js.
+## Running the Docs
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
-
-## APIs
-
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
-
-## Testing
-
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+```bash
+# From agent-cli/web/docs/
+bun run serve        # Build + serve on http://127.0.0.1:4321/
 ```
 
-## Frontend
+That's it. One command. `bun run serve` calls `astro build` then `bun serve.ts`.
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+## CRITICAL: DO NOT use `astro dev` or `astro preview`
 
-Server:
+**Astro's dev server and preview server are broken for this site.** They use
+client-side SPA routing that serves the index page shell for every URL — sidebar
+navigation doesn't work, links appear dead, and every route shows the homepage.
+The built static HTML files are correct; it's the Astro dev/preview server that
+fails to serve them properly.
 
-```ts#index.ts
-import index from "./index.html"
+**Always use `bun run serve`** which:
+1. Runs `astro build` to generate static HTML in `dist/`
+2. Serves `dist/` with `serve.ts` (a simple Bun static file server)
 
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+If you need to iterate on content, kill the server, edit files, run `bun run serve`
+again. The build takes ~2 seconds.
+
+## Content Structure
+
+All doc pages live in `src/content/docs/` as Markdown with YAML frontmatter:
+
+```
+src/content/docs/
+├── index.mdx                          # Landing page (hero layout)
+├── getting-started/                   # Setup, overview, quick start
+├── architecture/                      # System design, data flow, tiers
+├── components/                        # Daemon, telegram, agent, conviction, etc.
+├── trading/                           # Markets, oil knowledge, sizing, portfolio
+└── operations/                        # Runbook, security, tier operations
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+Sidebar is auto-generated from directories in `astro.config.mjs`.
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
+## Adding a New Page
 
-With the following `frontend.tsx`:
+1. Create `src/content/docs/<section>/<slug>.md`
+2. Add YAML frontmatter: `title` and `description`
+3. Run `bun run serve` — it auto-appears in the sidebar
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
+## Editing Existing Pages
 
-// import .css files directly and it works
-import './index.css';
+- Content source of truth is the wiki at `agent-cli/docs/wiki/`
+- Doc pages should be accurate reflections of the wiki + codebase
+- When the codebase changes, update the relevant doc page
+- Never reference files that don't exist — verify paths against the actual `data/` directory
 
-const root = createRoot(document.body);
+## Tech Stack
 
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
+- **Astro Starlight** v0.38+ — static site generator with built-in search (Pagefind)
+- **Bun** — runtime, package manager, and static server
+- Build output: `dist/` (static HTML, CSS, JS)
+- Port: 4321 (local only)
 
-root.render(<Frontend />);
-```
+## Common Pitfalls (Learned the Hard Way)
 
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+1. **`astro dev` / `astro preview`** — DO NOT USE. See above.
+2. **Stale `.astro/` cache** — If build acts weird, `rm -rf .astro dist` and rebuild.
+3. **Frontmatter errors** — Missing `title` in frontmatter causes silent build failures.
+4. **`trailingSlash: 'always'`** is set in astro.config.mjs — all URLs end with `/`.

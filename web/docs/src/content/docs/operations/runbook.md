@@ -1,79 +1,97 @@
 ---
 title: Runbook
-description: Day-to-day operations — starting, stopping, health checks, alerts, and incident response.
+description: Day-to-day operations — starting, stopping, health checks, alerts, emergency close, and key file locations.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
 ## Starting the System
 
-### Via launchd (production)
-
-```bash
-# Load all services (daemon + telegram + heartbeat)
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hyperliquid.daemon.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hyperliquid.telegram.plist
-
-# Check status
-launchctl list | grep hyperliquid
-```
-
-### Manual start (testing/debugging)
+### Telegram Bot
 
 ```bash
 cd agent-cli
-source .venv/bin/activate
-
-# Daemon (WATCH tier, 120s ticks)
-python -m cli.main daemon start --tier watch --tick 120
-
-# Telegram bot
-python -m cli.telegram_bot
-
-# Heartbeat (usually managed by launchd)
-python -m common.heartbeat
+.venv/bin/python -m cli.telegram_bot
 ```
+
+### Daemon
+
+```bash
+cd agent-cli
+
+# WATCH tier (production default), 120-second ticks
+.venv/bin/python -m cli.main daemon start --tier watch --tick 120
+
+# Or with the hl alias if configured
+hl daemon start --tier watch --tick 120
+```
+
+The daemon enforces single-instance via PID kill — starting a second instance terminates the first.
+
+### Web API
+
+```bash
+cd agent-cli
+.venv/bin/uvicorn web.api.app:create_app --factory --host 127.0.0.1 --port 8420
+```
+
+### Web Dashboard
+
+```bash
+cd agent-cli/web/dashboard
+bun run dev
+```
+
+Runs on port 3000 by default. Bound to 127.0.0.1 (local only).
+
+### Docs Site
+
+```bash
+cd agent-cli/web/docs
+bun run dev
+```
+
+Runs on port 4321 by default.
 
 ---
 
 ## Stopping the System
 
 <Aside type="caution" title="Use SIGTERM, not SIGKILL">
-Always stop the daemon with SIGTERM (or launchctl stop). This allows clean state persistence and leaves exchange-side stops in place. `kill -9` skips state persistence.
+Always stop the daemon with SIGTERM. This allows clean state persistence and leaves exchange-side stops in place. `kill -9` skips state persistence.
 </Aside>
 
 ```bash
-# Stop via launchd
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.hyperliquid.daemon.plist
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.hyperliquid.telegram.plist
+# Stop daemon gracefully
+kill $(cat agent-cli/data/daemon/daemon.pid)
 
-# Verify stopped
-launchctl list | grep hyperliquid
+# Stop telegram bot
+# Use Ctrl+C or kill the process
 ```
 
 ---
 
 ## Health Checks
 
-### Telegram quick checks
+### Telegram Commands
 
 ```
-/health        → Account equity, margin, daemon status
-/readiness     → Tier state, iterator status, thesis freshness
-/diag          → Detailed diagnostics, last tick time, error counts
+/health        Account equity, margin, daemon status
+/readiness     Tier state, iterator status, thesis freshness
+/diag          Detailed diagnostics, last tick time, error counts
 ```
 
-### Manual checks
+### Manual Checks
 
 ```bash
 # Check daemon PID
 cat agent-cli/data/daemon/daemon.pid
 
-# Check last heartbeat
-ls -la agent-cli/data/memory/working_state.json
+# Check working state (ATR, prices, escalation)
+cat agent-cli/data/memory/working_state.json
 
-# Check memory DB health
-python -m cli.main memory status
+# Run test suite
+cd agent-cli && .venv/bin/python -m pytest tests/ -x -q
 ```
 
 ---
@@ -82,68 +100,45 @@ python -m cli.main memory status
 
 | Alert | Cause | Action |
 |-------|-------|--------|
-| `CRITICAL: Missing SL on <COIN>` | Heartbeat found position without stop | Heartbeat will auto-place. Verify with `/orders`. |
-| `WARNING: Liquidation cushion <15%` | Position near liquidation | Check leverage, consider reducing size |
-| `CRITICAL: Liquidation cushion <10%` | Position dangerously near liquidation | Immediately reduce position or add margin |
-| `WARNING: Thesis stale (>72h)` | Thesis file not updated | Update or formally park the thesis |
-| `WARNING: Daemon not running` | PID file missing or process dead | Restart daemon via launchd |
+| `CRITICAL: Missing SL on <COIN>` | Position found without stop-loss | Daemon will auto-place. Verify with `/orders`. |
+| `WARNING: Liquidation cushion <15%` | Position approaching liquidation | Check leverage, consider reducing size |
+| `CRITICAL: Liquidation cushion <10%` | Position dangerously close | Immediately reduce position or add margin |
+| `WARNING: Thesis stale (>72h)` | Thesis file not updated | Update thesis or formally park it |
+| `WARNING: Daemon not running` | PID file missing or process dead | Restart daemon |
 | `API rate limit (429)` | Too many API calls | Self-resolving (exponential backoff). If persistent, reduce tick frequency. |
-| `Consecutive tick timeout` | Tick execution exceeded 30s 3x | Check HL API latency, consider increasing tick interval |
 
 ---
 
 ## Emergency Position Close
 
-If the daemon is down and you need to close positions:
+<Aside type="danger" title="Button confirmation required">
+The `/close` command requires explicit button confirmation before executing. This prevents accidental closes.
+</Aside>
 
 ```bash
-# Via Telegram bot (if running)
+# Via Telegram bot (preferred if running)
 /close BRENTOIL
 
 # Via CLI directly
-python -m cli.main trade close BRENTOIL
+cd agent-cli && .venv/bin/python -m cli.main trade close BRENTOIL
 
 # Last resort: use HyperLiquid web UI at app.hyperliquid.xyz
 ```
 
 ---
 
-## Memory Database Restore
-
-If memory.db is corrupted, restore from the hourly backups:
-
-```bash
-# List available backups
-ls agent-cli/data/memory/backups/
-
-# Restore a specific backup
-python -m cli.main memory restore --backup data/memory/backups/memory_2026-04-10_12-00.db
-
-# Verify restored state
-python -m cli.main memory status
-```
-
-Backups are kept for: 24 hourly, 7 daily, 4 weekly.
-
----
-
 ## Updating Thesis Files
 
-1. Open Claude Code in the `agent-cli` directory
-2. Analyze current market situation
-3. Write or update `data/thesis/BRENTOIL.json`
-4. Verify conviction engine picks it up: `/thesis` in Telegram
+1. Edit `data/thesis/<COIN>.json` (e.g., `BRENTOIL.json`, `GOLD.json`)
+2. Set the `conviction` field (0.0 to 1.0)
+3. Set `take_profit_price` for the TP target
+4. Verify the conviction engine picks it up: `/thesis` in Telegram
 
-Alternatively, ask the AI agent in Telegram:
-```
-Update the BRENTOIL thesis — here's my current view: [your analysis]
-```
+Thesis files are valid for months or years. Do not clamp aggressively on age.
 
 ---
 
-## Test Suite
-
-Run after any code changes:
+## Running Tests
 
 ```bash
 cd agent-cli
@@ -160,9 +155,28 @@ All tests should pass. Never modify test expectations to make tests pass — fix
 |------|---------|
 | `data/daemon/daemon.pid` | Daemon process ID |
 | `data/memory/memory.db` | Main SQLite database |
-| `data/memory/working_state.json` | Current ATR, prices, escalation |
-| `data/thesis/` | Thesis JSON files |
-| `data/authority.json` | Per-asset delegation |
+| `data/memory/working_state.json` | Current ATR, prices, escalation state |
+| `data/thesis/` | Thesis JSON files (BRENTOIL.json, GOLD.json, etc.) |
 | `data/config/markets.yaml` | Market registry |
+| `data/config/market_config.json` | Market-specific configuration |
+| `data/config/risk_caps.json` | Risk cap thresholds |
+| `data/config/watchlist.json` | Active watchlist |
 | `data/config/news_ingest.json` | News ingestion kill switch |
+| `data/config/oil_botpattern.json` | Oil Bot-Pattern kill switch |
+| `data/config/escalation_config.json` | Alert escalation settings |
 | `.env` | Secrets (never commit) |
+| `web/.auth_token` | Web API bearer token (auto-generated) |
+
+---
+
+## Tier System
+
+The daemon operates in one of three tiers. Production default is WATCH.
+
+| Tier | Capabilities |
+|------|-------------|
+| **WATCH** | Read-only monitoring, alerts, thesis tracking |
+| **REBALANCE** | Adds execution_engine, exchange_protection, guard, rebalancer, profit_lock, catalyst_deleverage |
+| **OPPORTUNISTIC** | Everything enabled |
+
+Promote via `/activate` command. Per-asset delegation via `/delegate`. See the [Tiers](/operations/tiers/) page for promotion checklists.

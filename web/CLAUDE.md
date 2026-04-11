@@ -19,8 +19,8 @@ Local web dashboard, control panel, and documentation site for the HyperLiquid B
 # Frontend (from web/dashboard/)
 bun run dev
 
-# Docs (from web/docs/)
-bun run dev
+# Docs (from web/docs/) — DO NOT use `bun run dev`, astro dev server is broken
+bun run serve
 ```
 
 ## Architecture

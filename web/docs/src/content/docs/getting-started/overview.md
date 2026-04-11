@@ -1,86 +1,107 @@
 ---
 title: Overview
-description: What is HyperLiquid Bot, who it's for, and how it differs from other trading tools.
+description: What HyperLiquid Bot is, who it's for, core markets, design principles, and architecture at a glance.
 ---
 
 ## What Is HyperLiquid Bot?
 
-HyperLiquid Bot is a personal trading instrument that trades **with the dumb-bot reality** — anticipating obvious moves and fading bot overshoot — instead of betting on the market being a fair discounting mechanism.
+A personal AI trading co-pilot for HyperLiquid perpetuals. You bring domain expertise and write a thesis. The system enforces discipline: conviction-driven sizing, mandatory stop losses, autonomous risk management, and 42 daemon iterators running 24/7.
 
-Markets are ~80% bots reacting to current news. This system turns your domain expertise into structured signals those bots cannot read.
-
-**You bring the thesis. The system brings the discipline.**
+Telegram is the dashboard. Claude Code is the brain. Thesis files are the shared contract.
 
 ---
 
 ## Who It's For
 
-This tool was built for a petroleum engineer who trades HyperLiquid perps with an edge in oil markets. The design assumptions are:
-
-- You have real domain knowledge in at least one market
+- You have real domain knowledge in at least one market (oil, macro, metals)
 - You want autonomous risk management that respects your thesis
-- You do NOT want AI making up trades — the agent supports your thinking, it doesn't replace it
+- You do NOT want AI making up trades — the agent supports your thinking, challenges it, and executes when you delegate authority
 - You want zero external fees, zero telemetry, and full control of your keys
 
 ---
 
 ## Core Thesis Markets
 
-The system operates on four thesis-driven markets:
+The conviction engine, thesis JSONs, and Druckenmiller-style sizing operate on these four markets:
 
-| Market | Notes |
-|--------|-------|
-| **BRENTOIL** | Primary edge market. Long-only rule enforced. |
-| **BTC** | Power Law strategy via vault account. |
-| **GOLD** | Thesis-driven, currently stale — auto-clamped. |
-| **SILVER** | Thesis-driven, currently stale — auto-clamped. |
+| Market | Clearinghouse | Notes |
+|--------|--------------|-------|
+| **BTC** | Native | `btc_perp_state.json` |
+| **BRENTOIL** | xyz | `xyz_brentoil_state.json` — Long-only rule enforced |
+| **GOLD** | xyz | `xyz_gold_state.json` |
+| **SILVER** | xyz | `xyz_silver_state.json` |
 
-Manual one-off positions in other markets (CL/NATGAS/equities) are tracked but unsupported for autonomous management.
+xyz perps require `dex='xyz'` in all API calls. The xyz clearinghouse returns names with the `xyz:` prefix (e.g., `xyz:BRENTOIL`).
+
+Other markets (CL, SP500, NATGAS) can be traded manually and will appear in tracking via the auto-watchlist, but they are not thesis-driven and receive no autonomous management.
 
 ---
 
-## Key Design Principles
+## Design Principles
 
-### Interface-First
+**Telegram is the dashboard.** Every metric is one slash command away, hitting the HyperLiquid API directly. Zero AI credits per slash command.
 
-The Telegram bot is the dashboard. Every metric you need is one slash command away, hitting the HyperLiquid API directly. Zero AI credits per command.
+**Thesis-driven.** You write thesis JSON files in `data/thesis/`. The conviction engine reads them to size positions. Stale theses (>7d) auto-clamp leverage. Very stale (>14d) clamp harder.
 
-### Thesis-Driven
+**Mandatory SL & TP.** Every position MUST have both a stop loss and a take profit on the exchange. The daemon checks every tick and places them if missing. Stops are ATR-based. TPs come from thesis `take_profit_price` or mechanical 5x ATR fallback.
 
-You write thesis JSON files in `data/thesis/`. The conviction engine reads them to size positions. Stale theses auto-clamp leverage — the system enforces its own humility.
+**Autonomous but gated.** The AI agent can place trades only when you've delegated authority per-asset via `/delegate` AND promoted the tier beyond WATCH.
 
-### Mandatory Stop & Take-Profit
+**No external parties.** No Nunchi. No builder fees. No telemetry. No third-party code in the critical path. Session tokens only — never API keys. API wallets cannot withdraw funds.
 
-Every position MUST have both a stop loss and a take profit on the exchange. The daemon checks this every tick and places them if missing. No exceptions.
+---
 
-### Autonomous but Accountable
+## Three Tiers
 
-The AI agent can place trades, but only when you've delegated authority per-asset and promoted the tier beyond WATCH. The default is WATCH — monitoring only, no autonomous trading.
+| Tier | Behavior |
+|------|----------|
+| **WATCH** | Monitoring only. All iterators run, all alerts fire, but no autonomous trade placement. This is the default. |
+| **REBALANCE** | Can adjust existing positions (size, stops, take-profits) within thesis parameters. |
+| **OPPORTUNISTIC** | Full autonomous entry/exit within delegated markets and conviction bands. |
 
-### No External Parties
-
-No Nunchi. No builder fees. No telemetry. No third-party code in the critical path. Your API wallet cannot withdraw funds even if compromised.
+Promotion is per-asset and reversible. See [Tiers & Promotion](/operations/tiers/) for the full ladder and checklists.
 
 ---
 
 ## Architecture at a Glance
 
 ```
-Claude Code (you)        Telegram Bot           Daemon (background)
-─────────────────        ────────────           ──────────────────
-Write thesis files  →    /portfolio             Heartbeat every 2min
-Review trade journal     /price BTC             Enforce SL/TP
-Run manual analysis      /funding               Check liquidation cushion
-Promote tiers            Chat with AI agent     Run conviction sizing
-                         /activate              REFLECT loop
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Claude Code │     │   Telegram Bot   │     │  Web Dashboard  │
+│  (the brain) │     │  (the dashboard) │     │  (local only)   │
+└──────┬───────┘     └────────┬─────────┘     └────────┬────────┘
+       │                      │                        │
+       │    Shared filesystem state:                   │
+       │    thesis/, memory.db, working_state.json     │
+       │                      │                        │
+       ▼                      ▼                        ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Daemon (42 iterators)                      │
+│  account_collector · liquidation_monitor · funding_tracker    │
+│  protection_audit · thesis_engine · execution_engine          │
+│  market_structure · risk · guard · radar · pulse · heatmap    │
+│  news_ingest · bot_classifier · oil_botpattern · profit_lock  │
+│  catalyst_deleverage · rebalancer · journal · ...             │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   HyperLiquid DEX   │
+                    │  (Native + xyz)     │
+                    └─────────────────────┘
 ```
 
-The daemon, Telegram bot, and AI agent all share the same filesystem state — thesis files, memory.db, and working_state.json.
+- **Claude Code** — writes thesis files, reviews trade journals, runs manual analysis, promotes tiers
+- **Telegram Bot** — slash commands for instant data (`/status`, `/price`, `/chart`), plus free-text AI chat
+- **Web Dashboard** — Next.js frontend (port 3000) + FastAPI backend (port 8420), local-only, real-time charts and log streaming
+- **Daemon** — tick-based engine running 42 iterators on a configurable clock, enforcing all risk rules
+
+All components share the same filesystem state: thesis files, `data/memory/memory.db`, and working state JSONs.
 
 ---
 
 ## Production Status
 
-Current production tier: **WATCH** (monitoring, no autonomous trade placement).
+Default tier: **WATCH** (monitoring, no autonomous trade placement).
 
-Autonomous trading requires per-asset `agent` delegation AND tier promotion to REBALANCE or OPPORTUNISTIC. See [Tiers & Promotion](/operations/tiers/) for the full ladder.
+Autonomous trading requires per-asset delegation (`/delegate`) AND tier promotion to REBALANCE or OPPORTUNISTIC.

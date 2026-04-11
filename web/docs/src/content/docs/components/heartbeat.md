@@ -1,58 +1,94 @@
 ---
-title: Heartbeat
-description: The launchd-managed heartbeat process that runs every 2 minutes, sending account state and alerts to Telegram.
+title: Protection & Monitoring
+description: Daemon iterators that guard every position — read-only audits, mandatory SL/TP placement, liquidation alerts, and rollover monitoring.
 ---
 
 ## Overview
 
-`common/heartbeat.py` is a lightweight process managed by launchd that runs every 2 minutes. It's separate from the main daemon clock and focused on account monitoring and alert delivery.
+There is no separate heartbeat process or configuration file. All protection and monitoring runs as daemon iterators inside the tick engine. Each tick, these iterators verify positions, place missing orders, and alert on dangerous conditions.
 
 ---
 
-## What It Does Each Run
+## protection_audit (Read-Only Verifier)
 
-1. Fetches account state from both clearinghouses (native + xyz)
-2. Checks all positions for missing SL/TP — places them if absent
-3. Checks liquidation cushion for each position
-4. Sends Telegram alerts for any issues found
-5. Updates `data/memory/working_state.json` with current ATR and prices
-6. Checks if the main daemon is healthy (via PID file)
+**Source:** `cli/daemon/iterators/protection_audit.py`
+**Tier:** WATCH and above (runs at every tier)
 
----
+The protection audit is strictly read-only. It does NOT place orders. Each tick it:
 
-## Alert Thresholds
+1. Scans every open position across both clearinghouses (native + xyz)
+2. Checks that each position has both a stop-loss and take-profit order on the exchange
+3. If any SL or TP is missing, sends a **Critical** alert to Telegram
+4. Logs the audit result to state
 
-| Condition | Default threshold | Alert severity |
-|-----------|-----------------|----------------|
-| Missing SL or TP | Any position | Critical |
-| Liquidation cushion | < 15% (configurable) | Warning → Critical |
-| Daemon not running | PID file missing | Warning |
-| Account equity drop | > 10% in 1h | Warning |
-
-Thresholds are configurable via `data/config/heartbeat_config.json`.
+This iterator exists so that even in WATCH tier (where no orders are placed), you get immediate notification if protection is missing.
 
 ---
 
-## launchd Configuration
+## exchange_protection (SL/TP Placement)
 
-The heartbeat plist (`com.hyperliquid.heartbeat.plist`) configures:
+**Source:** `cli/daemon/iterators/exchange_protection.py`
+**Tier:** REBALANCE and above only
 
-```xml
-<key>StartInterval</key>
-<integer>120</integer>
-<key>KeepAlive</key>
-<false/>
-```
+This is the iterator that actually writes to the exchange. Each tick it:
 
-It runs once and exits — launchd re-runs it every 120 seconds. This is lighter than a long-lived process.
+1. Scans every open position for missing SL or TP orders
+2. Computes stop-loss from ATR (ATR values come from the `market_structure` iterator)
+3. Computes take-profit from thesis `take_profit_price`, falling back to mechanical 5x ATR if no thesis target
+4. Places the missing orders on the exchange
+5. Enforces the ruin floor (25% drawdown halts entries, 40% drawdown closes everything)
+
+### Stop-Loss Calculation
+
+- ATR period: 14 candles on the 1-hour timeframe
+- Default multiplier: 2.0x ATR below entry for longs
+- ATR values are stored in `data/memory/working_state.json`
+
+### The protection_audit vs exchange_protection Distinction
+
+| | protection_audit | exchange_protection |
+|---|---|---|
+| **Action** | Read-only, alerts only | Places orders on exchange |
+| **Available tier** | WATCH+ (all tiers) | REBALANCE+ only |
+| **Missing SL/TP** | Sends Telegram alert | Places the order |
+| **Ruin floor** | Does not enforce | Enforces (halts/closes) |
+
+Both run every tick when active. In REBALANCE+, protection_audit catches anything exchange_protection might miss in the same tick.
 
 ---
 
-## ATR Calculation
+## liquidation_monitor (Cushion Alerts)
 
-The heartbeat computes ATR (Average True Range) for each thesis market:
-- Period: 14 candles (configurable)
-- Timeframe: 1-hour candles from candle cache
-- Stored in `working_state.json` for use by the daemon's stop-placement logic
+**Source:** `cli/daemon/iterators/liquidation_monitor.py`
+**Tier:** WATCH and above
 
-ATR-based stops: stop loss = entry price - (ATR multiplier × ATR). Default multiplier is 2.0x.
+Monitors the margin cushion (distance to liquidation price) for each position and sends tiered alerts:
+
+| Cushion Level | Severity | Action |
+|--------------|----------|--------|
+| Healthy (above threshold) | None | No alert |
+| Below warning threshold | Warning | Telegram alert |
+| Below critical threshold | Critical | Telegram alert with position details |
+
+Note: A 6.5% cushion at 11x leverage is normal operating range for this system. The critical threshold is calibrated to avoid false alarms at expected leverage levels.
+
+---
+
+## brent_rollover_monitor
+
+**Source:** `cli/daemon/iterators/brent_rollover_monitor.py`
+**Tier:** WATCH and above
+
+Monitors Brent crude oil contract expiry dates and alerts before rollover events. This prevents getting caught in expiry-related price dislocations or forced closes.
+
+---
+
+## Alert Routing
+
+All protection iterators send alerts through the `telegram` iterator's severity-aware routing:
+
+- **Info:** Logged, no notification
+- **Warning:** Telegram message, dedup cooldown prevents spam
+- **Critical:** Telegram message with high-priority formatting, shorter cooldown
+
+Alerts are deduplicated — the same condition will not fire repeatedly within the cooldown window.

@@ -1,117 +1,109 @@
 ---
-title: Tiers & Promotion
-description: The WATCH/REBALANCE/OPPORTUNISTIC ladder — what each tier can do and how to promote safely.
+title: Tier System
+description: The WATCH / REBALANCE / OPPORTUNISTIC ladder — what each tier can do, how to promote, and how to roll back.
 ---
+
+The tier system gates what the daemon is allowed to do. Each tier unlocks additional iterators and capabilities. The system starts at WATCH and stays there until the operator explicitly promotes it. Promotion is per-instance and reversible — just restart the daemon at a lower tier to roll back.
 
 ## Tier Overview
 
-| Tier | Permissions | Default | Trade placement |
-|------|-------------|---------|----------------|
-| **WATCH** | Observe + alert only. Zero writes to exchange. | Yes | Only heartbeat (SL/TP placer) + user manually |
-| **REBALANCE** | WATCH + ATR-based stop placement + delegated rebalancing | No | Heartbeat + exchange_protection + delegated execution_engine |
-| **OPPORTUNISTIC** | REBALANCE + autonomous opportunity hunting | No | Everything REBALANCE does + autonomous entries on delegated assets |
+| Tier | Exchange Writes | Oil Bot Orders | Intelligence |
+|------|----------------|----------------|-------------|
+| **WATCH** | None | Shadow only | Read-only |
+| **REBALANCE** | SL/TP + execution | Yes | Read-only |
+| **OPPORTUNISTIC** | Everything | Yes | Full |
 
-Tier promotion raises the **capability** of the daemon. Each individual asset still needs explicit `agent` delegation for that capability to be exercised on it.
+## WATCH (Production Today)
 
----
-
-## WATCH Tier (Current Production)
-
-WATCH provides full situational awareness with zero risk of unauthorized order placement.
+The default tier. Zero writes to the exchange. Safe to run indefinitely.
 
 **What runs:**
-- Account state monitoring and snapshots
-- Liquidation cushion alerts
-- Funding rate tracking
-- Protection audit (verifies SL/TP exist — does NOT place them)
-- Brent rollover calendar alerts
-- Pulse and radar signal scanners (read-only)
-- Auto-research (REFLECT loop)
+- All monitoring iterators (price feeds, funding, OI, equity tracking)
+- `protection_audit` — **verifies** that SL/TP orders exist on exchange, but does NOT place them. It alerts if orders are missing.
+- All Oil Bot-Pattern subsystems (news_ingest, supply_ledger, heatmap, bot_classifier) in read-only mode
+- Strategy engine computes signals in shadow mode (logged but not executed)
+- Lesson author, entry critic, thesis tracking
+- All `/slash` commands that read data
 
 **What does NOT run:**
-- Exchange order placement of any kind (that's the separate heartbeat process)
-- Entry/exit orders
-- Position resizing
+- No orders placed on exchange
+- No SL/TP placed on exchange
+- No position modifications
+- No rebalancing
 
-**Note:** The heartbeat process handles actual SL/TP placement. It runs every 2 minutes via launchd, independent of the daemon tier.
+## REBALANCE
 
----
+Adds execution capability. The system can now touch the exchange.
 
-## REBALANCE Tier
+**Additional iterators activated:**
 
-Adds active position management to WATCH:
+| Iterator | Purpose |
+|----------|---------|
+| `execution_engine` | Places orders based on conviction engine output |
+| `exchange_protection` | **Places** SL/TP orders on exchange (ATR-based stops, thesis-based or 5x-ATR take-profits) |
+| `guard` | Monitors positions against invalidation levels |
+| `rebalancer` | Adjusts position sizes to match conviction changes |
+| `profit_lock` | Locks in profits at configurable thresholds |
+| `catalyst_deleverage` | Reduces leverage ahead of known catalysts |
 
-- `exchange_protection` iterator — places missing stops as exchange orders
-- `execution_engine` — rebalances positions toward thesis targets (delegated assets only)
-- `profit_lock` — trailing profit protection
-- `guard` — drawdown protection enforcement
+**Oil Bot-Pattern:** The strategy engine can now place orders through the gate chain. Both `enabled` and `short_legs_enabled` must be turned on in `data/config/oil_botpattern.json`.
 
-Requires per-asset `agent` delegation in `data/authority.json`.
+## OPPORTUNISTIC
 
----
+Everything from REBALANCE, plus intelligence-driven discovery.
 
-## OPPORTUNISTIC Tier
+**Additional iterators activated:**
 
-Adds autonomous signal-driven entries to REBALANCE:
+| Iterator | Purpose |
+|----------|---------|
+| `radar` | Scans for opportunities outside thesis markets |
+| `pulse` | Broader market intelligence and correlation tracking |
 
-- Full APEX conviction engine (entry signals, not just rebalancing)
-- `radar` and `pulse` scanners fire live signals (not just read-only)
+This tier is for operators who want the system to surface new ideas, not just execute on existing theses.
 
-Requires per-asset `agent` delegation AND explicit enablement.
+## Per-Asset Authority
 
----
+Tier controls what the system *can* do. Authority controls what it *may* do, per asset.
+
+| Command | Effect |
+|---------|--------|
+| `/delegate <coin>` | Give the AI autonomous control over this asset |
+| `/reclaim <coin>` | Take back control — AI stops managing this asset |
+| `/authority` | Show current delegation state for all assets |
+
+Even at REBALANCE tier, the system will not trade an asset unless authority has been delegated for it. Delegation is the second lock on the door.
 
 ## Promotion Checklist
 
 Before promoting from WATCH to REBALANCE:
 
-- [ ] Run `/readiness` — all checks green
-- [ ] All open positions have SL/TP (`/orders` shows trigger orders)
-- [ ] Thesis files are fresh (updated within 72h)
-- [ ] Authority set correctly for target assets
-- [ ] Test suite passes (`pytest tests/ -x -q`)
-- [ ] You understand what the execution_engine will do (review thesis convictions)
-
-```bash
-python -m cli.main daemon promote --tier rebalance
-```
-
----
-
-## Per-Asset Authority
-
-```bash
-# Delegate an asset to agent control
-python -m cli.main authority set BRENTOIL agent
-
-# Reclaim manual control
-python -m cli.main authority set BRENTOIL manual
-
-# Disable watching entirely
-python -m cli.main authority set BRENTOIL off
-
-# View current state
-python -m cli.main authority list
-```
-
-Or via Telegram: `/delegate BRENTOIL`, `/reclaim BRENTOIL`, `/authority`
-
----
+1. **Verify SL/TP coverage.** Run `/audit` and confirm every open position has both stop-loss and take-profit orders on exchange (placed manually if currently at WATCH).
+2. **Review thesis files.** Run `/thesis` for each market. Confirm targets, invalidation levels, and conviction scores are current.
+3. **Check authority.** Run `/authority`. Delegate only the assets you want the AI to manage.
+4. **Run readiness check.** `/readiness` runs pre-flight diagnostics: config validation, API connectivity, balance checks, iterator health.
+5. **Activate.** `/activate` promotes the daemon to the target tier.
 
 ## Rollback
 
-To drop back to WATCH at any time:
+Restart the daemon with the lower tier. No migration needed, no data loss. Iterators that require the higher tier simply stop running. Existing positions and their exchange orders (SL/TP) remain untouched on the exchange.
 
-```bash
-python -m cli.main daemon demote --tier watch
-```
+## Kill Switches
 
-The daemon always restarts in the configured default tier. If in doubt, restart it — it defaults to WATCH.
+Every major subsystem has an independent kill switch in its config file. Setting `enabled: false` stops that subsystem without affecting anything else.
 
----
+| Config File | Subsystem |
+|-------------|-----------|
+| `data/config/oil_botpattern.json` | Oil Bot-Pattern strategy engine (also has `short_legs_enabled`) |
+| `data/config/news_ingest.json` | News ingestion |
+| `data/config/supply_ledger.json` | Supply ledger |
+| `data/config/heatmap.json` | Liquidity heatmap |
+| `data/config/bot_classifier.json` | Bot classifier |
+| `data/config/oil_botpattern_tune.json` | L1 Bounded Auto-Tune |
+| `data/config/oil_botpattern_reflect.json` | L2 Reflect Proposals |
+| `data/config/oil_botpattern_patternlib.json` | L3 Pattern Library |
+| `data/config/oil_botpattern_shadow.json` | L4 Shadow Eval |
+| `data/config/lab.json` | Lab / experimental features |
+| `data/config/thesis_updater.json` | Thesis auto-updater |
+| `data/config/architect.json` | Architect planner |
 
-## The `/activate` Command
-
-The `/activate` Telegram command walks you through the tier promotion flow interactively, checking readiness gates at each step. Use it instead of the CLI if you're not sure.
-
-See the [Activation Runbook](https://github.com/Chris0x88/hyperliquid-agent/blob/main/agent-cli/docs/wiki/operations/sub_system_5_activation.md) for the detailed walkthrough.
+All kill switches are OFF by default. Staged activation means you turn on exactly what you need, when you need it.

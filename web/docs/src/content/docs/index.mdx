@@ -1,9 +1,9 @@
 ---
 title: HyperLiquid Bot
-description: An AI trading co-pilot for HyperLiquid — 24/7 risk management, conviction-driven sizing, and a real embedded agent.
+description: An AI trading co-pilot for HyperLiquid — thesis-driven sizing, mandatory risk controls, and 42 daemon iterators running 24/7.
 template: splash
 hero:
-  tagline: Your AI trading co-pilot for HyperLiquid. Open source. No fees. No telemetry. Your keys, your rules.
+  tagline: Thesis-driven AI co-pilot for HyperLiquid perpetuals. Open source. No fees. No telemetry. Session tokens only — your keys never leave your machine.
   actions:
     - text: Get Started
       link: /getting-started/overview/
@@ -20,22 +20,22 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 <CardGrid stagger>
   <Card title="Embedded AI Agent" icon="rocket">
-    Claude running inside the bot. Reads your codebase, executes tools, manages positions, learns from each trade. Parallel tool calls, streaming output, context compaction, and persistent memory.
+    Claude Code as the brain, Telegram as the dashboard. The agent reads your thesis files, executes tools, manages positions, and learns from each trade. Free-text chat routes to AI; slash commands hit the API directly at zero cost.
   </Card>
-  <Card title="Telegram Dashboard" icon="laptop">
-    Instant portfolio, charts, prices, orders, P&L, conviction state, and funding rates. Fixed commands hit the HyperLiquid API directly — zero AI credits per slash command.
-  </Card>
-  <Card title="Tick-Based Daemon" icon="setting">
-    Iterators run on a configurable clock: account state, risk gates, mandatory SL/TP enforcement, trailing stops, conviction-driven sizing, auto-research, profit lock, and the REFLECT loop.
+  <Card title="42 Daemon Iterators" icon="setting">
+    A tick-based engine running account collection, risk gates, SL/TP enforcement, conviction sizing, funding tracking, liquidation monitoring, bot-pattern detection, news ingestion, profit lock, and more — all on a configurable clock.
   </Card>
   <Card title="Conviction Engine" icon="star">
-    Position sizing scales with thesis strength. Stale thesis files auto-clamp leverage. Kill switch built in. Thesis files in `data/thesis/` are the shared contract between you and the system.
+    Position sizing scales with thesis strength (0.0–1.0). Stale theses auto-clamp leverage. Thesis files in `data/thesis/` are the shared contract between you and the system. Kill switch built in.
   </Card>
-  <Card title="Mandatory Stop & Take-Profit" icon="warning">
-    Every position MUST have both SL and TP on the exchange itself. No exceptions. No "I'll add it later." The daemon enforces this every tick using ATR-based stops.
+  <Card title="Mandatory SL & TP" icon="warning">
+    Every position MUST have both a stop loss and take profit on the exchange. No exceptions. The daemon enforces this every tick using ATR-based stops and thesis-derived targets.
   </Card>
   <Card title="Hardened Key Management" icon="approve-check">
-    Open Wallet Standard vault (AES-256-GCM) + macOS Keychain dual-write. API wallets only — the bot literally cannot withdraw your funds. If your key leaks, revoke it instantly.
+    Open Wallet Standard vault (AES-256-GCM) + macOS Keychain dual-write. Session tokens only — never API keys. API wallets cannot withdraw funds. If a key leaks, revoke it instantly.
+  </Card>
+  <Card title="Web Dashboard" icon="laptop">
+    Local-only Next.js dashboard on port 3000 with FastAPI backend on port 8420. Real-time charts, log streaming via SSE, iterator control panel, and thesis management — all bound to 127.0.0.1.
   </Card>
 </CardGrid>
 
@@ -43,15 +43,15 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 <CardGrid>
   <Card title="5-Minute Setup" icon="document">
-    Python 3.13, a HyperLiquid account, and a Telegram bot token. [Start here →](/getting-started/installation/)
+    Python 3.13, a HyperLiquid account, a Telegram bot token, and Bun for the web stack. [Start here](/getting-started/installation/)
   </Card>
   <Card title="System Architecture" icon="open-book">
-    Four architecture generations from simple daemon to embedded Claude Code port. [Explore →](/architecture/overview/)
+    Daemon, Telegram bot, AI agent, and web dashboard — how they share state. [Explore](/architecture/overview/)
   </Card>
   <Card title="Trading Rules" icon="list-format">
-    Thesis-driven core markets, mandatory SL/TP, conviction sizing, and the oil long-only rule. [Read →](/trading/markets/)
+    Thesis-driven core markets (BTC, BRENTOIL, GOLD, SILVER), mandatory SL/TP, conviction sizing, oil long-only rule. [Read](/trading/markets/)
   </Card>
   <Card title="Operations Runbook" icon="seti:config">
-    Day-to-day operation, health checks, tier promotion, and incident response. [View →](/operations/runbook/)
+    Day-to-day operation, health checks, tier promotion (WATCH/REBALANCE/OPPORTUNISTIC), and incident response. [View](/operations/runbook/)
   </Card>
 </CardGrid>

@@ -1,6 +1,6 @@
 ---
 title: Security
-description: Key management, API wallet setup, session token authentication, and the no-withdrawal guarantee.
+description: No-withdrawal guarantee, session token authentication, key management, and the OpenClaw boundary.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -8,61 +8,47 @@ import { Aside } from '@astrojs/starlight/components';
 ## The No-Withdrawal Guarantee
 
 <Aside type="tip" title="Your funds are safe even if the key leaks">
-HyperLiquid API wallets can trade but **cannot withdraw funds**. If your API key is compromised, attackers can place trades but cannot steal your balance. Revoke the key instantly from the HyperLiquid web UI.
+HyperLiquid API wallets can trade but **cannot withdraw funds**. If your API wallet key is compromised, attackers can place trades but cannot steal your balance. Revoke the key instantly from the HyperLiquid web UI.
 </Aside>
 
 This is by design. The system only ever touches API wallets — never the main wallet private key.
 
 ---
 
-## Key Management Architecture
+## Key Management
 
-All private key storage uses dual-write for resilience:
+<Aside type="caution" title="Session tokens ONLY — never API keys">
+The embedded AI agent uses Anthropic **session tokens**, not API keys. API keys cost money per token and would accumulate significant costs. Session tokens are free (same as the claude.ai web interface). This is a non-negotiable rule.
+</Aside>
 
-1. **OWS vault** — `agent-cli/data/keys/` encrypted with AES-256-GCM
+### Dual-Write Architecture
+
+All key and credential storage uses dual-write for resilience:
+
+1. **OWS vault** — encrypted credential store
 2. **macOS Keychain** — accessible via standard Keychain API
 
-Both copies are kept in sync. If one fails, the other is the fallback.
+Both copies are kept in sync. If one fails, the other is the fallback. All key storage operations MUST dual-write to both stores.
 
-```bash
-# Import a new key
-python -m cli.main keys import
-
-# List stored keys
-python -m cli.main keys list
-
-# Remove a key
-python -m cli.main keys remove <key-name>
-```
-
----
-
-## AI Agent Authentication
-
-<Aside type="danger" title="Session tokens only — never API keys">
-The embedded agent uses Anthropic **session tokens**, not API keys. API keys cost money per token. Session tokens are free (same as claude.ai web). Using API keys would accumulate significant costs. This is a non-negotiable rule.
-</Aside>
+### Session Token Workflow
 
 Session tokens are stored in:
 ```
 ~/.openclaw/agents/default/agent/auth-profiles.json
 ```
 
-### Obtaining a Session Token
-
-1. Log in to [claude.ai](https://claude.ai) in your browser
-2. Open browser DevTools → Application → Cookies
+**Obtaining a session token:**
+1. Log in to claude.ai in your browser
+2. Open browser DevTools, then Application, then Cookies
 3. Find the `sessionKey` cookie value
 4. Store it in `auth-profiles.json` under the `anthropic` profile
 
-Session tokens expire. When the AI agent starts returning auth errors, the token needs rotation. Run `/models` in Telegram to check if the agent is responding.
-
-### Rotating a Session Token
-
+**Rotating a session token** (when the agent starts returning auth errors):
 1. Log into claude.ai in a fresh browser session
 2. Extract the new `sessionKey` cookie value
 3. Update `auth-profiles.json`
 4. Restart the Telegram bot process
+5. Verify with `/models` in Telegram
 
 ---
 
@@ -70,16 +56,16 @@ Session tokens expire. When the AI agent starts returning auth errors, the token
 
 OpenRouter is used as the model router for some AI features:
 
-```bash
+```
 # In .env
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-OpenRouter keys are optional — the system falls back gracefully if not configured. AI agent features won't work without a valid auth source (session token or OpenRouter key).
+OpenRouter keys are optional — the system falls back gracefully if not configured.
 
 ---
 
-## Environment File (.env)
+## Environment Variables
 
 The `.env` file contains secrets and must never be committed to git:
 
@@ -107,17 +93,32 @@ The system has zero external party dependencies in the trading path:
 - No telemetry
 - No external party code in the risk management path
 
-All data flows stay within: your machine → HyperLiquid API → your machine.
+All data flows stay within: your machine, HyperLiquid API, your machine.
 
 ---
 
 ## OpenClaw Boundary
 
-The `~/.openclaw/` directory is a broader AI agent ecosystem that contains multiple agents and configurations beyond this project.
+The `~/.openclaw/` directory is the user's entire AI agent ecosystem — it contains multiple agents, bots, and a company of AI workers beyond this project.
 
 **Never modify:**
 - `~/.openclaw/openclaw.json`
 - `~/.openclaw/exec-approvals.json`
 - Any global OpenClaw config
 
-The only file outside the project directory that may be touched is `~/.openclaw/agents/default/agent/auth-profiles.json` — only for credential sync.
+The only file outside the project directory that may be touched is:
+```
+~/.openclaw/agents/default/agent/auth-profiles.json
+```
+And only for credential sync.
+
+---
+
+## AI Agent Model Routing
+
+The system uses a tiered model approach:
+
+- **Premium models** (Claude Opus/Sonnet): Judgment calls, thesis analysis, challenging user thesis
+- **Mechanical models** (Haiku): Routine tasks, formatting, data extraction
+
+Model routing configuration lives in `data/config/model_config.json`. Free session token credits are temporary — local AI integration is planned for mechanical tasks.
