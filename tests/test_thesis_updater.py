@@ -310,7 +310,8 @@ class TestThesisUpdaterEngine:
 
         return tmp_path, config_path
 
-    def test_process_catalyst_critical_defensive(self, tmp_dir):
+    @patch("modules.thesis_updater.is_weekend", return_value=False)
+    def test_process_catalyst_critical_defensive(self, _mock_wknd, tmp_dir):
         """CRITICAL bearish news on a long position triggers defensive mode."""
         tmp_path, config_path = tmp_dir
 
