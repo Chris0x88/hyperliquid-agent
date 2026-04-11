@@ -1787,8 +1787,8 @@ def execute_tool(name: str, arguments: dict) -> str:
         log.info("Tool %s executed (%dms): %s", name, duration_ms, str(result)[:100])
         # Log to diagnostics for /diag tool call counting
         try:
-            from common.diagnostics import get_diagnostics
-            get_diagnostics().log_tool_call(name, args, str(result)[:200], duration_ms=duration_ms)
+            from common.diagnostics import diag
+            diag.log_tool_call(name, args, str(result)[:200], duration_ms=duration_ms)
         except Exception:
             pass
         return _cap(result)
@@ -1796,8 +1796,8 @@ def execute_tool(name: str, arguments: dict) -> str:
         duration_ms = int((time.time() - t0) * 1000)
         log.error("Tool %s failed (%dms): %s", name, duration_ms, e)
         try:
-            from common.diagnostics import get_diagnostics
-            get_diagnostics().log_tool_call(name, arguments, str(e), duration_ms=duration_ms, error=True)
+            from common.diagnostics import diag
+            diag.log_tool_call(name, arguments, str(e), duration_ms=duration_ms, error=True)
         except Exception:
             pass
         return f"Tool error ({name}): {e}"
