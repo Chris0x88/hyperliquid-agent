@@ -28,6 +28,19 @@ import requests
 
 from common.renderer import Renderer, TelegramRenderer
 
+import cli.telegram_hl as telegram_hl
+from cli.telegram_hl import (
+    HL_API,
+    _hl_post, _get_all_positions, _get_all_orders, _get_account_values,
+    _get_market_oi, _get_current_price, _get_all_market_ctx,
+    _coin_matches, resolve_coin,
+)
+from cli.telegram_api import (
+    tg_send, tg_send_buttons, tg_remove_buttons, tg_answer_callback,
+    tg_send_grid, tg_edit_grid, tg_get_updates,
+)
+import cli.telegram_api as _tg_api  # for mutable _poll_fail_count access
+
 # Ensure project root on path
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
@@ -45,7 +58,7 @@ try:
 except ImportError:
     _diag = None
 
-HL_API = "https://api.hyperliquid.xyz/info"
+# HL_API moved to cli/telegram_hl.py (imported above)
 from common.account_resolver import resolve_main_wallet, resolve_vault_address as _resolve_vault
 MAIN_ADDR = resolve_main_wallet(required=True)
 VAULT_ADDR = _resolve_vault(required=False) or ""
@@ -77,38 +90,12 @@ from common.watchlist import (
 )
 
 WATCHLIST = _get_wl_tuples()
+# Local copy kept for global-reload sites; canonical copy in cli.telegram_hl
 COIN_ALIASES: dict[str, str] = _get_aliases()
 APPROVED_MARKETS = _get_coins()
 
 
-def _coin_matches(universe_name: str, target: str) -> bool:
-    """Check if a universe asset name matches a target coin identifier.
-
-    CRITICAL: The xyz clearinghouse returns universe names WITH the 'xyz:' prefix
-    (e.g. 'xyz:BRENTOIL'), while native clearinghouse does NOT (e.g. 'BTC').
-    This function handles both forms so callers don't need to worry about it.
-
-    Examples:
-        _coin_matches("xyz:BRENTOIL", "BRENTOIL") → True
-        _coin_matches("xyz:BRENTOIL", "xyz:BRENTOIL") → True
-        _coin_matches("BTC", "BTC") → True
-    """
-    if universe_name == target:
-        return True
-    bare_universe = universe_name.replace("xyz:", "")
-    bare_target = target.replace("xyz:", "")
-    return bare_universe == bare_target
-
-
-def resolve_coin(text: str) -> Optional[str]:
-    """Resolve user input to an HL coin identifier."""
-    t = text.strip().lower()
-    if t in COIN_ALIASES:
-        return COIN_ALIASES[t]
-    # Try with xyz: prefix
-    if f"xyz:{t}" in COIN_ALIASES:
-        return COIN_ALIASES[f"xyz:{t}"]
-    return None
+# _coin_matches, resolve_coin → Moved to cli/telegram_hl.py
 
 
 # ── Keychain helpers ─────────────────────────────────────────
@@ -125,180 +112,22 @@ def _keychain_read(key_name: str) -> Optional[str]:
         return None
 
 
-# ── Telegram API helpers ─────────────────────────────────────
-
-def tg_send(token: str, chat_id: str, text: str, markdown: bool = True) -> bool:
-    """Send a Telegram message. Uses Markdown by default, falls back to plain text."""
-    try:
-        payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
-        if markdown:
-            payload["parse_mode"] = "Markdown"
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json=payload, timeout=10,
-        )
-        result = r.json()
-        if result.get("ok"):
-            return True
-        # Markdown failed — retry as plain text
-        if markdown:
-            payload.pop("parse_mode", None)
-            r = requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json=payload, timeout=10,
-            )
-            return r.json().get("ok", False)
-        return False
-    except Exception as e:
-        log.warning("Send failed: %s", e)
-        return False
-
-
-def tg_send_buttons(token: str, chat_id: str, text: str, buttons: list) -> bool:
-    """Send a message with inline keyboard buttons.
-
-    buttons: list of dicts with 'text' and 'callback_data' keys.
-    Laid out one button per row.
-    """
-    try:
-        keyboard = [[btn] for btn in buttons]
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": keyboard},
-        }
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json=payload, timeout=10,
-        )
-        return r.json().get("ok", False)
-    except Exception as e:
-        log.warning("Send buttons failed: %s", e)
-        return False
-
-
-def tg_remove_buttons(token: str, chat_id: str, message_id: int) -> bool:
-    """Remove inline keyboard buttons from a message."""
-    try:
-        payload = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "reply_markup": {"inline_keyboard": []},
-        }
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
-            json=payload, timeout=5,
-        )
-        return r.json().get("ok", False)
-    except Exception as e:
-        log.warning("Remove buttons failed: %s", e)
-        return False
-
-
-def tg_answer_callback(token: str, callback_id: str, text: str = "") -> None:
-    """Answer a callback query (dismisses the loading spinner on the button)."""
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{token}/answerCallbackQuery",
-            json={"callback_query_id": callback_id, "text": text},
-            timeout=5,
-        )
-    except Exception:
-        pass
-
-
-def tg_send_grid(token: str, chat_id: str, text: str, rows: list) -> dict:
-    """Send a message with inline keyboard grid. rows = [[btn, btn], [btn], ...]."""
-    try:
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": rows},
-        }
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json=payload, timeout=10,
-        )
-        return r.json()
-    except Exception as e:
-        log.warning("Send grid failed: %s", e)
-        return {}
-
-
-def tg_edit_grid(token: str, chat_id: str, message_id: int, text: str, rows: list) -> bool:
-    """Edit an existing message text + inline keyboard in-place."""
-    try:
-        payload = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": rows},
-        }
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/editMessageText",
-            json=payload, timeout=10,
-        )
-        return r.json().get("ok", False)
-    except Exception as e:
-        log.warning("Edit grid failed: %s", e)
-        return False
-
-
-_poll_fail_count = 0  # consecutive polling failures
-
-
-def tg_get_updates(token: str, offset: int) -> list:
-    global _poll_fail_count
-    try:
-        r = requests.get(
-            f"https://api.telegram.org/bot{token}/getUpdates",
-            params={"offset": offset, "timeout": 2},
-            timeout=10,
-        )
-        data = r.json()
-        result = data.get("result", []) if data.get("ok") else []
-        if _poll_fail_count > 0:
-            log.info("Telegram API recovered after %d failures", _poll_fail_count)
-        _poll_fail_count = 0
-        return result
-    except Exception as e:
-        _poll_fail_count += 1
-        log.warning("Telegram poll failed (%d consecutive): %s", _poll_fail_count, e)
-        return []
+# ── Telegram API helpers ── Moved to cli/telegram_api.py ─────
+# tg_send, tg_send_buttons, tg_remove_buttons, tg_answer_callback,
+# tg_send_grid, tg_edit_grid, tg_get_updates, _poll_fail_count
 
 
 def _poll_backoff_seconds() -> float:
     """Exponential backoff: 2s → 4s → 8s → … capped at 30s."""
-    if _poll_fail_count <= 0:
+    if _tg_api._poll_fail_count <= 0:
         return POLL_INTERVAL
-    return min(POLL_INTERVAL * (2 ** _poll_fail_count), 30.0)
+    return min(POLL_INTERVAL * (2 ** _tg_api._poll_fail_count), 30.0)
 
 
-# ── HL API helpers (pure Python, no AI) ──────────────────────
-
-def _hl_post(payload: dict) -> dict:
-    try:
-        return requests.post(HL_API, json=payload, timeout=10).json()
-    except Exception:
-        return {}
-
-
-def _get_all_positions(addr: str) -> list:
-    """Get positions from BOTH native and xyz clearinghouses."""
-    positions = []
-    for dex in ['', 'xyz']:
-        payload = {'type': 'clearinghouseState', 'user': addr}
-        if dex:
-            payload['dex'] = dex
-        state = _hl_post(payload)
-        for p in state.get('assetPositions', []):
-            pos = p.get('position', {})
-            pos['_dex'] = dex or 'native'
-            positions.append(pos)
-    return positions
+# ── HL API helpers — moved to cli/telegram_hl.py ─────────────
+# _hl_post, _get_all_positions, _get_all_orders, _get_account_values,
+# _get_market_oi, _get_current_price, _get_all_market_ctx,
+# _coin_matches, resolve_coin  →  imported at top of file
 
 
 def _refresh_candle_cache_for_market(cache, coin: str, lookback_hours: int = 168) -> None:
@@ -330,103 +159,8 @@ def _refresh_candle_cache_for_market(cache, coin: str, lookback_hours: int = 168
             pass
 
 
-def _get_all_orders(addr: str) -> list:
-    """Get open orders from BOTH clearinghouses (rich format with orderType/triggerPx)."""
-    orders = []
-    for dex in ['', 'xyz']:
-        payload = {'type': 'frontendOpenOrders', 'user': addr}
-        if dex:
-            payload['dex'] = dex
-        result = _hl_post(payload) or []
-        for o in result:
-            o['_dex'] = dex or 'native'
-        orders.extend(result)
-    return orders
-
-
-def _get_account_values(addr: str) -> dict:
-    """Get account values for a single wallet from the shared account model."""
-    from common.account_state import fetch_wallet_state
-
-    row = fetch_wallet_state(addr, role="wallet")
-    return {
-        'native': row['native_equity'],
-        'xyz': row['xyz_equity'],
-        'spot': row['spot_usdc'],
-        'total': row['total_equity'],
-    }
-
-
-def _get_market_oi(coin: str, dex: str = '') -> str:
-    """Get open interest + 24h volume for a market. Returns formatted string."""
-    try:
-        payload: dict = {"type": "metaAndAssetCtxs"}
-        if dex == 'xyz':
-            payload["dex"] = "xyz"
-        data = _hl_post(payload)
-        if isinstance(data, list) and len(data) >= 2:
-            meta = data[0]
-            ctxs = data[1]
-            universe = meta.get("universe", [])
-            for i, ctx in enumerate(ctxs):
-                if i < len(universe) and _coin_matches(universe[i].get("name", ""), coin):
-                    oi = float(ctx.get("openInterest", 0))
-                    vol = float(ctx.get("dayNtlVlm", 0))
-                    parts = []
-                    if oi > 0:
-                        parts.append(f"OI `${oi / 1e6:.1f}M`")
-                    if vol > 0:
-                        parts.append(f"Vol `${vol / 1e6:.1f}M`")
-                    return " • ".join(parts) if parts else ""
-    except Exception:
-        pass
-    return ""
-
-
-def _get_current_price(coin: str) -> Optional[float]:
-    """Get current mid price for a coin (checks both clearinghouses)."""
-    try:
-        mids = _hl_post({"type": "allMids"})
-        if coin in mids:
-            return float(mids[coin])
-    except Exception:
-        pass
-    try:
-        mids = _hl_post({"type": "allMids", "dex": "xyz"})
-        for k, v in mids.items():
-            if k.replace("xyz:", "") == coin or k == coin:
-                return float(v)
-    except Exception:
-        pass
-    return None
-
-
-def _get_all_market_ctx() -> dict:
-    """Fetch metaAndAssetCtxs from both clearinghouses.
-
-    Returns dict mapping coin name -> {"markPx": float, "prevDayPx": float}.
-    Handles both native (BTC, ETH) and xyz (BRENTOIL, GOLD, etc.) markets.
-    """
-    result: dict = {}
-    for dex in ['', 'xyz']:
-        try:
-            payload: dict = {"type": "metaAndAssetCtxs"}
-            if dex:
-                payload["dex"] = dex
-            data = _hl_post(payload)
-            if isinstance(data, list) and len(data) >= 2:
-                universe = data[0].get("universe", [])
-                ctxs = data[1]
-                for i, ctx in enumerate(ctxs):
-                    if i < len(universe):
-                        name = universe[i].get("name", "")
-                        mark = float(ctx.get("markPx", 0))
-                        prev = float(ctx.get("prevDayPx", 0))
-                        if mark > 0:
-                            result[name] = {"markPx": mark, "prevDayPx": prev}
-        except Exception:
-            pass
-    return result
+# _get_all_orders, _get_account_values, _get_market_oi,
+# _get_current_price, _get_all_market_ctx → Moved to cli/telegram_hl.py
 
 
 def _liquidity_regime() -> str:
@@ -806,10 +540,11 @@ def cmd_addmarket_confirm(token: str, chat_id: str, args: str) -> None:
     aliases = [bare.lower()]
 
     if add_market(display, coin, aliases, category):
-        # Reload module-level vars
+        # Reload module-level vars (both local and telegram_hl copy)
         global WATCHLIST, COIN_ALIASES, APPROVED_MARKETS
         WATCHLIST = _get_wl_tuples()
         COIN_ALIASES = _get_aliases()
+        telegram_hl.COIN_ALIASES = COIN_ALIASES
         APPROVED_MARKETS = _get_coins()
         tg_send(token, chat_id, f"✅ Added `{coin}` to watchlist.\nUse `/watchlist` to see all tracked markets.")
     else:
@@ -835,6 +570,7 @@ def cmd_removemarket(token: str, chat_id: str, args: str) -> None:
         global WATCHLIST, COIN_ALIASES, APPROVED_MARKETS
         WATCHLIST = _get_wl_tuples()
         COIN_ALIASES = _get_aliases()
+        telegram_hl.COIN_ALIASES = COIN_ALIASES
         APPROVED_MARKETS = _get_coins()
         tg_send(token, chat_id, f"✅ Removed `{coin}` from watchlist.")
     else:
@@ -5085,7 +4821,7 @@ def run() -> None:
                 pass
 
         # Alert user after sustained polling failure
-        if _poll_fail_count == 5:
+        if _tg_api._poll_fail_count == 5:
             try:
                 tg_send(token, chat_id, "Telegram API unreachable (5 consecutive failures). Retrying with backoff.")
             except Exception:
