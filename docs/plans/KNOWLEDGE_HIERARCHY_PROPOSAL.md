@@ -1,7 +1,7 @@
-# Knowledge Hierarchy Proposal — DISCUSSION ONLY
+# Knowledge Hierarchy Proposal — APPROVED 2026-04-11
 
-> **Status**: Proposal for review. NOT approved for execution.
-> The knowledge system is load-bearing — changing it wrong loses context.
+> **Status**: APPROVED. Option B + learning paths. No deletions — archive with dates.
+> See KNOWLEDGE_HIERARCHY_MAINTENANCE.md for the maintenance guide.
 
 ---
 
@@ -138,23 +138,37 @@ fact, not a preference). Accept duplication in CLAUDE.md as safety redundancy.
 
 **Risk**: Low. Pure addition, no deletion. Helps AI navigate.
 
-### D. Consolidate Memory Feedback
+### D. Archive Memory — Never Delete (APPROVED)
+
+**Principle**: Common law system. Nothing is ever deleted. Old memories are
+preserved with dates for traceability. Newer decisions cite and override older
+ones, but the reasoning chain is always intact.
 
 **Current**: 20+ feedback files, some overlap:
 - feedback_market_restrictions.md — "Approved: BTC, BRENTOIL, CL, GOLD, SILVER"
 - feedback_oil_philosophy.md — "long only on oil"
 - feedback_entry_logic.md — "position ahead of events"
 
-Some of these are code facts (market restrictions = markets.yaml), some are
-genuine preferences (oil philosophy = user's domain expertise).
+Some encode code facts, some encode user preferences, some encode domain
+expertise. ALL are preserved — they form the decision trail.
 
-**Proposed**: Audit each memory file:
-- If it's a code fact → delete, the code is truth
-- If it's a user preference → keep
-- If it's feedback for AI behavior → keep
+**Approved approach**:
+- **NEVER delete memory files.** Even if a memory is superseded, it stays.
+- When a memory is outdated, add a date header: `> Superseded YYYY-MM-DD — see [newer file]`
+- All memories MUST include creation date in frontmatter or first line
+- Date format: `YYYY-MM-DD` (e.g., `2026-01-31` = 31 Jan 2026)
+- If the index gets cluttered, move old memories to `archive/` subdirectory
+- Keyword mapping via frontmatter `description` field enables search
 
-**Risk**: Medium. Deleting a memory file that encodes a safety rule (like
-"session tokens only") could cause the AI to forget it. Must be careful.
+**Why**: A thought from January that was superseded in March still explains
+WHY March happened. Deleting it destroys the reasoning chain. This is how
+common law works — precedent is preserved, newer rulings override, but the
+trail is always there.
+
+**Feedback as user data**: The `/feedback` Telegram command writes to the
+data layer (`data/daemon/feedback.jsonl`). Durable preferences get promoted
+to memory files by the AI. The original feedback is preserved in the data
+layer regardless — it's user data, not just knowledge.
 
 ---
 
@@ -173,22 +187,21 @@ genuine preferences (oil philosophy = user's domain expertise).
 
 ---
 
-## Decision Needed
+## Decision — APPROVED 2026-04-11
 
-The core tension is: **duplication as safety vs. staleness from duplication.**
+**Option B + learning paths + common law archival.**
 
-Option A: Aggressive dedup (single source of truth everywhere, accept risk
-that AI misses a rule if it doesn't load the right file)
+1. **Dedup docs layers** — wiki and docs site should reference code as truth,
+   not duplicate iterator lists or config parameters.
+2. **Keep safety redundancy** — CLAUDE.md and critical memory files keep
+   duplicated safety rules (session tokens, SL/TP mandatory, etc.)
+3. **Never delete memory** — archive with dates, common law principle.
+4. **Add learning paths** — `docs/wiki/learning-paths/` for AI navigation.
+5. **Feedback is user data** — `/feedback` writes to data layer, promoted
+   to memory when durable.
 
-Option B: Selective dedup (remove duplication in docs/wiki/site, keep
-duplication in CLAUDE.md and memory for safety)
-
-Option C: Status quo + learning paths only (don't remove anything, just add
-learning paths to help AI navigate)
-
-**My recommendation**: Option B + learning paths. Dedup the docs layers,
-keep safety redundancy in CLAUDE.md and critical memory files.
+See `KNOWLEDGE_HIERARCHY_MAINTENANCE.md` for the full maintenance guide.
 
 ---
 
-*Proposal generated 2026-04-11. Awaiting user review before any execution.*
+*Approved 2026-04-11 by user. Maintenance guide written same date.*
