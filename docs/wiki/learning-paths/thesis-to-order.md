@@ -80,7 +80,7 @@ This is the bridge between the AI layer (which writes JSON files via scheduled t
 **Where conviction becomes orders.** This iterator:
 
 1. Reads `ctx.thesis_states` for each market
-2. Reads conviction bands from config (`data/config/conviction_bands.json`)
+2. Reads conviction from `ThesisState.conviction` (0.0–1.0) and `recommended_leverage`
 3. Computes target position size: conviction x recommended_size_pct x equity x leverage
 4. Compares target vs current position (from `ctx.positions`)
 5. Emits `OrderIntent` objects to `ctx.order_queue`

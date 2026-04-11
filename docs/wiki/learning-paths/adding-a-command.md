@@ -116,7 +116,7 @@ Then implement the command using `common/renderer.py`'s `Renderer` ABC. The tool
 
 ## Step 7: Add tests
 
-File: `tests/test_telegram_bot.py`
+File: `tests/test_telegram_<feature>_command.py` (e.g., `test_telegram_news_command.py`)
 
 At minimum, test that the handler is registered and callable. For non-trivial logic, test the core behavior.
 
