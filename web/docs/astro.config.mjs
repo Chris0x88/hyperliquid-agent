@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightClientMermaid from '@pasqal-io/starlight-client-mermaid';
 
 export default defineConfig({
   trailingSlash: 'always',
@@ -7,6 +8,7 @@ export default defineConfig({
     starlight({
       title: 'HyperLiquid Bot Docs',
       description: 'An AI trading co-pilot for HyperLiquid — your keys, your rules.',
+      plugins: [starlightClientMermaid()],
       sidebar: [
         { label: 'Getting Started', autogenerate: { directory: 'getting-started' } },
         { label: 'Architecture', autogenerate: { directory: 'architecture' } },

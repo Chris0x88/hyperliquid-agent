@@ -7,18 +7,19 @@ The Lesson system closes the feedback loop between execution and learning. When 
 
 ## Lesson Cycle
 
-```
-Closed position (journal.jsonl)
-        ↓
-  lesson_author iterator
-        ↓
-  Candidate JSON (data/daemon/lesson_candidates/)
-        ↓
-  /lessonauthorai (AI authors the lesson)
-        ↓
-  memory.db (SQLite + FTS5)
-        ↓
-  /lessons, /lessonsearch
+```mermaid
+graph TD
+    CLOSE["Position Closed<br/>data/research/journal.jsonl"] --> LA["lesson_author iterator"]
+    LA --> CTX["Assemble Context:<br/>• thesis snapshot<br/>• catalysts at open/close<br/>• learnings.md tail"]
+    CTX --> FILTER{"Garbage Filter<br/>(Bug A)"}
+    FILTER -->|"entry_price ≤ 0<br/>|roe| > 1000%"| SKIP["Skip — bad data"]
+    FILTER -->|Pass| CAND["data/daemon/lesson_candidates/*.json"]
+    CAND --> CMD["/lessonauthorai"]
+    CMD --> AGENT["AI Agent authors lesson"]
+    AGENT --> DB["data/memory/memory.db<br/>SQLite FTS5"]
+    DB --> SEARCH["/lessonsearch query"]
+    DB --> LIST["/lessons"]
+    DB --> REVIEW["/lesson approve/reject id"]
 ```
 
 ### Step 1: Position Closes

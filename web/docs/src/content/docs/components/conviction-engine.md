@@ -7,6 +7,33 @@ description: Druckenmiller-style thesis system — AI writes conviction, the dae
 
 Position sizing scales directly with thesis strength. When conviction is high, size aggressively. When conviction decays, the system enforces its own humility by auto-tapering exposure. Stale theses clamp automatically — no manual intervention required.
 
+### Conviction Flow
+
+```mermaid
+graph TD
+    TF["Thesis File<br/>data/thesis/xyz_brentoil_state.json"] --> TE["thesis_engine iterator<br/>Reads into TickContext"]
+    TE --> STALE{"Staleness Check"}
+    STALE -->|"< 24h"| FRESH["Full conviction"]
+    STALE -->|"24h - 7d"| REVIEW["needs_review flag"]
+    STALE -->|"7d - 14d"| TAPER["Conviction tapered"]
+    STALE -->|"> 14d"| DEFENSIVE["Very stale — defensive mode"]
+
+    FRESH --> EE["execution_engine<br/>Conviction Sizing"]
+    REVIEW --> EE
+    TAPER --> EE
+    DEFENSIVE --> EE
+
+    EE --> BANDS{"Conviction Band"}
+    BANDS -->|"0.0 - 0.3"| NONE["No position"]
+    BANDS -->|"0.3 - 0.5"| SMALL["Small (2-5% equity)"]
+    BANDS -->|"0.5 - 0.7"| MED["Medium (5-10%)"]
+    BANDS -->|"0.7 - 0.9"| LARGE["Large (10-20%)"]
+    BANDS -->|"0.9 - 1.0"| MAX["Maximum conviction"]
+
+    EE --> EP["exchange_protection<br/>Mandatory SL + TP"]
+    EP --> HL["HyperLiquid DEX"]
+```
+
 ---
 
 ## Layer 1: ThesisState (Human / AI Writes)

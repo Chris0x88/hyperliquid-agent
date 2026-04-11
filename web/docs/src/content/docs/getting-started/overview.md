@@ -9,6 +9,27 @@ A personal AI trading co-pilot for HyperLiquid perpetuals. You bring domain expe
 
 Telegram is the dashboard. Claude Code is the brain. Thesis files are the shared contract.
 
+### System Overview
+
+```mermaid
+graph TB
+    YOU["You (Telegram)"] <-->|"slash commands<br/>+ free-text chat"| TG["Telegram Bot"]
+    YOU2["You (Browser)"] <-->|"http://127.0.0.1:3000"| WEB["Web Dashboard"]
+
+    TG <-->|"commands"| DAEMON["Daemon Engine<br/>42 iterators on a tick clock"]
+    TG -->|"free text"| AGENT["AI Agent (Claude)"]
+    WEB <-->|"REST API :8420"| API["FastAPI Backend"]
+    API <-->|"reads same files"| FS["Shared Filesystem"]
+
+    AGENT -->|"thesis updates,<br/>lesson authoring"| FS
+    DAEMON <-->|"read/write state"| FS
+    DAEMON <-->|"orders, positions"| HL["HyperLiquid DEX"]
+
+    style YOU fill:#A26B32,color:#fff
+    style YOU2 fill:#A26B32,color:#fff
+    style HL fill:#87CAE6,color:#000
+```
+
 ---
 
 ## Who It's For

@@ -18,6 +18,49 @@ The system is built from four independent processes that share state through the
 
 ---
 
+## Architecture at a Glance
+
+```mermaid
+graph TB
+    subgraph "User Interfaces"
+        TG["Telegram Bot<br/>Long-polling, slash commands"]
+        WEB["Web Dashboard<br/>Next.js :3000"]
+    end
+
+    subgraph "Intelligence"
+        AI["AI Agent<br/>Claude via session tokens"]
+        CE["Conviction Engine<br/>Thesis → sizing"]
+    end
+
+    subgraph "Daemon Engine"
+        CLK["Clock<br/>Tick-based loop"]
+        IT["42 Iterators<br/>account_collector → telegram"]
+        OI["OrderIntent Queue"]
+    end
+
+    subgraph "Data Layer"
+        FS["Shared Filesystem<br/>JSON / JSONL / YAML / SQLite"]
+    end
+
+    subgraph "Exchange"
+        HL["HyperLiquid DEX<br/>Native + xyz clearinghouses"]
+    end
+
+    TG -->|"free text"| AI
+    TG -->|"slash cmds"| FS
+    WEB -->|"REST API :8420"| FS
+    AI -->|"tools"| FS
+    AI -->|"thesis files"| CE
+    CE --> IT
+    CLK --> IT
+    IT --> OI
+    OI -->|"REBALANCE+ only"| HL
+    IT -->|"read/write"| FS
+    HL -->|"positions, orders, L2"| IT
+```
+
+---
+
 ## How They Connect
 
 All four layers communicate through **shared files on disk**. There is no message bus, no external database, no RPC between processes.
@@ -94,6 +137,49 @@ The AI agent is not a standalone process. It is launched on demand by the Telegr
 ## Shared State Model
 
 All persistent state lives in `data/` as flat files. No external databases, no cloud services.
+
+### Data Flow — Who Writes What
+
+```mermaid
+graph LR
+    subgraph "Writers"
+        D["Daemon"]
+        A["AI Agent"]
+        U["User via Telegram"]
+    end
+
+    subgraph "Shared State"
+        TH["data/thesis/*.json"]
+        CFG["data/config/*.json"]
+        CAN["data/candles/candles.db"]
+        MEM["data/memory/memory.db"]
+        NEWS["data/news/*.jsonl"]
+        STRAT["data/strategy/*.jsonl"]
+        RES["data/research/*.jsonl"]
+    end
+
+    subgraph "Readers"
+        D2["Daemon"]
+        TG["Telegram Bot"]
+        WEB["Web API :8420"]
+        AI2["AI Agent"]
+    end
+
+    D -->|"candles, state, journals"| CAN
+    D -->|"catalysts, patterns"| NEWS
+    D -->|"decisions, proposals"| STRAT
+    D -->|"critiques, bot patterns"| RES
+    A -->|"thesis updates"| TH
+    A -->|"lessons"| MEM
+    U -->|"/sl, /tp, /close"| D
+
+    TH --> D2
+    CFG --> D2
+    CAN --> WEB
+    NEWS --> TG
+    STRAT --> WEB
+    MEM --> AI2
+```
 
 | Format | Examples | Why |
 |--------|----------|-----|

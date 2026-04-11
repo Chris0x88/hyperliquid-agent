@@ -17,6 +17,34 @@ Source: `cli/daemon/clock.py` (Clock), `cli/daemon/context.py` (TickContext)
 
 ## Tick Sequence
 
+```mermaid
+sequenceDiagram
+    participant CLK as Clock
+    participant CTX as TickContext
+    participant AC as account_collector
+    participant MS as market_structure
+    participant TE as thesis_engine
+    participant EE as execution_engine
+    participant EP as exchange_protection
+    participant TG as telegram
+
+    CLK->>CTX: New tick (every 120s)
+    CLK->>AC: tick(ctx)
+    AC->>CTX: Inject account state
+    CLK->>MS: tick(ctx)
+    MS->>CTX: Inject ATR, technicals
+    CLK->>TE: tick(ctx)
+    TE->>CTX: Inject thesis states
+    CLK->>EE: tick(ctx)
+    Note over EE: Conviction sizing → OrderIntents
+    CLK->>EP: tick(ctx)
+    Note over EP: Place SL/TP on exchange
+    CLK->>TG: tick(ctx)
+    Note over TG: Process alerts queue
+    CLK->>CLK: Execute OrderIntents
+    CLK->>CLK: Persist state
+```
+
 Each tick runs this sequence:
 
 1. **Control file check** — reads runtime commands (pause, stop, tier change)

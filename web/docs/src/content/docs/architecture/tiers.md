@@ -17,6 +17,39 @@ The daemon operates in exactly one tier at a time. Each tier controls which iter
 
 **Production today: WATCH.** The system ships in WATCH and stays there until explicitly promoted.
 
+### Tier State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> WATCH: Default startup
+    WATCH --> REBALANCE: /activate + readiness checks
+    REBALANCE --> OPPORTUNISTIC: /activate + readiness checks
+    OPPORTUNISTIC --> REBALANCE: Restart with --tier rebalance
+    REBALANCE --> WATCH: Restart with --tier watch
+    OPPORTUNISTIC --> WATCH: Restart with --tier watch
+
+    state WATCH {
+        [*] --> Monitoring
+        Monitoring: 37 iterators (read-only)
+        Monitoring: protection_audit verifies SL/TP
+        Monitoring: Zero writes to exchange
+    }
+
+    state REBALANCE {
+        [*] --> Executing
+        Executing: Adds execution_engine
+        Executing: exchange_protection places SL/TP
+        Executing: guard + rebalancer active
+    }
+
+    state OPPORTUNISTIC {
+        [*] --> Full
+        Full: Everything from REBALANCE
+        Full: + radar + pulse intelligence
+        Full: Maximum automation
+    }
+```
+
 ---
 
 ## WATCH Tier (37 iterators)
@@ -147,6 +180,31 @@ All kill switches default to **off** (disabled). Flip them manually when ready.
 <Aside type="caution">
 Kill switches are independent of tier. A subsystem can be enabled in WATCH (where it runs in shadow/advisory mode) or disabled in REBALANCE (where it simply does not run even though the tier allows it). Tier controls what CAN run; kill switches control what DOES run.
 </Aside>
+
+---
+
+## Iterator Activation by Tier
+
+```mermaid
+graph LR
+    subgraph "WATCH (always on)"
+        A["Data Collection<br/>account_collector, connector,<br/>market_structure, thesis_engine"]
+        B["Monitoring<br/>protection_audit, liquidation_monitor,<br/>funding_tracker, brent_rollover_monitor"]
+        C["Intelligence<br/>radar, pulse, news_ingest,<br/>supply_ledger, heatmap, bot_classifier"]
+        D["Oil Bot-Pattern<br/>oil_botpattern (shadow),<br/>all 4 self-tune layers"]
+        E["Learning<br/>autoresearch, journal,<br/>lesson_author, entry_critic,<br/>memory_consolidation, memory_backup"]
+        F["System<br/>risk, liquidity, apex_advisor,<br/>action_queue, thesis_challenger,<br/>thesis_updater, lab, architect, telegram"]
+    end
+
+    subgraph "REBALANCE adds"
+        G["Execution<br/>execution_engine,<br/>exchange_protection"]
+        H["Active Management<br/>guard, rebalancer,<br/>profit_lock, catalyst_deleverage"]
+    end
+
+    subgraph "OPPORTUNISTIC adds"
+        I["Full Intelligence<br/>radar + pulse<br/>(removed from REBALANCE)"]
+    end
+```
 
 ---
 

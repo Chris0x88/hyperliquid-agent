@@ -74,6 +74,28 @@ Shorts must pass through a 6-gate chain before execution:
 
 Longs require only 2 gates (catalyst alignment + conviction threshold).
 
+```mermaid
+flowchart TD
+    ENTRY["New Signal from Bot Classifier"] --> G1{"Gate 1: Classification OK?<br/>confidence ≥ floor"}
+    G1 -->|Fail| SKIP["Skip — no trade"]
+    G1 -->|Pass| G2{"Gate 2: Thesis Conflict?<br/>same direction or 24h lockout"}
+    G2 -->|Fail| SKIP
+    G2 -->|Pass| DIR{Direction?}
+    DIR -->|Long| SIZE["Conviction Sizing"]
+    DIR -->|Short| G3{"Gate 3: Short Grace Period?<br/>≥1h since enabled"}
+    G3 -->|Fail| SKIP
+    G3 -->|Pass| G4{"Gate 4: Blocking Catalyst?<br/>no bullish high-sev in 24h"}
+    G4 -->|Fail| SKIP
+    G4 -->|Pass| G5{"Gate 5: Fresh Supply Upgrade?<br/>no disruption in 72h"}
+    G5 -->|Fail| SKIP
+    G5 -->|Pass| G6{"Gate 6: Daily Loss Cap?<br/>realized loss < 1.5% equity"}
+    G6 -->|Fail| SKIP
+    G6 -->|Pass| SIZE
+    SIZE --> BRAKE{"Drawdown Brake?<br/>3% daily / 8% weekly / 15% monthly"}
+    BRAKE -->|Tripped| SKIP
+    BRAKE -->|Clear| ORDER["Emit OrderIntent<br/>with SL + TP meta"]
+```
+
 ### Conviction Sizing
 
 Position size scales with conviction score from the thesis engine. Higher conviction = larger allocation, following a predefined ladder. This is Druckenmiller-style sizing: bet big when the thesis is strong, small when uncertain.
@@ -152,18 +174,46 @@ Counterfactual look-back analysis. Asks "what would have happened if we had used
 
 ## Data Flow
 
-```
-RSS/iCal → [1] News Ingest → catalysts.jsonl
-                                    ↓
-                            [2] Supply Ledger → state.json
-                                    ↓
-L2 Book → [3] Heatmap ──→ zones.jsonl / cascades.jsonl
-                                    ↓
-Trades  → [4] Bot Classifier → bot_patterns.jsonl
-                                    ↓
-              [5] Strategy Engine ──→ orders (REBALANCE+ only)
-                                    ↓
-              [6] Self-Tune ──→ parameter adjustments / proposals
+```mermaid
+graph TD
+    subgraph "Sub-System 1: News Ingestion"
+        RSS["RSS Feeds + iCal"] --> NI["news_ingest iterator"]
+        NI --> CAT["data/news/catalysts.jsonl"]
+        NI --> HL["data/news/headlines.jsonl"]
+    end
+
+    subgraph "Sub-System 2: Supply Ledger"
+        CAT --> SL["supply_ledger iterator"]
+        SL --> SS["data/supply/state.json"]
+    end
+
+    subgraph "Sub-System 3: Liquidity Heatmap"
+        L2["HyperLiquid L2 Book"] --> HM["heatmap iterator"]
+        HM --> ZN["data/heatmap/zones.jsonl"]
+        HM --> CS["data/heatmap/cascades.jsonl"]
+    end
+
+    subgraph "Sub-System 4: Bot Classifier"
+        CAT --> BC["bot_classifier iterator"]
+        SS --> BC
+        CS --> BC
+        BC --> BP["data/research/bot_patterns.jsonl"]
+    end
+
+    subgraph "Sub-System 5: Strategy Engine"
+        BP --> OB["oil_botpattern iterator"]
+        SS --> OB
+        ZN --> OB
+        OB --> |"Gate Chain (6 gates)"| OI["OrderIntent"]
+        OB --> DJ["Decision Journal"]
+    end
+
+    subgraph "Sub-System 6: Self-Tune"
+        DJ --> L1["L1: Auto-Tune<br/>±5% param nudges"]
+        DJ --> L2R["L2: Reflect<br/>Structural proposals"]
+        BP --> L3["L3: Pattern Library<br/>Novel signatures"]
+        L2R --> L4["L4: Shadow Eval<br/>Counterfactual lookback"]
+    end
 ```
 
 Each subsystem writes its output to disk. The next subsystem reads it on its own cycle. There is no direct coupling — the file system is the message bus.

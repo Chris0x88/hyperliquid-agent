@@ -125,6 +125,35 @@ The daemon runs a Hummingbot-style TimeIterator loop from `cli/daemon/clock.py`.
 8. Sleep until next tick (~120s)
 ```
 
+```mermaid
+sequenceDiagram
+    participant C as Clock
+    participant I as Iterators (42)
+    participant Q as OrderIntent Queue
+    participant X as HyperLiquid DEX
+
+    loop Every tick (default 120s)
+        C->>C: Check control file
+        C->>I: account_collector.tick(ctx)
+        I->>X: Fetch positions, orders, balances
+        X-->>I: Account state
+        C->>I: market_structure.tick(ctx)
+        Note over I: Computes ATR, technicals
+        C->>I: thesis_engine.tick(ctx)
+        Note over I: Reads thesis JSON files
+        C->>I: execution_engine.tick(ctx)
+        Note over I: Conviction → OrderIntent
+        I->>Q: OrderIntent(BUY BRENTOIL 5x)
+        C->>I: exchange_protection.tick(ctx)
+        Note over I: Places SL/TP on exchange
+        I->>X: Place stop-loss order
+        C->>I: ... remaining iterators ...
+        C->>Q: Execute queued OrderIntents
+        Q->>X: Submit orders
+        C->>C: Persist state
+    end
+```
+
 <Aside type="caution">
 In WATCH tier, step 5 only happens for defensive orders (read-only verification by protection_audit). The execution_engine, exchange_protection, and other execution iterators only run at REBALANCE tier and above. See [Tier State Machine](/architecture/tiers/) for the full breakdown.
 </Aside>
@@ -175,6 +204,23 @@ User sends message to Telegram bot
                       data/daemon/chat_history.jsonl
 ```
 
+```mermaid
+flowchart TD
+    MSG["Incoming Telegram Message"] --> CHECK{Starts with /?}
+    CHECK -->|Yes| HANDLERS["HANDLERS dict lookup"]
+    CHECK -->|No| GROUP{Group chat?}
+    GROUP -->|Yes| DROP["Ignore (no AI in groups)"]
+    GROUP -->|No| AI["AI Agent<br/>handle_ai_message()"]
+    HANDLERS --> FOUND{Handler found?}
+    FOUND -->|Yes| RENDER{Renderer command?}
+    FOUND -->|No| CHART{Starts with /chart?}
+    CHART -->|Yes| DYNAMIC["Dynamic chart shorthand<br/>/chartoil → /chart oil"]
+    CHART -->|No| AI
+    RENDER -->|Yes| TGRENDER["TelegramRenderer(token, chat_id)"]
+    RENDER -->|No| DIRECT["handler(token, chat_id, args)"]
+    AI --> TOOLS["Agent tools<br/>Read thesis, place orders, etc."]
+```
+
 ### Command Registration Checklist
 
 When adding a new Telegram command, all of these surfaces must be updated:
@@ -211,6 +257,29 @@ Markdown file maintained by the AI agent. Contains the agent's own persistent co
 ### 3. Working State (`data/memory/working_state.json`)
 
 Ephemeral runtime state updated every tick by the daemon. Contains current ATR values, latest prices, escalation counters, and health status. Read by all components but written only by the daemon's account_collector iterator.
+
+```mermaid
+graph TB
+    subgraph "Agent Memory"
+        AM["data/agent_memory/MEMORY.md<br/>Flat index file"]
+        MDB["data/memory/memory.db<br/>SQLite FTS5 — lessons corpus"]
+    end
+
+    subgraph "Daemon Memory"
+        WS["data/memory/working_state.json<br/>Runtime state"]
+        CH["data/daemon/chat_history.jsonl<br/>Telegram conversations"]
+    end
+
+    subgraph "Research Artifacts"
+        JRN["data/research/journal.jsonl<br/>All closed trades"]
+        LRN["data/research/learnings.md<br/>Accumulated insights"]
+        EC["data/research/entry_critiques.jsonl"]
+    end
+
+    JRN -->|"lesson_author iterator"| LC["data/daemon/lesson_candidates/*.json"]
+    LC -->|"/lessonauthorai (AI)"| MDB
+    MDB -->|"/lessons, /lessonsearch"| TG["Telegram"]
+```
 
 <Aside type="tip">
 The three memory layers serve different purposes: memory.db is the long-term trade lesson corpus (queryable via FTS5), agent memory is the AI's own context, and working state is the tick-to-tick runtime snapshot. They never conflict because each has a single canonical writer.
