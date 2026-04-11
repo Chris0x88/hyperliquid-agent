@@ -11,11 +11,17 @@ All HyperLiquid communication flows through `hl_proxy.py`. Risk management via c
 | `position_tracker.py` | Track open positions across ticks |
 | `store.py` | Persistent state for trades and fills |
 | `house_risk.py` | Portfolio-level risk aggregation |
+| `sdk_patches.py` | Monkey-patches for HyperLiquid SDK quirks |
 
 **Deep dive:** [docs/wiki/components/risk-manager.md](../docs/wiki/components/risk-manager.md)
 
+## Learning Paths
+
+- [Thesis to Order](../docs/wiki/learning-paths/thesis-to-order.md) — how thesis conviction becomes a live order through the exchange layer
+- [Understanding Data Flow](../docs/wiki/learning-paths/understanding-data-flow.md) — exchange data flow and position lifecycle
+
 ## Gotchas
 
-- Risk gate states: OPEN → COOLDOWN → CLOSED (worst gate wins)
+- Risk gate states: OPEN -> COOLDOWN -> CLOSED (worst gate wins)
 - `DirectHLProxy` in `cli/hl_adapter.py` is the adapter used by bot commands
 - xyz perps need `dex='xyz'` in ALL API calls

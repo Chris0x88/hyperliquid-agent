@@ -43,6 +43,7 @@ bun run serve
 | File | Purpose |
 |------|---------|
 | `api/app.py` | FastAPI factory with CORS + auth |
+| `api/auth.py` | Bearer token authentication |
 | `api/routers/*.py` | API endpoints (account, health, daemon, thesis, config, logs, etc.) |
 | `api/readers/*.py` | Data access layer (file-based, DB-swappable) |
 | `dashboard/src/app/page.tsx` | Dashboard home page |
@@ -50,3 +51,9 @@ bun run serve
 | `dashboard/src/app/logs/page.tsx` | Log viewer with SSE streaming |
 | `dashboard/src/lib/theme.ts` | Design tokens |
 | `dashboard/src/lib/api.ts` | Typed API client |
+
+## Learning Paths
+
+- [Understanding the Web Dashboard](../docs/wiki/learning-paths/understanding-web-dashboard.md) — architecture, pages, API integration
+- [Understanding Config](../docs/wiki/learning-paths/understanding-config.md) — how the control panel reads/writes config
+- [Understanding Data Flow](../docs/wiki/learning-paths/understanding-data-flow.md) — how dashboard data connects to daemon output

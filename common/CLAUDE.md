@@ -7,6 +7,7 @@ Foundational utilities used by every other package. The `models` module is the m
 | File | Purpose |
 |------|---------|
 | `models.py` | Data structures (MarketSnapshot, StrategyContext, etc.) |
+| `config_schema.py` | Pydantic config schema — typed validation for all YAML/JSON configs |
 | `market_snapshot.py` | `build_snapshot()` + `render_signal_summary()` — full signal engine |
 | `context_harness.py` | Relevance-scored context assembly with token budget |
 | `tools.py` | Unified tool core — pure functions returning dicts |
@@ -16,15 +17,23 @@ Foundational utilities used by every other package. The `models` module is the m
 | `telemetry.py` | TelemetryRecorder + HealthWindow (error budget) |
 | `watchlist.py` | Centralized watchlist — single source for tracked markets |
 | `thesis.py` | ThesisState dataclass — shared contract between AI and execution |
-| `conviction_engine.py` | Conviction bands → position sizing |
-| `credentials.py` | Pluggable key backends: OWS → Keychain → Encrypted → Env → File |
+| `conviction_engine.py` | Conviction bands -> position sizing |
+| `credentials.py` | Pluggable key backends: OWS -> Keychain -> Encrypted -> Env -> File |
 | `authority.py` | Per-asset delegation: agent vs manual vs off |
-| `markets.py` | `MarketRegistry` — reads `data/config/markets.yaml`, normalizes coin names (handles `xyz:` prefix), enforces per-instrument direction rules (`is_direction_allowed()`). Multi-Market Wedge 1, commit `0c7bebc`. |
+| `markets.py` | `MarketRegistry` — reads `data/config/markets.yaml`, normalizes coin names (handles `xyz:` prefix), enforces per-instrument direction rules |
 | `heartbeat.py` | Simplified 2-min monitoring (launchd) |
-| `memory.py` | Canonical owner of `data/memory/memory.db`. `_init()` migrates schema for all tables (events, learnings, observations, action_log, execution_traces, account_snapshots, summaries, lessons + `lessons_fts` FTS5). Module-level helpers: `log_event`, `log_learning`, `log_account_snapshot`, `log_lesson`, `get_lesson`, `search_lessons` (BM25), `set_lesson_review`. FTS5 input sanitized via `_fts5_escape_query`. |
+| `memory.py` | Canonical owner of `data/memory/memory.db`. Schema migration, FTS5 lessons table, event/learning/snapshot/lesson helpers |
 | `memory_consolidator.py` | Event compression + trim_learnings_file for agent memory rolling trim |
+| `venue_adapter.py` | Venue abstraction layer for exchange connectivity |
+| `account_state.py` | Account state resolution and caching |
 
 **Deep dive:** [docs/wiki/architecture.md](../docs/wiki/architecture.md) | [docs/wiki/components/](../docs/wiki/components/)
+
+## Learning Paths
+
+- [Understanding Config](../docs/wiki/learning-paths/understanding-config.md) — config schema, validation, kill switches
+- [Understanding Data Flow](../docs/wiki/learning-paths/understanding-data-flow.md) — how data structures move through the system
+- [Thesis to Order](../docs/wiki/learning-paths/thesis-to-order.md) — conviction engine, thesis state, sizing
 
 ## Gotchas
 

@@ -6,21 +6,23 @@ Core engines plus utilities. Pure computation (zero I/O) — `_guard` classes ha
 
 | Engine | Key File | Purpose | Status |
 |--------|----------|---------|--------|
-| APEX | `apex_engine.py` | Multi-slot autonomous trading | Wired via `cli/daemon/iterators/apex_advisor.py` (dry-run, WATCH tier only). Standalone runner at `skills/apex/scripts/standalone_runner.py`. |
+| APEX | `apex_engine.py` | Multi-slot autonomous trading | Wired via `cli/daemon/iterators/apex_advisor.py` (dry-run, WATCH tier only) |
 | GUARD | `guard_bridge.py` | Trailing stops + profit protection | Wired to daemon |
 | RADAR | `radar_engine.py` | Market scanner — find setups | Wired to daemon |
 | PULSE | `pulse_engine.py` | Capital inflow detector | Wired to daemon |
 | REFLECT | `reflect_engine.py` | Trade outcome analysis, convergence | CLI only (Phase 3) |
 | JOURNAL | `journal_engine.py` | Structured trade journal | CLI only (Phase 3) |
 | MEMORY | `memory_engine.py` | Playbook per instrument/signal | CLI only (Phase 3) |
-| LESSON | `lesson_engine.py` | Verbatim trade post-mortems: `Lesson` dataclass, sentinel-wrapped prompt builder, strict response parser. Persistence lives in `common/memory.py` (lessons table + FTS5). | Fully wired end-to-end (2026-04-09 wedges 5-6). `lesson_author` iterator consumes closed positions from `data/research/journal.jsonl`. Agent tools: `search_lessons` (BM25), `get_lesson`. Top-5 lesson injection runs per agent decision. `/lessonauthorai` for AI-authored candidates. First real closed trade pending. |
-
-| THESIS_CHALLENGER | `thesis_challenger.py` | Catalyst-vs-invalidation pattern matcher | Wired to daemon (all tiers, alert-only). Zero LLM. |
-| THESIS_UPDATER | `thesis_updater.py` | Haiku-powered news → conviction adjustment | Wired to daemon (all tiers, kill switch OFF at ship). Tiered response: CRITICAL=instant, MODERATE/MAJOR=guardrailed. |
-| CONTEXT | `context_engine.py` | Intent classification + data pre-fetch | Kill switch OFF at ship. Not yet wired to Telegram agent. |
-| LAB | `lab_engine.py` | Strategy development pipeline | Kill switch OFF at ship. CLI: `hl lab`. |
-| ARCHITECT | `architect_engine.py` | Mechanical self-improvement proposals | Kill switch OFF at ship. 12h cadence, zero LLM. CLI: `hl architect`. |
-| WORKFLOW | `workflow_engine.py` | Composable step DAG for context assembly | **Not yet built.** Context/Lab/Architect work independently without it. |
+| LESSON | `lesson_engine.py` | Verbatim trade post-mortems. Persistence in `common/memory.py` (lessons table + FTS5). | Fully wired end-to-end. `lesson_author` iterator consumes closed positions. |
+| THESIS_CHALLENGER | `thesis_challenger.py` | Catalyst-vs-invalidation pattern matcher | Wired to daemon (all tiers, alert-only) |
+| THESIS_UPDATER | `thesis_updater.py` | Haiku-powered news -> conviction adjustment | Wired to daemon (kill switch OFF at ship) |
+| CONTEXT | `context_engine.py` | Intent classification + data pre-fetch | Kill switch OFF at ship |
+| LAB | `lab_engine.py` | Strategy development pipeline | Kill switch OFF at ship. CLI: `hl lab` |
+| ARCHITECT | `architect_engine.py` | Mechanical self-improvement proposals | Kill switch OFF at ship. CLI: `hl architect` |
+| OIL_BOTPATTERN | `oil_botpattern.py` | Sub-system 5 strategy engine | Kill switch OFF at ship |
+| BOT_CLASSIFIER | `bot_classifier.py` | Sub-system 4 move classification | Kill switch OFF at ship |
+| HEATMAP | `heatmap.py` | Sub-system 3 liquidity zones | Kill switch OFF at ship |
+| SUPPLY_LEDGER | `supply_ledger.py` | Sub-system 2 disruption aggregation | Kill switch OFF at ship |
 
 ## Key Utilities
 
@@ -30,8 +32,16 @@ Core engines plus utilities. Pure computation (zero I/O) — `_guard` classes ha
 | `radar_technicals.py` | EMA, RSI, ADX, ATR calculations |
 | `trailing_stop.py` | Trailing stop price computation |
 | `reconciliation.py` | Position reconciliation |
+| `entry_critic.py` | Trade entry grading with lesson recall |
+| `action_queue.py` | Operator ritual queue (nudge system) |
 
 **Deep dive:** [docs/wiki/components/conviction-engine.md](../docs/wiki/components/conviction-engine.md)
+
+## Learning Paths
+
+- [Oil Bot-Pattern](../docs/wiki/learning-paths/oil-botpattern.md) — sub-systems 1-6 architecture and data flow
+- [Thesis to Order](../docs/wiki/learning-paths/thesis-to-order.md) — conviction engine, sizing, order placement
+- [Understanding Data Flow](../docs/wiki/learning-paths/understanding-data-flow.md) — how engines connect to iterators
 
 ## Gotchas
 
