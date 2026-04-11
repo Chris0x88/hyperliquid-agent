@@ -349,6 +349,35 @@ class TestThesisUpdaterEngine:
         assert thesis["recommended_leverage"] == 5.0  # halved from 10
         assert thesis["weekend_leverage_cap"] == 2.5  # halved from 5
 
+    @patch("modules.thesis_updater.is_weekend", return_value=True)
+    def test_process_catalyst_critical_defensive_weekend(self, _mock_wknd, tmp_dir):
+        """CRITICAL bearish news on weekend applies 0.5x dampening."""
+        tmp_path, config_path = tmp_dir
+
+        def mock_haiku(messages):
+            return json.dumps({
+                "impact_score": 9,
+                "affected_markets": ["xyz:BRENTOIL"],
+                "direction_hint": "bearish",
+                "summary": "Iran ceasefire reduces supply disruption risk",
+                "need_full_article": False,
+            })
+
+        engine = ThesisUpdaterEngine(config_path=str(config_path), call_haiku_fn=mock_haiku)
+        engine.reload_config()
+
+        catalyst = json.loads((tmp_path / "news" / "catalysts.jsonl").read_text().strip())
+        headline = json.loads((tmp_path / "news" / "headlines.jsonl").read_text().strip())
+
+        classification = engine.classify_catalyst(catalyst, headline)
+        changes = engine.process_catalyst(catalyst, headline, classification)
+        assert len(changes) == 1
+
+        change = changes[0]
+        assert change.tier == "CRITICAL"
+        assert change.defensive_mode is True
+        assert change.delta_applied == pytest.approx(-0.075)  # 0.15 * 0.5 weekend factor
+
     def test_process_catalyst_critical_bullish(self, tmp_dir):
         """CRITICAL bullish news on a long position strengthens conviction."""
         tmp_path, config_path = tmp_dir
