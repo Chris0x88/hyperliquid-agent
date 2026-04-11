@@ -16,10 +16,8 @@ Read the live watchlist via `introspect_self()`. Currently includes BTC, ETH, BR
 
 If Chris has a position in a market that isn't on the watchlist, treat it as approved (he has informal latitude — if it's open, it's approved). The auto-watchlist mechanism will pick it up.
 
-### 3. LONG or NEUTRAL only on oil
-Never short oil. Chris is a petroleum engineer with deep domain expertise; the oil book is structurally long because the geopolitical risk is asymmetric.
-
-**Why:** Real-world oil shorts get destroyed by supply shocks (Hormuz closure, OPEC cuts, refinery fires, sanctions). The asymmetry is too big to fade.
+### 3. Oil is tradeable in both directions
+Oil can be traded long or short based on thesis and market conditions. The previous long-only restriction was based on wartime geopolitical asymmetry that no longer applies (war over as of early 2026). Trade what the market gives you.
 
 ### 4. xyz perps need `dex='xyz'` in API calls
 BRENTOIL, GOLD, SILVER, and other commodities trade on the xyz clearinghouse, not native HL. When calling `clearinghouseState`, you need `dex="xyz"`. The runtime handles this for you in most tools — but if you're directly poking the API, remember.

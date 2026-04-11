@@ -141,9 +141,9 @@ def check_direction_guard(
     per-instrument ``direction_bias`` field from ``data/config/markets.yaml``.
 
     Behaviour:
-    - Neutral-bias markets (BTC, GOLD, SILVER, ...) allow any direction.
-    - Long-only markets (BRENTOIL) block ``short`` — unless ``subsystem``
-      is listed in the market's ``exception_subsystems`` (oil_botpattern).
+    - Neutral-bias markets (BTC, BRENTOIL, GOLD, SILVER, CL, ...) allow any direction.
+    - Long-only or short-only markets block the opposite direction — unless
+      ``subsystem`` is listed in the market's ``exception_subsystems``.
     - Non-directional states (``""``, ``"flat"``, ``"neutral"``) are always
       allowed — they represent "no position" or "close", not a new trade.
     - Unknown symbols fail closed: the registry returns False and logs a
@@ -169,9 +169,7 @@ def check_oil_direction_guard(direction: str) -> bool:
     BRENTOIL. New code should call ``check_direction_guard(symbol, direction,
     subsystem)`` instead, which routes through the MarketRegistry.
 
-    Behaviour at ship time is IDENTICAL: this delegates to the registry with
-    ``BRENTOIL`` and no subsystem exception, so the oil long-only rule is
-    enforced exactly as before.
+    As of 2026-04-11, BRENTOIL is neutral (both directions allowed).
     """
     return check_direction_guard("BRENTOIL", direction, subsystem=None)
 
@@ -198,8 +196,9 @@ def can_execute_add(
         return False, f"conviction {effective_conv:.2f} <= 0.5"
     if escalation in ("L2", "L3"):
         return False, f"escalation {escalation}"
-    if is_oil and not check_oil_direction_guard(thesis_direction):
-        return False, "oil long-only violated"
+    # Oil direction guard removed 2026-04-11 — oil is now neutral (both directions).
+    # Direction enforcement still runs via check_direction_guard() / MarketRegistry
+    # for any market that has a non-neutral direction_bias in markets.yaml.
     if is_vault_no_tactical:
         return False, "vault tactical trades disabled"
     if equity > 0 and (total_notional + add_notional) > equity * max_notional_pct:

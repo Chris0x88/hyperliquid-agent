@@ -145,8 +145,9 @@ class TestOilDirectionGuard:
     def test_neutral_allowed(self):
         assert check_oil_direction_guard("neutral") is True
 
-    def test_short_blocked(self):
-        assert check_oil_direction_guard("short") is False
+    def test_short_allowed(self):
+        # Oil is neutral as of 2026-04-11 — both directions allowed
+        assert check_oil_direction_guard("short") is True
 
     def test_empty_allowed(self):
         assert check_oil_direction_guard("") is True
@@ -192,10 +193,10 @@ class TestCanExecuteAdd:
         ok, reason = can_execute_add(**{**self.BASE, "escalation": "L3"})
         assert ok is False
 
-    def test_oil_short_blocked(self):
+    def test_oil_short_allowed(self):
+        # Oil is neutral as of 2026-04-11 — both directions allowed
         ok, reason = can_execute_add(**{**self.BASE, "is_oil": True, "thesis_direction": "short"})
-        assert ok is False
-        assert "oil long-only" in reason
+        assert ok is True
 
     def test_oil_long_allowed(self):
         ok, reason = can_execute_add(**{**self.BASE, "is_oil": True, "thesis_direction": "long"})

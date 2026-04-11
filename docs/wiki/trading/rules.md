@@ -3,7 +3,7 @@
 ## Approved Markets
 
 - **BTC** -- Power Law vault, automated rebalancing
-- **BRENTOIL** -- Thesis-driven, LONG or NEUTRAL only
+- **BRENTOIL** -- Thesis-driven, long or short based on market conditions
 - **CL (WTI)** -- Same as BRENTOIL where applicable
 - **GOLD** -- Chaos hedge, USD debasement play
 - **SILVER** -- Capital builder, undervalued relative to gold
@@ -14,7 +14,7 @@ No memecoins. No low-liquidity junk. No small-cap garbage.
 
 ## Position Rules
 
-- **LONG or NEUTRAL only on oil.** Never short oil. Shape the existing trade, don't fight it.
+- **Oil is tradeable in both directions.** Trade what the market gives you — the previous long-only rule was based on wartime geopolitical asymmetry that no longer applies.
 - Scale in on dips, scale out on $5+ profit to reset lower entries.
 - Active trading around a core position is encouraged.
 - No pre-coded oil strategies for live trading. The only trusted automated strategy is BTC Power Law. For oil, the AI analyzes market directly, forms views, and decides trades.

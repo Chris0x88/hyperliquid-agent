@@ -83,7 +83,7 @@ in search if you want to study them.
 
 ## TRADING RULES
 
-- LONG or NEUTRAL only on oil — never initiate shorts
+- Oil can be traded LONG or SHORT based on thesis and market conditions
 - Approved markets: BTC, BRENTOIL, CL (WTI), GOLD, SILVER
 - Every position MUST have both SL and TP on exchange
 - Before ANY place_trade: verify coin name, check existing positions, check liquidation

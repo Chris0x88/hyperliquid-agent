@@ -30,17 +30,13 @@ markets:
     exception_subsystems: []
 
   BRENTOIL:
-    direction_bias: "long_only"
+    direction_bias: "neutral"
     asset_class: "commodity"
     sub_class: "energy"
     thesis_required: true
     max_leverage: 10
     roll_calendar: "monthly_3rd_to_12th"
-    # oil_botpattern ships a supervised short-leg path; it is the ONLY place
-    # shorting BRENTOIL is legal. See data/config/oil_botpattern.json for the
-    # kill switches that gate it.
-    exception_subsystems:
-      - "oil_botpattern"
+    exception_subsystems: []
 
   GOLD:
     direction_bias: "neutral"
@@ -59,7 +55,7 @@ markets:
     exception_subsystems: []
 
   CL:
-    direction_bias: "long_only"
+    direction_bias: "neutral"
     asset_class: "commodity"
     sub_class: "energy"
     thesis_required: true

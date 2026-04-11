@@ -101,11 +101,12 @@ class TestShippedRegistry:
     def test_btc_is_neutral(self, shipped_registry: MarketRegistry):
         assert shipped_registry.get_direction_bias("BTC") == "neutral"
 
-    def test_brentoil_is_long_only(self, shipped_registry: MarketRegistry):
-        assert shipped_registry.get_direction_bias("BRENTOIL") == "long_only"
+    def test_brentoil_is_neutral(self, shipped_registry: MarketRegistry):
+        # Oil is neutral as of 2026-04-11 — both directions allowed
+        assert shipped_registry.get_direction_bias("BRENTOIL") == "neutral"
 
     def test_brentoil_xyz_prefix_resolves(self, shipped_registry: MarketRegistry):
-        assert shipped_registry.get_direction_bias("xyz:BRENTOIL") == "long_only"
+        assert shipped_registry.get_direction_bias("xyz:BRENTOIL") == "neutral"
 
     def test_gold_is_neutral(self, shipped_registry: MarketRegistry):
         assert shipped_registry.get_direction_bias("GOLD") == "neutral"
@@ -113,40 +114,16 @@ class TestShippedRegistry:
     def test_silver_is_neutral(self, shipped_registry: MarketRegistry):
         assert shipped_registry.get_direction_bias("SILVER") == "neutral"
 
-    def test_brentoil_short_blocked_globally(self, shipped_registry: MarketRegistry):
-        assert shipped_registry.is_direction_allowed("BRENTOIL", "short") is False
+    def test_brentoil_short_allowed_globally(self, shipped_registry: MarketRegistry):
+        # Oil is neutral as of 2026-04-11 — both directions allowed
+        assert shipped_registry.is_direction_allowed("BRENTOIL", "short") is True
 
     def test_brentoil_long_allowed_globally(self, shipped_registry: MarketRegistry):
         assert shipped_registry.is_direction_allowed("BRENTOIL", "long") is True
 
-    def test_brentoil_short_allowed_in_oil_botpattern(
-        self, shipped_registry: MarketRegistry
-    ):
+    def test_brentoil_xyz_short_allowed(self, shipped_registry: MarketRegistry):
         assert (
-            shipped_registry.is_direction_allowed(
-                "BRENTOIL", "short", subsystem="oil_botpattern"
-            )
-            is True
-        )
-
-    def test_brentoil_xyz_short_allowed_in_oil_botpattern(
-        self, shipped_registry: MarketRegistry
-    ):
-        assert (
-            shipped_registry.is_direction_allowed(
-                "xyz:BRENTOIL", "short", subsystem="oil_botpattern"
-            )
-            is True
-        )
-
-    def test_brentoil_short_blocked_in_other_subsystem(
-        self, shipped_registry: MarketRegistry
-    ):
-        assert (
-            shipped_registry.is_direction_allowed(
-                "BRENTOIL", "short", subsystem="some_other_sub"
-            )
-            is False
+            shipped_registry.is_direction_allowed("xyz:BRENTOIL", "short") is True
         )
 
     def test_btc_leverage_cap(self, shipped_registry: MarketRegistry):
@@ -171,10 +148,11 @@ class TestShippedRegistry:
         assert spec is not None
         assert spec.roll_calendar is None
 
-    def test_brentoil_exception_subsystems(self, shipped_registry: MarketRegistry):
+    def test_brentoil_no_exception_subsystems_needed(self, shipped_registry: MarketRegistry):
+        # BRENTOIL is neutral as of 2026-04-11 — no exceptions needed
         spec = shipped_registry.get("BRENTOIL")
         assert spec is not None
-        assert "oil_botpattern" in spec.exception_subsystems
+        assert spec.exception_subsystems == ()
 
     def test_version_parsed(self, shipped_registry: MarketRegistry):
         assert shipped_registry.version >= 1
@@ -383,7 +361,7 @@ class TestDefaultRegistry:
     def test_default_registry_loads_shipped_config(self):
         reg = get_default_registry()
         assert reg.is_known("BRENTOIL")
-        assert reg.get_direction_bias("BRENTOIL") == "long_only"
+        assert reg.get_direction_bias("BRENTOIL") == "neutral"
 
     def test_default_registry_is_cached(self):
         reg1 = get_default_registry()

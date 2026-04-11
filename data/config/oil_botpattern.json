@@ -1,7 +1,7 @@
 {
   "_comment": "Sub-system 5 of the Oil Bot-Pattern Strategy. BOTH kill switches ship OFF. Enable manually after review. decisions_only=true puts the iterator in SHADOW MODE: it runs the full gate chain, logs decisions, maintains paper positions with Telegram notices and a running shadow balance, but NEVER emits OrderIntents. This is the activation rung between WATCH-with-everything-off and REBALANCE-with-real-money. See docs/wiki/operations/sub_system_5_activation.md.",
   "enabled": true,
-  "short_legs_enabled": false,
+  "short_legs_enabled": true,
   "short_legs_grace_period_s": 3600,
   "decisions_only": true,
   "shadow_seed_balance_usd": 100000.0,
