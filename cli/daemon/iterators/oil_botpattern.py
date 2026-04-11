@@ -683,11 +683,18 @@ class BotPatternStrategyIterator:
 
     def _reload_config(self) -> None:
         try:
-            self._config = json.loads(Path(self._config_path).read_text())
+            raw = json.loads(Path(self._config_path).read_text())
         except (FileNotFoundError, json.JSONDecodeError) as e:
             log.warning("oil_botpattern config unavailable (%s)", e)
             self._config = {"enabled": False}
             return
+        try:
+            from common.config_schema import OilBotPatternConfig
+            validated = OilBotPatternConfig.model_validate(raw)
+            self._config = validated.model_dump()
+        except Exception as e:
+            log.warning("oil_botpattern config validation failed (%s); falling back to raw", e)
+            self._config = raw
         try:
             caps_path = self._config.get("risk_caps_json", "data/config/risk_caps.json")
             self._risk_caps = json.loads(Path(caps_path).read_text())
