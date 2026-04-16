@@ -3099,7 +3099,7 @@ def cmd_health(renderer: Renderer, _args: str) -> None:
         lines.append("  No telemetry data (daemon not running?)")
 
     try:
-        from cli.agent_tools import pending_count
+        from agent.tools import pending_count
         pc = pending_count()
         lines.append(f"  Pending actions: `{pc}`")
     except Exception:
@@ -3246,7 +3246,7 @@ def cmd_memory(token: str, chat_id: str, _args: str) -> None:
     # 5. Context harness check
     lines.append("")
     try:
-        from common.context_harness import build_multi_market_context
+        from agent.context_harness import build_multi_market_context
         result = build_multi_market_context(
             markets=["BTC"], account_state={"account": {"total_equity": 0}, "alerts": [], "escalation": "L0"},
             market_snapshots={}, token_budget=500,
@@ -3546,7 +3546,7 @@ def cmd_sl(token: str, chat_id: str, args: str) -> None:
             tg_send(token, chat_id, f"No open position for `{resolved}`")
             return
         size = float(pos.get("size", pos.get("szi", 0)))
-        from cli.agent_tools import store_pending
+        from agent.tools import store_pending
         args_dict = {
             "coin": pos.get("coin", resolved),
             "trigger_price": price,
@@ -3586,7 +3586,7 @@ def cmd_tp(token: str, chat_id: str, args: str) -> None:
             tg_send(token, chat_id, f"No open position for `{resolved}`")
             return
         size = float(pos.get("size", pos.get("szi", 0)))
-        from cli.agent_tools import store_pending
+        from agent.tools import store_pending
         args_dict = {
             "coin": pos.get("coin", resolved),
             "trigger_price": price,
@@ -4112,7 +4112,7 @@ def run() -> None:
         # Periodic maintenance (every ~60s = 30 poll cycles)
         if running and offset % 30 == 0:
             try:
-                from cli.agent_tools import cleanup_expired_pending
+                from agent.tools import cleanup_expired_pending
                 cleanup_expired_pending()
             except Exception:
                 pass

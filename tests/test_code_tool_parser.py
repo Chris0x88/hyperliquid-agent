@@ -1,6 +1,6 @@
 """Tests for common/code_tool_parser.py — AST-based Python code block parsing."""
 import pytest
-from common.code_tool_parser import parse_tool_calls, execute_parsed_calls, strip_code_blocks, ToolCall
+from agent.code_tool_parser import parse_tool_calls, execute_parsed_calls, strip_code_blocks, ToolCall
 
 
 # Mock registry for testing

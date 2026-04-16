@@ -85,7 +85,7 @@ def create_mcp_server():
         start_t = time.monotonic()
         budget = min(budget, 2500)  # hard cap
         try:
-            from common.context_harness import build_thesis_context
+            from agent.context_harness import build_thesis_context
 
             # Collect account state from the shared aggregator so MCP, Telegram,
             # and AI all describe the same account reality.

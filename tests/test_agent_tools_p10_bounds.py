@@ -26,51 +26,51 @@ import pytest
 class TestGetFeedbackBounds:
     def test_default_limit_is_10(self):
         """No limit arg → default 10."""
-        from cli.agent_tools import _tool_get_feedback
+        from agent.tools import _tool_get_feedback
 
         fake = {"count": 5, "feedback": [
             {"time": "2026-04-09T00:00:00Z", "text": f"row {i}"} for i in range(5)
         ]}
-        with patch("common.tools.get_feedback", return_value=fake) as mock:
+        with patch("agent.tool_functions.get_feedback", return_value=fake) as mock:
             _tool_get_feedback({})
             mock.assert_called_once_with(10)
 
     def test_huge_limit_is_clamped_to_25(self):
         """limit=999999 → clamped to 25 before reaching the loader."""
-        from cli.agent_tools import _tool_get_feedback
+        from agent.tools import _tool_get_feedback
 
         fake = {"count": 0, "feedback": []}
-        with patch("common.tools.get_feedback", return_value=fake) as mock:
+        with patch("agent.tool_functions.get_feedback", return_value=fake) as mock:
             _tool_get_feedback({"limit": 999999})
             mock.assert_called_once_with(25)
 
     def test_negative_limit_clamped_to_one(self):
-        from cli.agent_tools import _tool_get_feedback
+        from agent.tools import _tool_get_feedback
 
         fake = {"count": 0, "feedback": []}
-        with patch("common.tools.get_feedback", return_value=fake) as mock:
+        with patch("agent.tool_functions.get_feedback", return_value=fake) as mock:
             _tool_get_feedback({"limit": -42})
             mock.assert_called_once_with(1)
 
     def test_invalid_limit_falls_back_to_default(self):
-        from cli.agent_tools import _tool_get_feedback
+        from agent.tools import _tool_get_feedback
 
         fake = {"count": 0, "feedback": []}
-        with patch("common.tools.get_feedback", return_value=fake) as mock:
+        with patch("agent.tool_functions.get_feedback", return_value=fake) as mock:
             _tool_get_feedback({"limit": "not a number"})
             mock.assert_called_once_with(10)
 
     def test_per_row_text_truncated_at_500_chars(self):
         """A pasted-article-sized feedback row gets truncated in the
         agent-facing rendering. The on-disk row stays full-length."""
-        from cli.agent_tools import _tool_get_feedback
+        from agent.tools import _tool_get_feedback
 
         long_text = "x" * 5000
         fake = {
             "count": 1,
             "feedback": [{"time": "2026-04-09T00:00:00Z", "text": long_text}],
         }
-        with patch("common.tools.get_feedback", return_value=fake):
+        with patch("agent.tool_functions.get_feedback", return_value=fake):
             result = _tool_get_feedback({})
 
         # The rendered output should not contain the full 5000 chars
@@ -81,7 +81,7 @@ class TestGetFeedbackBounds:
         """The JSON schema in TOOL_DEFS should declare maximum=25 so the
         agent's tool-call validation rejects out-of-bounds calls before
         the function body even runs."""
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
 
         feedback_def = next(
             d for d in TOOL_DEFS
@@ -101,7 +101,7 @@ class TestGetFeedbackBounds:
 class TestTradeJournalBounds:
     def test_default_limit_is_10(self, tmp_path, monkeypatch):
         """Default limit returns at most 10 trades."""
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
 
         # Plant 50 fake trades in journal.jsonl
@@ -120,7 +120,7 @@ class TestTradeJournalBounds:
         assert "Last 10 trades:" in result
 
     def test_huge_limit_is_clamped_to_25(self, tmp_path, monkeypatch):
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
 
         journal = tmp_path / "data" / "research" / "journal.jsonl"
@@ -138,14 +138,14 @@ class TestTradeJournalBounds:
         assert "Last 25 trades:" in result
 
     def test_invalid_limit_falls_back_to_default(self, tmp_path, monkeypatch):
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
         # No journal → tool should still respond gracefully without crashing
         result = agent_tools._tool_trade_journal({"limit": "garbage"})
         assert "No trade journal entries." in result
 
     def test_trade_journal_schema_clamps_limit(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
 
         tj_def = next(
             d for d in TOOL_DEFS
@@ -160,7 +160,7 @@ class TestTradeJournalBounds:
         """Even with a 10k-row journal, the deque tail-read keeps memory
         bounded — the test asserts the result still respects the limit
         and the deque-based tail logic doesn't blow up."""
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
 
         journal = tmp_path / "data" / "research" / "journal.jsonl"
@@ -185,7 +185,7 @@ class TestTradeJournalBounds:
 
 class TestGetSignalsBounds:
     def test_default_limit_is_20(self, tmp_path, monkeypatch):
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
 
         signals_path = tmp_path / "data" / "research" / "signals.jsonl"
@@ -201,7 +201,7 @@ class TestGetSignalsBounds:
         assert "Last 20 signals:" in result
 
     def test_huge_limit_clamped_to_50(self, tmp_path, monkeypatch):
-        from cli import agent_tools
+        from agent import tools as agent_tools
         monkeypatch.setattr(agent_tools, "_PROJECT_ROOT", tmp_path)
 
         signals_path = tmp_path / "data" / "research" / "signals.jsonl"
@@ -217,7 +217,7 @@ class TestGetSignalsBounds:
         assert "Last 50 signals:" in result
 
     def test_signals_schema_clamps(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
         sig_def = next(
             d for d in TOOL_DEFS
             if d.get("function", {}).get("name") == "get_signals"
@@ -234,7 +234,7 @@ class TestGetSignalsBounds:
 
 class TestLessonToolBounds:
     def test_search_lessons_huge_limit_clamped_to_20(self):
-        from cli.agent_tools import _tool_search_lessons
+        from agent.tools import _tool_search_lessons
         from unittest.mock import patch
 
         captured = {}
@@ -248,7 +248,7 @@ class TestLessonToolBounds:
         assert captured["limit"] == 20
 
     def test_search_lessons_default_is_5(self):
-        from cli.agent_tools import _tool_search_lessons
+        from agent.tools import _tool_search_lessons
         from unittest.mock import patch
 
         captured = {}
@@ -262,7 +262,7 @@ class TestLessonToolBounds:
         assert captured["limit"] == 5
 
     def test_search_lessons_schema_clamps(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
         sl_def = next(
             d for d in TOOL_DEFS
             if d.get("function", {}).get("name") == "search_lessons"
@@ -276,7 +276,7 @@ class TestLessonToolBounds:
         """A bloated lesson body_full gets truncated before reaching the
         agent's tool result, so a single lesson can't consume the entire
         prompt budget."""
-        from cli.agent_tools import _tool_get_lesson
+        from agent.tools import _tool_get_lesson
         from unittest.mock import patch
 
         long_body = "x" * 20000  # 20KB body
@@ -314,7 +314,7 @@ class TestMemoryReadBounds:
     def test_memory_read_caps_oversized_index(self, tmp_path, monkeypatch):
         """A 100KB MEMORY.md (e.g. from a runaway dream cycle) gets
         truncated at 20KB before the agent sees it."""
-        from common import tools as common_tools
+        from agent import tool_functions as common_tools
         monkeypatch.setattr(common_tools, "_MEMORY_DIR", tmp_path)
 
         memory_md = tmp_path / "MEMORY.md"
@@ -326,7 +326,7 @@ class TestMemoryReadBounds:
         assert "TRUNCATED at 20KB cap" in result["content"]
 
     def test_memory_read_topic_cap(self, tmp_path, monkeypatch):
-        from common import tools as common_tools
+        from agent import tool_functions as common_tools
         monkeypatch.setattr(common_tools, "_MEMORY_DIR", tmp_path)
 
         topic_md = tmp_path / "feedback.md"
@@ -338,7 +338,7 @@ class TestMemoryReadBounds:
         assert "TRUNCATED at 20KB cap" in result["content"]
 
     def test_memory_read_small_file_unchanged(self, tmp_path, monkeypatch):
-        from common import tools as common_tools
+        from agent import tool_functions as common_tools
         monkeypatch.setattr(common_tools, "_MEMORY_DIR", tmp_path)
 
         memory_md = tmp_path / "MEMORY.md"

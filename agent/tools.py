@@ -658,7 +658,7 @@ def _tool_market_brief(args: dict) -> str:
     market = args.get("market", "xyz:BRENTOIL")
     try:
         from common.account_state import fetch_registered_account_state
-        from common.context_harness import build_thesis_context
+        from agent.context_harness import build_thesis_context
 
         account_state = fetch_registered_account_state()
 
@@ -1154,7 +1154,7 @@ def _tool_set_tp(args: dict) -> str:
 
 
 def _tool_read_file(args: dict) -> str:
-    from common.tools import read_file
+    from agent.tool_functions import read_file
     result = read_file(args.get("path", ""))
     if "error" in result:
         return result["error"]
@@ -1164,7 +1164,7 @@ def _tool_read_file(args: dict) -> str:
     return content
 
 def _tool_search_code(args: dict) -> str:
-    from common.tools import search_code
+    from agent.tool_functions import search_code
     result = search_code(args.get("pattern", ""), args.get("path", "."))
     if "error" in result:
         return result["error"]
@@ -1172,7 +1172,7 @@ def _tool_search_code(args: dict) -> str:
     return f"{result['count']} matches:\n" + "\n".join(matches)
 
 def _tool_list_files(args: dict) -> str:
-    from common.tools import list_files
+    from agent.tool_functions import list_files
     result = list_files(args.get("pattern", ""))
     if "error" in result:
         return result["error"]
@@ -1180,7 +1180,7 @@ def _tool_list_files(args: dict) -> str:
     return f"{result['count']} files:\n" + "\n".join(files)
 
 def _tool_web_search(args: dict) -> str:
-    from common.tools import web_search
+    from agent.tool_functions import web_search
     result = web_search(args.get("query", ""), args.get("max_results", 5))
     if "error" in result:
         return result["error"]
@@ -1190,28 +1190,28 @@ def _tool_web_search(args: dict) -> str:
     return "\n\n".join(lines) if lines else "No results found."
 
 def _tool_memory_read(args: dict) -> str:
-    from common.tools import memory_read
+    from agent.tool_functions import memory_read
     result = memory_read(args.get("topic", "index"))
     if "error" in result:
         return result["error"]
     return result.get("content", "")
 
 def _tool_memory_write(args: dict) -> str:
-    from common.tools import memory_write
+    from agent.tool_functions import memory_write
     result = memory_write(args.get("topic", ""), args.get("content", ""))
     if "error" in result:
         return result["error"]
     return f"Memory saved: {result['topic']}.md (index updated)"
 
 def _tool_edit_file(args: dict) -> str:
-    from common.tools import edit_file
+    from agent.tool_functions import edit_file
     result = edit_file(args.get("path", ""), args.get("old_str", ""), args.get("new_str", ""))
     if "error" in result:
         return result["error"]
     return f"Edited {result['path']} ({result['replacements']} replacement)"
 
 def _tool_run_bash(args: dict) -> str:
-    from common.tools import run_bash
+    from agent.tool_functions import run_bash
     result = run_bash(args.get("command", ""))
     if "error" in result:
         return result["error"]
@@ -1225,7 +1225,7 @@ def _tool_run_bash(args: dict) -> str:
 
 
 def _tool_get_errors(args: dict) -> str:
-    from common.tools import get_errors
+    from agent.tool_functions import get_errors
     result = get_errors(args.get("limit", 10))
     if "error" in result:
         return result["error"]
@@ -1245,7 +1245,7 @@ def _tool_get_feedback(args: dict) -> str:
     25 entries with each entry's text capped. The 12KB final _cap() in
     the tool dispatcher is the safety net; this is the primary cap.
     """
-    from common.tools import get_feedback
+    from agent.tool_functions import get_feedback
 
     # Hard ceiling: clamp the agent's requested limit. Default 10. Max 25.
     raw_limit = args.get("limit", 10)

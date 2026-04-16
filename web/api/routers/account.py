@@ -13,7 +13,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from common.account_state import fetch_registered_account_state
-from common.tools import live_price, get_orders, check_funding
+from agent.tool_functions import live_price, get_orders, check_funding
 from web.api.dependencies import DATA_DIR
 from web.api.readers.sqlite_reader import SqliteReader
 

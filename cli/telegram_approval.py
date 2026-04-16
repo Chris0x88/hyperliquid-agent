@@ -60,7 +60,7 @@ def _lock_approval_message(token: str, chat_id: str, message_id: int, approved: 
 def _handle_tool_approval(token: str, chat_id: str, callback_id: str,
                            action_id: str, approved: bool, message_id: int = None) -> None:
     """Handle approve/reject of a pending write tool action."""
-    from cli.agent_tools import pop_pending, execute_tool
+    from agent.tools import pop_pending, execute_tool
 
     # 1. Answer callback IMMEDIATELY — dismisses spinner and shows toast.
     toast = "\u2705 Approved" if approved else "\u274c Rejected"
@@ -137,7 +137,7 @@ def _handle_trade_size_prompt(token: str, chat_id: str, coin: str, side: str) ->
 
 def _handle_close_position(token: str, chat_id: str, coin: str) -> None:
     """Build close-position confirmation with approval buttons."""
-    from cli.agent_tools import store_pending, format_confirmation
+    from agent.tools import store_pending, format_confirmation
 
     pos = _find_position(coin)
     if not pos:
@@ -265,7 +265,7 @@ def _handle_pending_input(token: str, chat_id: str, text: str) -> bool:
     # Clear pending state
     del _pending_inputs[chat_id]
 
-    from cli.agent_tools import store_pending
+    from agent.tools import store_pending
 
     if pending["type"] == "trade":
         # Trade: value is size (contracts)

@@ -27,7 +27,7 @@ from common.memory_consolidator import (
     _compress_events,
     _ms_to_date,
 )
-from common.context_harness import (
+from agent.context_harness import (
     AssembledContext,
     ContextBlock,
     build_thesis_context,

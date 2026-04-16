@@ -17,7 +17,7 @@ from pathlib import Path
 # Add parent to path so we can import from common
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.code_tool_parser import parse_tool_calls, execute_parsed_calls, ToolCall
+from agent.code_tool_parser import parse_tool_calls, execute_parsed_calls, ToolCall
 
 
 # Mock registry matching the spec
@@ -495,7 +495,7 @@ trade_journal(limit=20)
         """Attempt to execute unknown tool (after registry filtering)."""
         # This shouldn't happen in normal flow because parse_tool_calls filters
         # But test the execute path anyway
-        from common.code_tool_parser import ToolCall
+        from agent.code_tool_parser import ToolCall
 
         calls = [ToolCall(name="nonexistent", args=[], kwargs={})]
         results = execute_parsed_calls(calls, MOCK_REGISTRY, write_tools=set())

@@ -134,7 +134,7 @@ def market_brief(market: str) -> dict:
     """Full market context: price, technicals, position, thesis, memory."""
     try:
         from common.account_state import fetch_registered_account_state
-        from common.context_harness import build_thesis_context
+        from agent.context_harness import build_thesis_context
 
         account_state = fetch_registered_account_state()
 

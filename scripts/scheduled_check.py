@@ -290,7 +290,7 @@ def main():
         # Uses relevance-scored, token-budgeted context assembly
         # instead of flat-dumping everything.
         try:
-            from common.context_harness import build_thesis_context, build_multi_market_context
+            from agent.context_harness import build_thesis_context, build_multi_market_context
             from common.market_snapshot import build_snapshot, render_snapshot
             from engines.data.candle_cache import CandleCache
 

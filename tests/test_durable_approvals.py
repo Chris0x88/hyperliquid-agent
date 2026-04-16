@@ -15,7 +15,7 @@ import pytest
 def _isolate_pending(tmp_path):
     """Redirect pending actions file to tmp_path for test isolation."""
     pending_file = tmp_path / "pending_actions.json"
-    import cli.agent_tools as at
+    import agent.tools as at
 
     orig_file = at._PENDING_FILE
     orig_actions = at._pending_actions.copy()
@@ -28,7 +28,7 @@ def _isolate_pending(tmp_path):
 
 def test_store_persists_to_disk(_isolate_pending):
     """Stored pending action should be written to disk."""
-    from cli.agent_tools import store_pending
+    from agent.tools import store_pending
 
     pending_file = _isolate_pending
     action_id = store_pending("place_trade", {"coin": "BTC", "side": "buy", "size": 1}, "12345")
@@ -40,7 +40,7 @@ def test_store_persists_to_disk(_isolate_pending):
 
 def test_pop_removes_from_disk(_isolate_pending):
     """Popping an action should remove it from the persistent file."""
-    from cli.agent_tools import store_pending, pop_pending
+    from agent.tools import store_pending, pop_pending
 
     pending_file = _isolate_pending
     action_id = store_pending("set_sl", {"coin": "BTC", "trigger_price": 50000}, "12345")
@@ -53,7 +53,7 @@ def test_pop_removes_from_disk(_isolate_pending):
 
 def test_survives_restart(_isolate_pending):
     """Simulated restart: clear in-memory dict, reload from disk."""
-    import cli.agent_tools as at
+    import agent.tools as at
 
     pending_file = _isolate_pending
     action_id = at.store_pending("place_trade", {"coin": "GOLD", "side": "buy", "size": 0.5}, "12345")
@@ -69,7 +69,7 @@ def test_survives_restart(_isolate_pending):
 
 def test_expired_not_reloaded(_isolate_pending):
     """Expired actions should not be rehydrated on restart."""
-    import cli.agent_tools as at
+    import agent.tools as at
 
     pending_file = _isolate_pending
     # Write an already-expired entry directly
@@ -88,7 +88,7 @@ def test_expired_not_reloaded(_isolate_pending):
 
 def test_cleanup_persists(_isolate_pending):
     """cleanup_expired_pending should persist removal to disk."""
-    import cli.agent_tools as at
+    import agent.tools as at
 
     pending_file = _isolate_pending
     # Inject an expired entry into memory + disk

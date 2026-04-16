@@ -10,42 +10,42 @@ import pytest
 
 class TestBuildSystemPrompt:
     def test_assembles_core_prompt(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt()
         assert "autonomous" in prompt.lower()
         assert "agent" in prompt.lower()
 
     def test_includes_agent_md(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt(agent_md="CUSTOM_AGENT_INSTRUCTION")
         assert "CUSTOM_AGENT_INSTRUCTION" in prompt
 
     def test_includes_memory(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt(memory_content="Remember: Chris likes ATR stops")
         assert "Remember: Chris likes ATR stops" in prompt
         assert "AGENT MEMORY" in prompt
 
     def test_includes_live_context(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt(live_context="--- LIVE CONTEXT ---\nequity=$500")
         assert "equity=$500" in prompt
 
     def test_includes_lessons_section(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         section = "## RECENT RELEVANT LESSONS\n\n- #1 test lesson summary"
         prompt = build_system_prompt(lessons_section=section)
         assert "RECENT RELEVANT LESSONS" in prompt
         assert "#1 test lesson summary" in prompt
 
     def test_empty_lessons_section_is_skipped(self):
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt(lessons_section="")
         assert "RECENT RELEVANT LESSONS" not in prompt
 
     def test_lessons_between_memory_and_live_context(self):
         """Section ordering: memory → lessons → live_context."""
-        from cli.agent_runtime import build_system_prompt
+        from agent.runtime import build_system_prompt
         prompt = build_system_prompt(
             memory_content="MEMORY_MARKER",
             lessons_section="LESSONS_MARKER",
@@ -97,12 +97,12 @@ def _seed_lesson(**overrides):
 
 class TestBuildLessonsSection:
     def test_empty_corpus_returns_empty_string(self, tmp_lessons_db):
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         assert build_lessons_section() == ""
 
     def test_hits_formatted_as_markdown_section(self, tmp_lessons_db):
         _seed_lesson()
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section()
         assert out.startswith("## RECENT RELEVANT LESSONS")
         assert "get_lesson(id)" in out
@@ -118,7 +118,7 @@ class TestBuildLessonsSection:
         _seed_lesson(summary="first", trade_closed_at="2026-04-09T12:00:00Z")
         _seed_lesson(summary="second", trade_closed_at="2026-04-08T12:00:00Z")
         _seed_lesson(summary="third", trade_closed_at="2026-04-07T12:00:00Z")
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(limit=3)
         assert out.index("first") < out.index("second") < out.index("third")
 
@@ -128,7 +128,7 @@ class TestBuildLessonsSection:
                 summary=f"lesson number {i}",
                 trade_closed_at=f"2026-04-0{i % 9 + 1}T12:00:00Z",
             )
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(limit=3)
         assert out.count("\n- #") == 3
 
@@ -146,7 +146,7 @@ class TestBuildLessonsSection:
             market="xyz:GOLD",
             trade_closed_at="2026-04-07T12:00:00Z",
         )
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(query="weekend wick")
         # BM25 MATCH filters to rows that contain the query terms — only the
         # weekend-wick lesson should appear. CPI lesson is filtered out.
@@ -156,7 +156,7 @@ class TestBuildLessonsSection:
     def test_market_filter(self, tmp_lessons_db):
         _seed_lesson(market="xyz:BRENTOIL", summary="brent lesson")
         _seed_lesson(market="BTC", summary="btc lesson")
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(market="BTC")
         assert "btc lesson" in out
         assert "brent lesson" not in out
@@ -164,7 +164,7 @@ class TestBuildLessonsSection:
     def test_direction_filter(self, tmp_lessons_db):
         _seed_lesson(direction="long", summary="long lesson")
         _seed_lesson(direction="short", summary="short lesson")
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(direction="short")
         assert "short lesson" in out
         assert "long lesson" not in out
@@ -172,7 +172,7 @@ class TestBuildLessonsSection:
     def test_signal_source_filter(self, tmp_lessons_db):
         _seed_lesson(signal_source="radar", summary="radar lesson")
         _seed_lesson(signal_source="thesis_driven", summary="thesis lesson")
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(signal_source="radar")
         assert "radar lesson" in out
         assert "thesis lesson" not in out
@@ -180,7 +180,7 @@ class TestBuildLessonsSection:
     def test_lesson_type_filter(self, tmp_lessons_db):
         _seed_lesson(lesson_type="exit_quality", summary="exit lesson")
         _seed_lesson(lesson_type="entry_timing", summary="entry lesson")
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(lesson_type="exit_quality")
         assert "exit lesson" in out
         assert "entry lesson" not in out
@@ -189,19 +189,19 @@ class TestBuildLessonsSection:
         from common import memory as common_memory
         rid = _seed_lesson(summary="approved lesson")
         common_memory.set_lesson_review(rid, 1)
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         assert "[approved]" in build_lessons_section()
 
     def test_rejected_excluded(self, tmp_lessons_db):
         from common import memory as common_memory
         rid = _seed_lesson(summary="rejected lesson")
         common_memory.set_lesson_review(rid, -1)
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         assert "rejected lesson" not in build_lessons_section()
 
     def test_disabled_flag_returns_empty(self, tmp_lessons_db, monkeypatch):
         _seed_lesson()
-        import cli.agent_runtime as agent_runtime
+        import agent.runtime as agent_runtime
         monkeypatch.setattr(agent_runtime, "_LESSON_INJECTION_ENABLED", False)
         assert agent_runtime.build_lessons_section() == ""
 
@@ -211,7 +211,7 @@ class TestBuildLessonsSection:
             raise RuntimeError("simulated db failure")
         import common.memory as common_memory
         monkeypatch.setattr(common_memory, "search_lessons", boom)
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         assert build_lessons_section() == ""
 
     def test_section_is_compact(self, tmp_lessons_db):
@@ -221,7 +221,7 @@ class TestBuildLessonsSection:
                 summary=f"lesson {i} summary",
                 trade_closed_at=f"2026-04-0{i + 1}T12:00:00Z",
             )
-        from cli.agent_runtime import build_lessons_section
+        from agent.runtime import build_lessons_section
         out = build_lessons_section(limit=5)
         assert len(out) < 1500, f"lessons section is {len(out)} chars, expected <1500"
 
@@ -229,7 +229,7 @@ class TestBuildLessonsSection:
 class TestParallelToolExecution:
     def test_concurrent_read_tools(self):
         """READ tools should run in parallel (all complete, order preserved)."""
-        from cli.agent_runtime import execute_tools_parallel
+        from agent.runtime import execute_tools_parallel
 
         call_order = []
         def mock_execute(name, args):
@@ -250,7 +250,7 @@ class TestParallelToolExecution:
 
     def test_write_tool_blocks_queue(self):
         """WRITE tools should run sequentially (blocking)."""
-        from cli.agent_runtime import execute_tools_parallel
+        from agent.runtime import execute_tools_parallel
 
         results_order = []
         def mock_execute(name, args):
@@ -272,14 +272,14 @@ class TestParallelToolExecution:
         assert results[2][1] == "read_file"
 
     def test_empty_tool_calls(self):
-        from cli.agent_runtime import execute_tools_parallel
+        from agent.runtime import execute_tools_parallel
         results = execute_tools_parallel([], lambda n, a: "")
         assert results == []
 
 
 class TestSSEParsing:
     def test_parse_text_delta(self):
-        from cli.agent_runtime import parse_sse_line
+        from agent.runtime import parse_sse_line
         line = 'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}'
         event = parse_sse_line(line)
         assert event is not None
@@ -287,25 +287,25 @@ class TestSSEParsing:
         assert event.data["delta"]["text"] == "Hello"
 
     def test_parse_done(self):
-        from cli.agent_runtime import parse_sse_line
+        from agent.runtime import parse_sse_line
         event = parse_sse_line("data: [DONE]")
         assert event is not None
         assert event.event_type == "done"
 
     def test_parse_empty_line(self):
-        from cli.agent_runtime import parse_sse_line
+        from agent.runtime import parse_sse_line
         assert parse_sse_line("") is None
         assert parse_sse_line("  ") is None
         assert parse_sse_line(": comment") is None
 
     def test_parse_invalid_json(self):
-        from cli.agent_runtime import parse_sse_line
+        from agent.runtime import parse_sse_line
         assert parse_sse_line("data: {invalid}") is None
 
 
 class TestStreamResult:
     def test_defaults(self):
-        from cli.agent_runtime import StreamResult
+        from agent.runtime import StreamResult
         r = StreamResult()
         assert r.text == ""
         assert r.tool_calls == []
@@ -315,13 +315,13 @@ class TestStreamResult:
 
 class TestAccordionTruncate:
     def test_short_conversation_unchanged(self):
-        from cli.agent_runtime import accordion_truncate
+        from agent.runtime import accordion_truncate
         messages = [{"role": "user", "content": "hello"}]
         result = accordion_truncate(messages)
         assert result == messages
 
     def test_large_old_tool_results_truncated(self):
-        from cli.agent_runtime import accordion_truncate
+        from agent.runtime import accordion_truncate
         big_tool_output = "[Tool result for live_price]: " + "x" * 200_000
         messages = [
             {"role": "system", "content": "You are helpful."},
@@ -345,7 +345,7 @@ class TestAccordionTruncate:
         assert result[-2]["content"] == "now what?"
 
     def test_recent_messages_protected(self):
-        from cli.agent_runtime import accordion_truncate
+        from agent.runtime import accordion_truncate
         big_content = "x" * 200_000
         messages = [
             {"role": "system", "content": "system"},
@@ -366,7 +366,7 @@ class TestAccordionTruncate:
         assert result[-1]["content"] == "done"
 
     def test_context_window_varies_by_model(self):
-        from cli.agent_runtime import get_context_window
+        from agent.runtime import get_context_window
         assert get_context_window("claude-opus-4-6") == 200_000
         assert get_context_window("some-random-model") == 128_000
 
@@ -374,7 +374,7 @@ class TestAccordionTruncate:
 class TestDream:
     def test_should_dream_no_lock(self, tmp_path, monkeypatch):
         """Without a lock file and no history, dream should return False."""
-        from cli import agent_runtime
+        from agent import runtime as agent_runtime
         monkeypatch.setattr(agent_runtime, "_MEMORY_DIR", tmp_path)
         monkeypatch.setattr(agent_runtime, "_DREAM_LOCK", tmp_path / ".last_dream")
         monkeypatch.setattr(agent_runtime, "_PROJECT_ROOT", tmp_path)
@@ -382,7 +382,7 @@ class TestDream:
         assert agent_runtime.should_dream() is False
 
     def test_mark_dream_complete(self, tmp_path, monkeypatch):
-        from cli import agent_runtime
+        from agent import runtime as agent_runtime
         monkeypatch.setattr(agent_runtime, "_MEMORY_DIR", tmp_path)
         monkeypatch.setattr(agent_runtime, "_DREAM_LOCK", tmp_path / ".last_dream")
         agent_runtime.mark_dream_complete()
@@ -391,13 +391,13 @@ class TestDream:
 
 class TestConcurrentSafeTools:
     def test_read_tools_are_safe(self):
-        from cli.agent_runtime import CONCURRENT_SAFE_TOOLS
+        from agent.runtime import CONCURRENT_SAFE_TOOLS
         safe_reads = ["market_brief", "account_summary", "live_price", "read_file", "search_code", "web_search", "memory_read"]
         for tool in safe_reads:
             assert tool in CONCURRENT_SAFE_TOOLS, f"{tool} should be concurrent-safe"
 
     def test_write_tools_not_safe(self):
-        from cli.agent_runtime import CONCURRENT_SAFE_TOOLS
+        from agent.runtime import CONCURRENT_SAFE_TOOLS
         writes = ["edit_file", "run_bash", "memory_write", "place_trade"]
         for tool in writes:
             assert tool not in CONCURRENT_SAFE_TOOLS, f"{tool} should NOT be concurrent-safe"

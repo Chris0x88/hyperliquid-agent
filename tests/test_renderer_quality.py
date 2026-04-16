@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from common.tool_renderers import render_for_ai
-from common.tools import (
+from agent.tool_renderers import render_for_ai
+from agent.tool_functions import (
     status, live_price, analyze_market, market_brief,
     check_funding, get_orders, trade_journal,
     thesis_state, daemon_health

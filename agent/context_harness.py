@@ -13,7 +13,7 @@ dumping everything and hoping it fits, it:
   4. Returns a compact string ready for prompt injection
 
 Usage:
-    from common.context_harness import build_thesis_context
+    from agent.context_harness import build_thesis_context
 
     # For the scheduled AI task that writes thesis files:
     context = build_thesis_context(

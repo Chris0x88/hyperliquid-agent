@@ -127,13 +127,13 @@ def _seed_corpus(tmp_db):
 
 class TestRegistration:
     def test_tools_registered_in_tool_defs(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
         names = {t["function"]["name"] for t in TOOL_DEFS}
         assert "search_lessons" in names
         assert "get_lesson" in names
 
     def test_search_lessons_schema_has_filters(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
         schema = next(
             t["function"] for t in TOOL_DEFS if t["function"]["name"] == "search_lessons"
         )
@@ -151,19 +151,19 @@ class TestRegistration:
             assert key in props
 
     def test_get_lesson_requires_id(self):
-        from cli.agent_tools import TOOL_DEFS
+        from agent.tools import TOOL_DEFS
         schema = next(
             t["function"] for t in TOOL_DEFS if t["function"]["name"] == "get_lesson"
         )
         assert "id" in schema["parameters"]["required"]
 
     def test_tools_registered_in_dispatch(self):
-        from cli.agent_tools import _TOOL_DISPATCH
+        from agent.tools import _TOOL_DISPATCH
         assert "search_lessons" in _TOOL_DISPATCH
         assert "get_lesson" in _TOOL_DISPATCH
 
     def test_both_tools_are_read_only(self):
-        from cli.agent_tools import WRITE_TOOLS
+        from agent.tools import WRITE_TOOLS
         assert "search_lessons" not in WRITE_TOOLS
         assert "get_lesson" not in WRITE_TOOLS
 
@@ -174,13 +174,13 @@ class TestRegistration:
 
 class TestSearchLessonsTool:
     def test_empty_corpus_returns_sentinel(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {})
         assert "No lessons found" in result
 
     def test_empty_query_returns_recent_first(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"limit": 4})
         # Most recent trade_closed_at first
         brent_pos = result.index("2026-04-09")
@@ -189,14 +189,14 @@ class TestSearchLessonsTool:
 
     def test_fts_query_ranks_relevant_first(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"query": "weekend wick stop"})
         # The "weekend-wick" lesson should appear
         assert "weekend" in result.lower() or "stop" in result.lower()
 
     def test_market_filter(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"market": "BTC"})
         assert "BTC" in result
         assert "BRENTOIL" not in result
@@ -204,28 +204,28 @@ class TestSearchLessonsTool:
 
     def test_direction_filter(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"direction": "long"})
         # All 4 seeded lessons are long, so all should appear
         assert "Found 4 lesson" in result
 
     def test_outcome_filter(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"outcome": "loss"})
         assert "Found 2 lesson" in result
         assert "loss" in result
 
     def test_lesson_type_filter(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"lesson_type": "catalyst_timing"})
         assert "Found 1 lesson" in result
         assert "GOLD" in result
 
     def test_combined_filters_with_query(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool(
             "search_lessons",
             {
@@ -241,7 +241,7 @@ class TestSearchLessonsTool:
 
     def test_limit_applies(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"limit": 2})
         assert "Found 2 lesson" in result
 
@@ -251,7 +251,7 @@ class TestSearchLessonsTool:
         # Reject the first BRENTOIL lesson
         common_memory.set_lesson_review(1, -1, db_path=tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {})
         assert "Found 3 lesson" in result  # 4 seeded, 1 rejected
 
@@ -260,7 +260,7 @@ class TestSearchLessonsTool:
         from common import memory as common_memory
         common_memory.set_lesson_review(1, -1, db_path=tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {"include_rejected": True})
         assert "Found 4 lesson" in result
         assert "[rejected]" in result
@@ -270,13 +270,13 @@ class TestSearchLessonsTool:
         from common import memory as common_memory
         common_memory.set_lesson_review(1, 1, db_path=tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", {})
         assert "[approved]" in result
 
     def test_injection_resistance_via_execute_tool(self, tmp_db):
         _seed_corpus(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         # FTS5 operators in the query must not break dispatch
         for bad_query in ['" OR 1=1', "*", "(foo)", "NOT AND OR"]:
             result = execute_tool("search_lessons", {"query": bad_query})
@@ -304,7 +304,7 @@ class TestGetLessonTool:
     def test_returns_full_body(self, tmp_db):
         rid = self._log(tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
 
         assert f"Lesson #{rid}" in result
@@ -318,42 +318,42 @@ class TestGetLessonTool:
         assert "(e) next time" in result
 
     def test_missing_id_returns_sentinel(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": 99999})
         assert "not found" in result.lower()
 
     def test_missing_id_arg(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {})
         assert "requires 'id'" in result
 
     def test_non_int_id(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": "abc"})
         assert "must be an integer" in result
 
     def test_str_id_is_coerced(self, tmp_db):
         rid = self._log(tmp_db)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": str(rid)})
         assert f"Lesson #{rid}" in result
 
     def test_renders_tags(self, tmp_db):
         rid = self._log(tmp_db, tags=["fed-day", "false-breakout", "pattern-a"])
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "fed-day" in result
         assert "false-breakout" in result
 
     def test_renders_conviction_when_present(self, tmp_db):
         rid = self._log(tmp_db, conviction_at_open=0.85)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "0.85" in result
 
     def test_hides_conviction_when_null(self, tmp_db):
         rid = self._log(tmp_db, conviction_at_open=None)
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "Conviction at open" not in result
 
@@ -365,26 +365,26 @@ class TestGetLessonTool:
         common_memory.set_lesson_review(rid_a, 1, db_path=tmp_db)
         common_memory.set_lesson_review(rid_r, -1, db_path=tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         assert "unreviewed" in execute_tool("get_lesson", {"id": rid_u})
         assert "approved" in execute_tool("get_lesson", {"id": rid_a})
         assert "rejected" in execute_tool("get_lesson", {"id": rid_r})
 
     def test_holding_time_rendered_minutes(self, tmp_db):
         rid = self._log(tmp_db, holding_ms=5 * 60 * 1000)  # 5m
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "5m" in result
 
     def test_holding_time_rendered_hours(self, tmp_db):
         rid = self._log(tmp_db, holding_ms=90 * 60 * 1000)  # 1.5h
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "1.5h" in result
 
     def test_holding_time_rendered_days(self, tmp_db):
         rid = self._log(tmp_db, holding_ms=3 * 24 * 3600 * 1000)  # 3d
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "3.0d" in result
 
@@ -397,7 +397,7 @@ class TestGetLessonTool:
         assert isinstance(row["tags"], str)
         assert json.loads(row["tags"]) == ["alpha", "beta"]
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": rid})
         assert "alpha" in result
         assert "beta" in result
@@ -409,14 +409,14 @@ class TestGetLessonTool:
 
 class TestExecuteToolDispatch:
     def test_search_lessons_dispatches(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         # Even with empty corpus, this should return a string, not raise
         result = execute_tool("search_lessons", {})
         assert isinstance(result, str)
         assert "Unknown tool" not in result
 
     def test_get_lesson_dispatches(self, tmp_db):
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("get_lesson", {"id": 1})
         assert isinstance(result, str)
         assert "Unknown tool" not in result
@@ -426,6 +426,6 @@ class TestExecuteToolDispatch:
         from common import memory as common_memory
         common_memory.log_lesson(_base_lesson(), db_path=tmp_db)
 
-        from cli.agent_tools import execute_tool
+        from agent.tools import execute_tool
         result = execute_tool("search_lessons", '{"limit": 1}')
         assert "Found 1 lesson" in result

@@ -111,7 +111,7 @@ def _parse_text_tool_calls(content: str) -> list:
 
     Returns list in the same format as native tool_calls, or empty list.
     """
-    from cli.agent_tools import TOOL_DEFS
+    from agent.tools import TOOL_DEFS
     valid_names = {t["function"]["name"] for t in TOOL_DEFS}
 
     calls = []
@@ -317,7 +317,7 @@ def _tg_stream_response(token: str, chat_id: str, messages: List[Dict], tools=No
     Returns an OpenAI-compatible response dict.
     Works with ANY model (Anthropic or OpenRouter).
     """
-    from cli.agent_runtime import stream_and_accumulate, StreamResult
+    from agent.runtime import stream_and_accumulate, StreamResult
 
     # Build the request the same way _call_anthropic/_call_openrouter_direct would
     model = _get_active_model()
@@ -530,7 +530,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             log.info("[turn] triage intent: %s", intent_routes)
 
             # Import tool definitions
-            from cli.agent_tools import (
+            from agent.tools import (
                 TOOL_DEFS, execute_tool, is_write_tool,
                 store_pending, format_confirmation,
                 DISPLAY_TOOLS,
@@ -557,7 +557,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             # Inject Semantic Recall lessons if TRADING
             if "TRADING" in intent_routes:
                 try:
-                    from cli.agent_runtime import build_lessons_section
+                    from agent.runtime import build_lessons_section
                     lessons_str = build_lessons_section(query=text, limit=3)
                     if lessons_str:
                         system_prompt += "\n\n" + lessons_str
@@ -625,8 +625,8 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             # If still no tool calls, try Python code block parsing
             if not tool_calls:
                 content = response.get("content") or ""
-                from common.code_tool_parser import parse_tool_calls as parse_code_calls
-                from common.tools import TOOL_REGISTRY, WRITE_TOOLS as CORE_WRITE_TOOLS
+                from agent.code_tool_parser import parse_tool_calls as parse_code_calls
+                from agent.tool_functions import TOOL_REGISTRY, WRITE_TOOLS as CORE_WRITE_TOOLS
                 code_parsed = parse_code_calls(content, TOOL_REGISTRY)
                 if code_parsed:
                     log.info("Parsed %d tool calls from Python code blocks", len(code_parsed))
@@ -636,9 +636,9 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
             if code_parsed:
                 # Handle Python code block tool calls via the new system
-                from common.code_tool_parser import execute_parsed_calls, strip_code_blocks
-                from common.tool_renderers import render_for_ai
-                from common.tools import WRITE_TOOLS as CORE_WRITE_TOOLS
+                from agent.code_tool_parser import execute_parsed_calls, strip_code_blocks
+                from agent.tool_renderers import render_for_ai
+                from agent.tool_functions import WRITE_TOOLS as CORE_WRITE_TOOLS
 
                 # Strip code blocks BEFORE appending to history (avoid mutation)
                 cleaned_content = strip_code_blocks(response.get("content") or "")
@@ -699,7 +699,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                 messages.append(response)
 
                 # Parallel execution for concurrent-safe tools
-                from cli.agent_runtime import execute_tools_parallel
+                from agent.runtime import execute_tools_parallel
 
                 # Separate WRITE tools (need approval) from READ tools (auto-execute)
                 write_calls = []
@@ -757,7 +757,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
             _tg_typing(token, chat_id)
 
             # Context size management using Claude Code accordion style truncation
-            from cli.agent_runtime import accordion_truncate
+            from agent.runtime import accordion_truncate
             messages = accordion_truncate(messages)
 
             # Token optimisation: use Haiku for tool iterations (cheaper, higher rate limits).
@@ -789,7 +789,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
         # Clean any remaining tool call syntax from final response
         response_text = _strip_tool_calls(response_text)
         # Also strip Python code blocks that were tool calls
-        from common.code_tool_parser import strip_code_blocks
+        from agent.code_tool_parser import strip_code_blocks
         response_text = strip_code_blocks(response_text).strip()
         if not response_text:
             response_text = "Sorry, I couldn't get a response from the AI. Try again or use /status for live data."
@@ -848,7 +848,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
         # Memory dream — auto-consolidate learnings
         try:
-            from cli.agent_runtime import should_dream, mark_dream_complete, build_dream_prompt
+            from agent.runtime import should_dream, mark_dream_complete, build_dream_prompt
             if should_dream():
                 log.info("Memory dream triggered — consolidating learnings")
                 dream_prompt = build_dream_prompt()
@@ -876,7 +876,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
                 if dream_text:
                     # Write consolidated memories
-                    from common.tools import memory_write
+                    from agent.tool_functions import memory_write
                     memory_write("dream_consolidation", dream_text)
                     log.info("Dream consolidation saved (%d chars)", len(dream_text))
 
@@ -961,7 +961,7 @@ def _build_system_prompt() -> str:
     against agent-writable inputs (notably MEMORY.md via the dream
     cycle) inflating the prompt beyond control.
     """
-    from cli.agent_runtime import build_system_prompt
+    from agent.runtime import build_system_prompt
 
     # Load domain-specific files (hard-capped)
     agent_md = _read_capped(_AGENT_MD, "AGENT.md")
@@ -1141,7 +1141,7 @@ def _build_live_context() -> str:
     learnings) > BACKGROUND (research notes, issues).
     """
     try:
-        from common.context_harness import build_multi_market_context
+        from agent.context_harness import build_multi_market_context
 
         # Fetch account state for the harness
         account_state = _fetch_account_state_for_harness()
@@ -1188,7 +1188,7 @@ def _build_live_context() -> str:
         # Inject strict python-based system evaluations (claw-code pattern)
         evals = ""
         try:
-            from cli.trade_evaluator import build_system_evaluations
+            from agent.trade_evaluator import build_system_evaluations
             eval_text = build_system_evaluations()
             if eval_text:
                 evals = f"\n{eval_text}\n"
