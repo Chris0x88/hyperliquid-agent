@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable
 
-from cli.daemon.iterators.catalyst_deleverage import CatalystEvent
+from daemon.iterators.catalyst_deleverage import CatalystEvent
 from engines.learning.news_engine import Catalyst
 
 log = logging.getLogger("catalyst_bridge")

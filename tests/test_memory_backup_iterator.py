@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cli.daemon.iterators.memory_backup import (
+from daemon.iterators.memory_backup import (
     DAILY_TAG,
     HOURLY_PREFIX,
     HOURLY_SUFFIX,
@@ -300,7 +300,7 @@ class TestMissingSource:
 
 class TestTierRegistration:
     def test_memory_backup_in_all_three_tiers(self):
-        from cli.daemon.tiers import TIER_ITERATORS
+        from daemon.tiers import TIER_ITERATORS
 
         for tier in ("watch", "rebalance", "opportunistic"):
             assert "memory_backup" in TIER_ITERATORS[tier], f"missing from {tier}"

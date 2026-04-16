@@ -82,11 +82,11 @@ def daemon_start(
 
     _setup_logging(data_dir, log_json)
 
-    from cli.daemon.config import DaemonConfig
-    from cli.daemon.clock import Clock
-    from cli.daemon.roster import Roster
-    from cli.daemon.state import StateStore
-    from cli.daemon.tiers import VALID_TIERS
+    from daemon.config import DaemonConfig
+    from daemon.clock import Clock
+    from daemon.roster import Roster
+    from daemon.state import StateStore
+    from daemon.tiers import VALID_TIERS
 
     if tier not in VALID_TIERS:
         typer.echo(f"Invalid tier '{tier}'. Valid: {VALID_TIERS}", err=True)
@@ -134,38 +134,38 @@ def daemon_start(
     # Build clock and register iterators
     clock = Clock(config=config, roster=roster, store=store, adapter=adapter)
 
-    from cli.daemon.iterators.apex_advisor import ApexAdvisorIterator
-    from cli.daemon.iterators.brent_rollover_monitor import BrentRolloverMonitorIterator
-    from cli.daemon.iterators.connector import ConnectorIterator
-    from cli.daemon.iterators.liquidation_monitor import LiquidationMonitorIterator
-    from cli.daemon.iterators.liquidity import LiquidityIterator
-    from cli.daemon.iterators.protection_audit import ProtectionAuditIterator
-    from cli.daemon.iterators.risk import RiskIterator
-    from cli.daemon.iterators.guard import GuardIterator
-    from cli.daemon.iterators.rebalancer import RebalancerIterator
-    from cli.daemon.iterators.radar import RadarIterator
-    from cli.daemon.iterators.news_ingest import NewsIngestIterator
-    from cli.daemon.iterators.supply_ledger import SupplyLedgerIterator
-    from cli.daemon.iterators.heatmap import HeatmapIterator
-    from cli.daemon.iterators.bot_classifier import BotPatternIterator
-    from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
-    from cli.daemon.iterators.pulse import PulseIterator
-    from cli.daemon.iterators.profit_lock import ProfitLockIterator
-    from cli.daemon.iterators.journal import JournalIterator
-    from cli.daemon.iterators.telegram import TelegramIterator
-    from cli.daemon.iterators.account_collector import AccountCollectorIterator
-    from cli.daemon.iterators.thesis_engine import ThesisEngineIterator
-    from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
-    from cli.daemon.iterators.exchange_protection import ExchangeProtectionIterator
-    from cli.daemon.iterators.autoresearch import AutoresearchIterator
-    from cli.daemon.iterators.market_structure_iter import MarketStructureIterator
+    from daemon.iterators.apex_advisor import ApexAdvisorIterator
+    from daemon.iterators.brent_rollover_monitor import BrentRolloverMonitorIterator
+    from daemon.iterators.connector import ConnectorIterator
+    from daemon.iterators.liquidation_monitor import LiquidationMonitorIterator
+    from daemon.iterators.liquidity import LiquidityIterator
+    from daemon.iterators.protection_audit import ProtectionAuditIterator
+    from daemon.iterators.risk import RiskIterator
+    from daemon.iterators.guard import GuardIterator
+    from daemon.iterators.rebalancer import RebalancerIterator
+    from daemon.iterators.radar import RadarIterator
+    from daemon.iterators.news_ingest import NewsIngestIterator
+    from daemon.iterators.supply_ledger import SupplyLedgerIterator
+    from daemon.iterators.heatmap import HeatmapIterator
+    from daemon.iterators.bot_classifier import BotPatternIterator
+    from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
+    from daemon.iterators.pulse import PulseIterator
+    from daemon.iterators.profit_lock import ProfitLockIterator
+    from daemon.iterators.journal import JournalIterator
+    from daemon.iterators.telegram import TelegramIterator
+    from daemon.iterators.account_collector import AccountCollectorIterator
+    from daemon.iterators.thesis_engine import ThesisEngineIterator
+    from daemon.iterators.execution_engine import ExecutionEngineIterator
+    from daemon.iterators.exchange_protection import ExchangeProtectionIterator
+    from daemon.iterators.autoresearch import AutoresearchIterator
+    from daemon.iterators.market_structure_iter import MarketStructureIterator
     try:
-        from cli.daemon.iterators.funding_tracker import FundingTrackerIterator
+        from daemon.iterators.funding_tracker import FundingTrackerIterator
         _has_funding = True
     except ImportError:
         _has_funding = False
     try:
-        from cli.daemon.iterators.catalyst_deleverage import CatalystDeleverageIterator
+        from daemon.iterators.catalyst_deleverage import CatalystDeleverageIterator
         _has_catalyst = True
     except ImportError:
         _has_catalyst = False
@@ -190,22 +190,22 @@ def daemon_start(
     clock.register(BotPatternIterator())    # sub-system 4: bot-pattern classifier
     clock.register(BotPatternStrategyIterator())  # sub-system 5: strategy engine (kill switches OFF at ship)
     try:
-        from cli.daemon.iterators.oil_botpattern_tune import OilBotPatternTuneIterator
+        from daemon.iterators.oil_botpattern_tune import OilBotPatternTuneIterator
         clock.register(OilBotPatternTuneIterator())  # sub-system 6 L1: bounded auto-tune (kill switch OFF at ship)
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.oil_botpattern_reflect import OilBotPatternReflectIterator
+        from daemon.iterators.oil_botpattern_reflect import OilBotPatternReflectIterator
         clock.register(OilBotPatternReflectIterator())  # sub-system 6 L2: weekly reflect proposals (kill switch OFF at ship)
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.oil_botpattern_patternlib import OilBotPatternPatternLibIterator
+        from daemon.iterators.oil_botpattern_patternlib import OilBotPatternPatternLibIterator
         clock.register(OilBotPatternPatternLibIterator())  # sub-system 6 L3: pattern library growth (kill switch OFF at ship)
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.oil_botpattern_shadow import OilBotPatternShadowIterator
+        from daemon.iterators.oil_botpattern_shadow import OilBotPatternShadowIterator
         clock.register(OilBotPatternShadowIterator())  # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
     except ImportError:
         pass
@@ -220,24 +220,24 @@ def daemon_start(
 
     # Memory consolidation — compresses old events into summaries hourly
     try:
-        from cli.daemon.iterators.memory_consolidation import MemoryConsolidationIterator
+        from daemon.iterators.memory_consolidation import MemoryConsolidationIterator
         clock.register(MemoryConsolidationIterator())
     except ImportError:
         pass
 
     clock.register(JournalIterator(data_dir=data_dir))
     try:
-        from cli.daemon.iterators.lesson_author import LessonAuthorIterator
+        from daemon.iterators.lesson_author import LessonAuthorIterator
         clock.register(LessonAuthorIterator())
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.entry_critic import EntryCriticIterator
+        from daemon.iterators.entry_critic import EntryCriticIterator
         clock.register(EntryCriticIterator())
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.action_queue import ActionQueueIterator
+        from daemon.iterators.action_queue import ActionQueueIterator
         clock.register(ActionQueueIterator())  # daily operator-ritual nudge sweep
     except ImportError:
         pass
@@ -249,27 +249,27 @@ def daemon_start(
         # instantiates the iterator and snapshots never accumulate, leaving
         # the memory.db SPOF that the iterator was built to close still open
         # in production.
-        from cli.daemon.iterators.memory_backup import MemoryBackupIterator
+        from daemon.iterators.memory_backup import MemoryBackupIterator
         clock.register(MemoryBackupIterator())
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.thesis_challenger import ThesisChallengerIterator
+        from daemon.iterators.thesis_challenger import ThesisChallengerIterator
         clock.register(ThesisChallengerIterator())  # catalyst vs thesis invalidation matcher
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.thesis_updater import ThesisUpdaterIterator
+        from daemon.iterators.thesis_updater import ThesisUpdaterIterator
         clock.register(ThesisUpdaterIterator())  # Haiku-powered news → conviction adjustment
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.lab import LabIterator
+        from daemon.iterators.lab import LabIterator
         clock.register(LabIterator())  # strategy development pipeline (kill switch OFF at ship)
     except ImportError:
         pass
     try:
-        from cli.daemon.iterators.architect import ArchitectIterator
+        from daemon.iterators.architect import ArchitectIterator
         clock.register(ArchitectIterator())  # mechanical self-improvement (kill switch OFF at ship)
     except ImportError:
         pass
@@ -286,7 +286,7 @@ def daemon_start(
 @daemon_app.command("stop")
 def daemon_stop(data_dir: str = typer.Option("data/daemon", "--data-dir")):
     """Stop the running daemon."""
-    from cli.daemon.state import StateStore
+    from daemon.state import StateStore
 
     store = StateStore(data_dir)
     pid = store.read_pid()
@@ -315,8 +315,8 @@ def daemon_status(data_dir: str = typer.Option("data/daemon", "--data-dir")):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.state import StateStore
-    from cli.daemon.roster import Roster
+    from daemon.state import StateStore
+    from daemon.roster import Roster
 
     store = StateStore(data_dir)
     state = store.load_state()
@@ -374,8 +374,8 @@ def daemon_tier(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.state import StateStore
-    from cli.daemon.tiers import VALID_TIERS
+    from daemon.state import StateStore
+    from daemon.tiers import VALID_TIERS
 
     store = StateStore(data_dir)
 
@@ -405,7 +405,7 @@ def daemon_strategies(data_dir: str = typer.Option("data/daemon", "--data-dir"))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.roster import Roster
+    from daemon.roster import Roster
 
     roster = Roster(path=f"{data_dir}/roster.json")
     roster.load()
@@ -434,8 +434,8 @@ def daemon_add(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.roster import Roster
-    from cli.daemon.state import StateStore
+    from daemon.roster import Roster
+    from daemon.state import StateStore
 
     parsed_params = json.loads(params) if params else None
 
@@ -473,8 +473,8 @@ def daemon_remove(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.roster import Roster
-    from cli.daemon.state import StateStore
+    from daemon.roster import Roster
+    from daemon.state import StateStore
 
     roster = Roster(path=f"{data_dir}/roster.json")
     roster.load()
@@ -502,8 +502,8 @@ def daemon_pause(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.roster import Roster
-    from cli.daemon.state import StateStore
+    from daemon.roster import Roster
+    from daemon.state import StateStore
 
     roster = Roster(path=f"{data_dir}/roster.json")
     roster.load()
@@ -531,8 +531,8 @@ def daemon_resume(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from cli.daemon.roster import Roster
-    from cli.daemon.state import StateStore
+    from daemon.roster import Roster
+    from daemon.state import StateStore
 
     roster = Roster(path=f"{data_dir}/roster.json")
     roster.load()

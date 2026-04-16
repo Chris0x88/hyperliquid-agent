@@ -2390,7 +2390,7 @@ def cmd_selftune(token: str, chat_id: str, _args: str) -> None:
     else:
         lines.append("*L2 last run:* never")
 
-    from cli.daemon.iterators.oil_botpattern_reflect import load_proposals
+    from daemon.iterators.oil_botpattern_reflect import load_proposals
     all_proposals = load_proposals(OIL_BOTPATTERN_PROPOSALS_JSONL)
     pending = [p for p in all_proposals if p.get("status") == "pending"]
     lines.append(f"*Pending proposals:* {len(pending)}  (total {len(all_proposals)})")
@@ -2413,7 +2413,7 @@ def cmd_selftuneproposals(token: str, chat_id: str, args: str) -> None:
     Deterministic — reads oil_botpattern_proposals.jsonl directly.
     Optional arg: integer limit (default 10, max 25).
     """
-    from cli.daemon.iterators.oil_botpattern_reflect import load_proposals
+    from daemon.iterators.oil_botpattern_reflect import load_proposals
 
     limit = 10
     if args.strip():
@@ -2540,7 +2540,7 @@ def cmd_selftuneapprove(token: str, chat_id: str, args: str) -> None:
     import json
     from datetime import datetime, timezone
 
-    from cli.daemon.iterators.oil_botpattern_reflect import (
+    from daemon.iterators.oil_botpattern_reflect import (
         find_proposal,
         load_proposals,
         write_proposals_atomic,
@@ -2600,7 +2600,7 @@ def cmd_selftunereject(token: str, chat_id: str, args: str) -> None:
     """
     from datetime import datetime, timezone
 
-    from cli.daemon.iterators.oil_botpattern_reflect import (
+    from daemon.iterators.oil_botpattern_reflect import (
         find_proposal,
         load_proposals,
         write_proposals_atomic,

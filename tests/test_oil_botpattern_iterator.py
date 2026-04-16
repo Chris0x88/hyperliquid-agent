@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
+from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
 from modules.oil_botpattern import read_decisions, read_state
 
 
@@ -130,7 +130,7 @@ def test_iterator_registered_in_all_three_tiers():
     has no execution_engine or exchange_protection, so any accidentally-
     emitted OrderIntent has no consumer anyway — double safety.
     """
-    from cli.daemon.tiers import iterators_for_tier
+    from daemon.tiers import iterators_for_tier
     assert "oil_botpattern" in iterators_for_tier("watch")
     assert "oil_botpattern" in iterators_for_tier("rebalance")
     assert "oil_botpattern" in iterators_for_tier("opportunistic")

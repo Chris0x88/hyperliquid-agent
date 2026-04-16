@@ -15,7 +15,7 @@ _project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from cli.daemon.tiers import TIER_ITERATORS, VALID_TIERS
+from daemon.tiers import TIER_ITERATORS, VALID_TIERS
 from web.api.dependencies import DATA_DIR
 
 router = APIRouter()

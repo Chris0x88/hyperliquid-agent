@@ -3,8 +3,8 @@ from decimal import Decimal
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.liquidation_monitor import (
+from daemon.context import TickContext
+from daemon.iterators.liquidation_monitor import (
     LiquidationMonitorIterator,
     INFO_THRESHOLD,
     WARN_THRESHOLD,

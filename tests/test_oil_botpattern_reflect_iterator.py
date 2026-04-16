@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.daemon.iterators.oil_botpattern_reflect import (
+from daemon.iterators.oil_botpattern_reflect import (
     OilBotPatternReflectIterator,
     find_proposal,
     load_proposals,

@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.catalyst_deleverage import CatalystDeleverageIterator, CatalystEvent
+from daemon.iterators.catalyst_deleverage import CatalystDeleverageIterator, CatalystEvent
 
 
 def test_add_external_catalysts_merges_and_dedupes():

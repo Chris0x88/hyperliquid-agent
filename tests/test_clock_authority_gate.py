@@ -16,11 +16,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cli.daemon.clock import Clock
-from cli.daemon.config import DaemonConfig
-from cli.daemon.context import OrderIntent, TickContext
-from cli.daemon.roster import Roster
-from cli.daemon.state import StateStore
+from daemon.clock import Clock
+from daemon.config import DaemonConfig
+from daemon.context import OrderIntent, TickContext
+from daemon.roster import Roster
+from daemon.state import StateStore
 from exchange.risk_manager import RiskGate
 
 
@@ -76,7 +76,7 @@ class TestClockAuthorityGate:
         clock, adapter = _make_clock(tmp_path)
         ctx = _ctx_with_orders([_intent("BTC", action="buy", size=1.0)])
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=True):
+        with patch("daemon.clock.is_agent_managed", return_value=True):
             clock._execute_orders(ctx)
 
         # Adapter received the order
@@ -92,7 +92,7 @@ class TestClockAuthorityGate:
         clock, adapter = _make_clock(tmp_path)
         ctx = _ctx_with_orders([_intent("GOLD", action="buy", size=0.5)])
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=False):
+        with patch("daemon.clock.is_agent_managed", return_value=False):
             clock._execute_orders(ctx)
 
         # Adapter was NOT called
@@ -125,7 +125,7 @@ class TestClockAuthorityGate:
             return asset in ("BTC", "xyz:BRENTOIL")
 
         with patch(
-            "cli.daemon.clock.is_agent_managed",
+            "daemon.clock.is_agent_managed",
             side_effect=fake_is_agent_managed,
         ):
             clock._execute_orders(ctx)
@@ -148,7 +148,7 @@ class TestClockAuthorityGate:
         ctx = _ctx_with_orders([_intent("BTC", action="buy", size=1.0)])
         ctx.risk_gate = RiskGate.CLOSED
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=False) as mock_auth:
+        with patch("daemon.clock.is_agent_managed", return_value=False) as mock_auth:
             clock._execute_orders(ctx)
 
         # Authority check was NOT called — risk gate caught it first
@@ -172,7 +172,7 @@ class TestClockAuthorityGate:
         ])
         ctx.risk_gate = RiskGate.COOLDOWN
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=True):
+        with patch("daemon.clock.is_agent_managed", return_value=True):
             clock._execute_orders(ctx)
 
         # The reduce_only sell got through; the non-reduce buy was dropped by COOLDOWN
@@ -187,7 +187,7 @@ class TestClockAuthorityGate:
         clock, adapter = _make_clock(tmp_path)
         ctx = _ctx_with_orders([_intent("BTC", action="noop", size=0.0)])
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=False) as mock_auth:
+        with patch("daemon.clock.is_agent_managed", return_value=False) as mock_auth:
             clock._execute_orders(ctx)
 
         # Authority check was not invoked for the noop
@@ -200,7 +200,7 @@ class TestClockAuthorityGate:
         clock, adapter = _make_clock(tmp_path)
         ctx = _ctx_with_orders([])
 
-        with patch("cli.daemon.clock.is_agent_managed", return_value=False) as mock_auth:
+        with patch("daemon.clock.is_agent_managed", return_value=False) as mock_auth:
             clock._execute_orders(ctx)
 
         assert not mock_auth.called

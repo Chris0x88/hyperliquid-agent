@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from cli.daemon.iterators.oil_botpattern_tune import OilBotPatternTuneIterator
+from daemon.iterators.oil_botpattern_tune import OilBotPatternTuneIterator
 
 
 @dataclass

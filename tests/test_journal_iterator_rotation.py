@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.journal import JournalIterator, RETENTION_DAYS
+from daemon.context import TickContext
+from daemon.iterators.journal import JournalIterator, RETENTION_DAYS
 from exchange.risk_manager import RiskGate
 
 

@@ -21,8 +21,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.account_collector import AccountCollectorIterator
+from daemon.context import TickContext
+from daemon.iterators.account_collector import AccountCollectorIterator
 
 
 class _FakeAdapter:

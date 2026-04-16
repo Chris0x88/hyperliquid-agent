@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.protection_audit import (
+from daemon.context import TickContext
+from daemon.iterators.protection_audit import (
     ProtectionAuditIterator,
     _coin_matches,
     MIN_STOP_DISTANCE_PCT,

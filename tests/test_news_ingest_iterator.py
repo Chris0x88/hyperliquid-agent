@@ -3,7 +3,7 @@ import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from cli.daemon.iterators.news_ingest import NewsIngestIterator
+from daemon.iterators.news_ingest import NewsIngestIterator
 
 
 def test_iterator_has_name():
@@ -81,7 +81,7 @@ def test_iterator_handles_failing_feed_without_crashing(tmp_path):
     it.on_start(ctx)
 
     # Patch requests.get to raise
-    with patch("cli.daemon.iterators.news_ingest.requests.get", side_effect=RuntimeError("boom")):
+    with patch("daemon.iterators.news_ingest.requests.get", side_effect=RuntimeError("boom")):
         it.tick(ctx)  # must not raise
 
     # No headlines written because fetch failed
@@ -107,7 +107,7 @@ def test_iterator_throttles_per_feed(tmp_path):
     ctx.alerts = []
     it.on_start(ctx)
 
-    with patch("cli.daemon.iterators.news_ingest.requests.get", return_value=mock_response) as m:
+    with patch("daemon.iterators.news_ingest.requests.get", return_value=mock_response) as m:
         it.tick(ctx)
         it.tick(ctx)  # second tick within throttle window
         assert m.call_count == 1  # throttled to one poll
@@ -133,7 +133,7 @@ def test_e2e_fixture_feed_to_catalyst_deleverage(tmp_path):
     ctx.alerts = []
     it.on_start(ctx)
 
-    with patch("cli.daemon.iterators.news_ingest.requests.get", return_value=mock_response):
+    with patch("daemon.iterators.news_ingest.requests.get", return_value=mock_response):
         it.tick(ctx)
 
     # headlines.jsonl has entries

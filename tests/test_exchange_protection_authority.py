@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.exchange_protection import (
+from daemon.context import TickContext
+from daemon.iterators.exchange_protection import (
     ExchangeProtectionIterator,
     RuinProtectionConfig,
 )
@@ -99,7 +99,7 @@ class TestAuthorityGate:
         it, adapter = _make_iterator()
         ctx = _ctx([_long("BTC", 1.0, 100.0, 90.0)])
 
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
             it.tick(ctx)
 
         assert len(adapter.placed) == 1
@@ -115,7 +115,7 @@ class TestAuthorityGate:
         it, adapter = _make_iterator()
         ctx = _ctx([_long("GOLD", 0.5, 2000.0, 1800.0)])
 
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
             it.tick(ctx)
 
         assert adapter.placed == []
@@ -126,7 +126,7 @@ class TestAuthorityGate:
         it, adapter = _make_iterator()
         ctx = _ctx([_long("MEME", 100.0, 1.0, 0.5)])
 
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
             it.tick(ctx)
 
         assert adapter.placed == []
@@ -146,7 +146,7 @@ class TestAuthorityGate:
             return asset in ("BTC", "xyz:BRENTOIL")
 
         with patch(
-            "cli.daemon.iterators.exchange_protection.is_agent_managed",
+            "daemon.iterators.exchange_protection.is_agent_managed",
             side_effect=fake_is_agent_managed,
         ):
             it.tick(ctx)
@@ -161,7 +161,7 @@ class TestAuthorityGate:
         ctx_initial = _ctx([_long("BTC", 1.0, 100.0, 90.0)])
 
         # Tick 1: BTC is agent-managed → SL placed
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
             it.tick(ctx_initial)
         assert len(adapter.placed) == 1
         original_oid = adapter.placed[0]["oid"]
@@ -173,7 +173,7 @@ class TestAuthorityGate:
 
         # Tick 2: BTC is now manual → SL must be cancelled
         ctx_reclaim = _ctx([_long("BTC", 1.0, 100.0, 90.0)])
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=False):
             it.tick(ctx_reclaim)
 
         # Cancel was called for the original OID
@@ -200,7 +200,7 @@ class TestAuthorityGate:
             ),
         ])
 
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
             it.tick(ctx)
 
         assert adapter.placed == []
@@ -212,7 +212,7 @@ class TestAuthorityGate:
 
         # Tick 1: open BTC long, agent-managed → SL placed
         ctx_open = _ctx([_long("BTC", 1.0, 100.0, 90.0)])
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
             it.tick(ctx_open)
         assert "BTC" in it._tracked
         original_oid = it._tracked["BTC"].sl_oid
@@ -221,7 +221,7 @@ class TestAuthorityGate:
 
         # Tick 2: BTC position closed (no positions in ctx) → SL cancelled
         ctx_closed = _ctx([])
-        with patch("cli.daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.exchange_protection.is_agent_managed", return_value=True):
             it.tick(ctx_closed)
 
         assert any(c["oid"] == original_oid for c in adapter.cancelled)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cli.daemon.iterators._format import dir_dot, fmt_pct, fmt_pnl, fmt_price
+from daemon.iterators._format import dir_dot, fmt_pct, fmt_pnl, fmt_price
 
 
 class TestFmtPrice:

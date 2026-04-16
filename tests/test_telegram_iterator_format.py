@@ -22,8 +22,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List
 
-from cli.daemon.context import Alert, TickContext
-from cli.daemon.iterators.telegram import TelegramIterator
+from daemon.context import Alert, TickContext
+from daemon.iterators.telegram import TelegramIterator
 
 
 def _make_iterator() -> TelegramIterator:

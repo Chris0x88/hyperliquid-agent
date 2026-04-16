@@ -33,7 +33,7 @@ OIL_BOTPATTERN_PATTERN_CANDIDATES_JSONL = "data/research/bot_pattern_candidates.
 
 def cmd_patterncatalog(token: str, chat_id: str, _args: str) -> None:
     """Show the live bot-pattern catalog + pending candidates."""
-    from cli.daemon.iterators.oil_botpattern_patternlib import (
+    from daemon.iterators.oil_botpattern_patternlib import (
         load_candidates,
         load_catalog,
     )
@@ -99,7 +99,7 @@ def cmd_patternpromote(token: str, chat_id: str, args: str) -> None:
 
     Usage: /patternpromote <id>
     """
-    from cli.daemon.iterators.oil_botpattern_patternlib import apply_promote
+    from daemon.iterators.oil_botpattern_patternlib import apply_promote
     from cli.telegram_bot import tg_send
 
     arg = (args or "").strip()
@@ -130,7 +130,7 @@ def cmd_patternreject(token: str, chat_id: str, args: str) -> None:
 
     Usage: /patternreject <id>
     """
-    from cli.daemon.iterators.oil_botpattern_patternlib import apply_reject
+    from daemon.iterators.oil_botpattern_patternlib import apply_reject
     from cli.telegram_bot import tg_send
 
     arg = (args or "").strip()

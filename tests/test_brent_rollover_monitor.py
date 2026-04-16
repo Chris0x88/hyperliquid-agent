@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.brent_rollover_monitor import (
+from daemon.context import TickContext
+from daemon.iterators.brent_rollover_monitor import (
     BrentRolloverMonitorIterator,
     THRESHOLDS,
     CHECK_INTERVAL_S,

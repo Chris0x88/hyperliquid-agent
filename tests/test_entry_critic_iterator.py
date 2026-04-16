@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cli.daemon.iterators.entry_critic import EntryCriticIterator
+from daemon.iterators.entry_critic import EntryCriticIterator
 
 
 # ───────────────────────────────────────────────────────────

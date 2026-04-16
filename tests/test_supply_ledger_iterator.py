@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.supply_ledger import SupplyLedgerIterator
+from daemon.iterators.supply_ledger import SupplyLedgerIterator
 
 
 def _write_config(d, enabled=True):

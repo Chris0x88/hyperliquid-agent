@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cli.daemon.iterators.market_structure_iter import (
+from daemon.iterators.market_structure_iter import (
     MarketStructureIterator,
     _OIL_CLASSIFIER_MARKETS,
 )
@@ -83,7 +83,7 @@ def test_refresh_fetches_1m_for_oil_markets_when_stale():
     cache = _FakeCache()
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response()
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
 
@@ -103,7 +103,7 @@ def test_refresh_skips_1m_for_non_oil_markets():
     cache = _FakeCache()
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response()
         it._refresh_candles({"BTC"}, lookback_hours=168)
 
@@ -121,7 +121,7 @@ def test_refresh_skips_1m_when_cache_is_fresh_enough():
     cache = _FakeCache(date_ranges={("xyz:BRENTOIL", "1m"): fresh_range})
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response()
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
 
@@ -137,7 +137,7 @@ def test_refresh_fetches_1m_when_stale_past_5_min():
     cache = _FakeCache(date_ranges={("xyz:BRENTOIL", "1m"): stale_range})
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response()
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
 
@@ -156,7 +156,7 @@ def test_1m_lookback_is_120_minutes_not_lookback_hours():
     cache = _FakeCache()
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response()
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
 
@@ -180,7 +180,7 @@ def test_refresh_tolerates_http_errors():
     cache = _FakeCache()
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.side_effect = Exception("network down")
         # Should not raise — errors logged at debug level
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
@@ -192,7 +192,7 @@ def test_refresh_tolerates_empty_response():
     cache = _FakeCache()
     it = _iterator(cache)
 
-    with patch("cli.daemon.iterators.market_structure_iter.requests.post") as post:
+    with patch("daemon.iterators.market_structure_iter.requests.post") as post:
         post.return_value = _fake_response(status_code=200, rows=[])
         it._refresh_candles({"xyz:BRENTOIL"}, lookback_hours=168)
 

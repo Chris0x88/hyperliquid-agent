@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cli.daemon.iterators.lesson_author import (
+from daemon.iterators.lesson_author import (
     LessonAuthorIterator,
     _is_closed_position,
     _is_valid_close,
@@ -425,7 +425,7 @@ class TestLearningsTail:
 
 class TestRegistration:
     def test_lesson_author_in_all_three_tiers(self):
-        from cli.daemon.tiers import TIER_ITERATORS
+        from daemon.tiers import TIER_ITERATORS
         for tier in ("watch", "rebalance", "opportunistic"):
             assert "lesson_author" in TIER_ITERATORS[tier], (
                 f"lesson_author missing from {tier} tier"

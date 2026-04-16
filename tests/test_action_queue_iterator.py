@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.action_queue import ActionQueueIterator
+from daemon.context import TickContext
+from daemon.iterators.action_queue import ActionQueueIterator
 from engines.learning.action_queue import ActionQueue
 
 

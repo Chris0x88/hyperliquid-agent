@@ -25,8 +25,8 @@ def cmd_shadoweval(token: str, chat_id: str, args: str) -> None:
     Usage: /shadoweval          — summary of all evaluated proposals
            /shadoweval <id>     — detailed eval for a specific proposal
     """
-    from cli.daemon.iterators.oil_botpattern_reflect import load_proposals
-    from cli.daemon.iterators.oil_botpattern_shadow import (
+    from daemon.iterators.oil_botpattern_reflect import load_proposals
+    from daemon.iterators.oil_botpattern_shadow import (
         find_shadow_eval,
         load_shadow_evals,
     )

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.daemon.iterators.oil_botpattern_shadow import (
+from daemon.iterators.oil_botpattern_shadow import (
     OilBotPatternShadowIterator,
     find_shadow_eval,
     load_shadow_evals,

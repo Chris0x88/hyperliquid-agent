@@ -115,7 +115,7 @@ def test_detect_parallel_tracks_skips_pattern_match():
     inventory = {
         "modules": [
             {"name": "cli.commands.guard", "path": "cli/commands/guard.py", "docstring": ""},
-            {"name": "cli.daemon.iterators.guard", "path": "cli/daemon/iterators/guard.py", "docstring": ""},
+            {"name": "daemon.iterators.guard", "path": "cli/daemon/iterators/guard.py", "docstring": ""},
         ],
     }
     tracks = detect_parallel_tracks(inventory)

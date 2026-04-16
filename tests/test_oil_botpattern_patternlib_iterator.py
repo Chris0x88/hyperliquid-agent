@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.daemon.iterators.oil_botpattern_patternlib import (
+from daemon.iterators.oil_botpattern_patternlib import (
     OilBotPatternPatternLibIterator,
     apply_promote,
     apply_reject,

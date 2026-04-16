@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cli.daemon import calendar_tags
+from daemon import calendar_tags
 
 
 @pytest.fixture(autouse=True)

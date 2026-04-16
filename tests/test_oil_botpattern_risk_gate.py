@@ -15,7 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
+from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
 from exchange.risk_manager import RiskGate
 
 

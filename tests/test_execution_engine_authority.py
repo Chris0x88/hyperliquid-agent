@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
+from daemon.context import TickContext
+from daemon.iterators.execution_engine import ExecutionEngineIterator
 from common.thesis import ThesisState
 from exchange.position_tracker import Position
 
@@ -83,7 +83,7 @@ class TestExecutionEngineAuthorityGate:
         )
 
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             return_value=True,
         ):
             it.tick(ctx)
@@ -107,7 +107,7 @@ class TestExecutionEngineAuthorityGate:
         )
 
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
         ):
             it.tick(ctx)
@@ -125,7 +125,7 @@ class TestExecutionEngineAuthorityGate:
         )
 
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
         ):
             it.tick(ctx)
@@ -151,7 +151,7 @@ class TestExecutionEngineAuthorityGate:
             return asset in ("BTC", "xyz:BRENTOIL")
 
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             side_effect=fake_is_agent_managed,
         ):
             it.tick(ctx)
@@ -177,7 +177,7 @@ class TestExecutionEngineAuthorityGate:
         )
 
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
         ) as mock_auth:
             it.tick(ctx)
@@ -212,7 +212,7 @@ class TestExecutionEngineAuthorityGate:
         # still fire and close the position because it's structured in tick()
         # before the per-market loop.
         with patch(
-            "cli.daemon.iterators.execution_engine.is_agent_managed",
+            "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
         ):
             it.tick(ctx)

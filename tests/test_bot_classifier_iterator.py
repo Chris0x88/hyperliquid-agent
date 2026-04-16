@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.bot_classifier import BotPatternIterator
+from daemon.iterators.bot_classifier import BotPatternIterator
 from engines.data.bot_classifier import read_patterns
 
 
@@ -165,7 +165,7 @@ def test_classification_uses_catalyst_input(tmp_path):
 
 
 def test_iterator_registered_in_all_tiers():
-    from cli.daemon.tiers import iterators_for_tier
+    from daemon.tiers import iterators_for_tier
     for tier in ("watch", "rebalance", "opportunistic"):
         assert "bot_classifier" in iterators_for_tier(tier)
 

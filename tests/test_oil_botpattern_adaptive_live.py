@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
+from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
 
 
 UTC = timezone.utc

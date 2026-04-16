@@ -1609,7 +1609,7 @@ def _build_market_context_snapshot() -> Optional[Dict]:
 
     # --- Equity + positions from the latest account snapshot -------------
     try:
-        from cli.daemon.iterators.account_collector import (
+        from daemon.iterators.account_collector import (
             AccountCollectorIterator,
         )
         # Prefer absolute path anchored to _PROJECT_ROOT so the read works
@@ -1668,7 +1668,7 @@ def _build_market_context_snapshot() -> Optional[Dict]:
     # future snapshot schema adds it. Keep the key present so readers
     # can treat the whole field uniformly.
     try:
-        from cli.daemon.iterators.account_collector import (
+        from daemon.iterators.account_collector import (
             AccountCollectorIterator,
         )
         snap_dir = str(_PROJECT_ROOT / "data" / "snapshots")

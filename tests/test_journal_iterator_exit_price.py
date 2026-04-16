@@ -24,8 +24,8 @@ from typing import List
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.journal import JournalIterator, _TrackedPosition
+from daemon.context import TickContext
+from daemon.iterators.journal import JournalIterator, _TrackedPosition
 from exchange.position_tracker import Position
 
 

@@ -17,8 +17,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Dict, List
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.connector import ConnectorIterator
+from daemon.context import TickContext
+from daemon.iterators.connector import ConnectorIterator
 
 
 class _FakeDirectAdapter:

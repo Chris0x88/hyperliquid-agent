@@ -3,8 +3,8 @@ from decimal import Decimal
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.apex_advisor import (
+from daemon.context import TickContext
+from daemon.iterators.apex_advisor import (
     ApexAdvisorIterator,
     ADVISE_INTERVAL_S,
     ADVISOR_MAX_SLOTS,

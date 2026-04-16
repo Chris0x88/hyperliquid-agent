@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from cli.daemon.iterators.heatmap import HeatmapIterator
+from daemon.iterators.heatmap import HeatmapIterator
 from engines.data.heatmap import read_cascades, read_zones
 
 
@@ -178,6 +178,6 @@ def test_empty_l2book_does_not_crash(tmp_path):
 
 
 def test_iterator_registered_in_all_tiers():
-    from cli.daemon.tiers import iterators_for_tier
+    from daemon.tiers import iterators_for_tier
     for tier in ("watch", "rebalance", "opportunistic"):
         assert "heatmap" in iterators_for_tier(tier)

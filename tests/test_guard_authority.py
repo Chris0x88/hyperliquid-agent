@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.guard import GuardIterator
+from daemon.context import TickContext
+from daemon.iterators.guard import GuardIterator
 from exchange.position_tracker import Position
 
 
@@ -62,7 +62,7 @@ class TestGuardAuthorityGate:
         guard = _make_guard(tmp_path)
         ctx = _ctx([_long("BTC")], prices={"BTC": 105.0})
 
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=True):
             guard.tick(ctx)
 
         assert "BTC" in guard._bridges
@@ -72,7 +72,7 @@ class TestGuardAuthorityGate:
         guard = _make_guard(tmp_path)
         ctx = _ctx([_long("GOLD")], prices={"GOLD": 2000.0})
 
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=False):
             guard.tick(ctx)
 
         assert "GOLD" not in guard._bridges
@@ -84,7 +84,7 @@ class TestGuardAuthorityGate:
         guard = _make_guard(tmp_path)
         ctx = _ctx([_long("MEME")], prices={"MEME": 1.0})
 
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=False):
             guard.tick(ctx)
 
         assert "MEME" not in guard._bridges
@@ -102,7 +102,7 @@ class TestGuardAuthorityGate:
             return asset in ("BTC", "xyz:BRENTOIL")
 
         with patch(
-            "cli.daemon.iterators.guard.is_agent_managed",
+            "daemon.iterators.guard.is_agent_managed",
             side_effect=fake_is_agent_managed,
         ):
             guard.tick(ctx)
@@ -117,13 +117,13 @@ class TestGuardAuthorityGate:
         ctx_initial = _ctx([_long("BTC")], prices={"BTC": 105.0})
 
         # Tick 1: BTC delegated → bridge created
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=True):
             guard.tick(ctx_initial)
         assert "BTC" in guard._bridges
 
         # Tick 2: BTC reclaimed → bridge torn down, alert raised
         ctx_reclaim = _ctx([_long("BTC")], prices={"BTC": 105.0})
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=False):
             guard.tick(ctx_reclaim)
 
         assert "BTC" not in guard._bridges
@@ -142,7 +142,7 @@ class TestGuardAuthorityGate:
         ctx_initial = _ctx([_long("BTC")], prices={"BTC": 105.0})
 
         # Tick 1: bridge created (will sync_exchange_sl during HOLD)
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=True):
             guard.tick(ctx_initial)
 
         # Mark current call counts as baseline
@@ -150,7 +150,7 @@ class TestGuardAuthorityGate:
 
         # Tick 2: reclaimed
         ctx_reclaim = _ctx([_long("BTC")], prices={"BTC": 105.0})
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=False):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=False):
             guard.tick(ctx_reclaim)
 
         # cancel_exchange_sl was invoked (which calls adapter.cancel_trigger_order
@@ -163,7 +163,7 @@ class TestGuardAuthorityGate:
         guard = _make_guard(tmp_path)
         ctx_open = _ctx([_long("BTC")], prices={"BTC": 105.0})
 
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=True):
             guard.tick(ctx_open)
         assert "BTC" in guard._bridges
 
@@ -175,7 +175,7 @@ class TestGuardAuthorityGate:
             leverage=Decimal("10"),
         )
         ctx_closed = _ctx([zero_pos], prices={"BTC": 105.0})
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=True):
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=True):
             guard.tick(ctx_closed)
 
         assert "BTC" not in guard._bridges
@@ -186,7 +186,7 @@ class TestGuardAuthorityGate:
         # No price for BTC
         ctx = _ctx([_long("BTC")], prices={})
 
-        with patch("cli.daemon.iterators.guard.is_agent_managed", return_value=False) as mock_auth:
+        with patch("daemon.iterators.guard.is_agent_managed", return_value=False) as mock_auth:
             guard.tick(ctx)
 
         # The price check at the top of the loop short-circuits before authority,

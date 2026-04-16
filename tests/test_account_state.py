@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from cli.daemon.context import TickContext
-from cli.daemon.iterators.account_collector import AccountCollectorIterator
+from daemon.context import TickContext
+from daemon.iterators.account_collector import AccountCollectorIterator
 from common.heartbeat import _fetch_account_state
 from common.heartbeat_config import HeartbeatConfig
 from common.account_state import fetch_registered_account_state
