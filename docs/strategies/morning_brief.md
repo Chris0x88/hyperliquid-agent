@@ -17,7 +17,7 @@
 - Flag anything where liquidation distance < 15% as a red item
 
 ### 2. Δ vs last session
-- Compare current equity against the last brief (stored in `data/strategies/last_brief_state.json`)
+- Compare current equity against the last brief (stored in `data/brief/last_brief_state.json`)
 - Compute realised + unrealised PnL since last brief
 - Flag any position that opened or closed without a brief in between
 
@@ -44,7 +44,7 @@
 - If nothing is set up, say "no plays today, hold"
 
 ### 7. Save state for next brief
-- Write current equity + position snapshot to `data/strategies/last_brief_state.json`
+- Write current equity + position snapshot to `data/brief/last_brief_state.json`
 - Append a one-line note to `data/strategies/brief_log.md`
 
 ---
@@ -119,6 +119,6 @@ I do NOT run this without being asked. Chris's day, Chris's call.
 ## Maintenance
 
 - The template lives here. Edits go here.
-- The state file `data/strategies/last_brief_state.json` is private to the brief — don't reuse for other purposes
+- The state file `data/brief/last_brief_state.json` is private to the brief — don't reuse for other purposes
 - If a section is consistently empty for >5 briefs, drop it from the template
 - If a section is consistently the same value, that's a sign to automate it via the daemon, not to keep reporting it

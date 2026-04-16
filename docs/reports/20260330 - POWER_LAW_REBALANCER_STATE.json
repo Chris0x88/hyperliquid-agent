@@ -1,0 +1,108 @@
+{
+  "trades_executed": 4,
+  "last_rebalance": "2026-03-30T23:10:15.964817",
+  "activity_log": [
+    {
+      "timestamp": "2026-03-27T19:39:02.905549",
+      "type": "trade",
+      "message": "buy_btc $2716000.00 (SIMULATED)",
+      "data": {
+        "direction": "buy_btc",
+        "amount_usd": 2716000.0000000005,
+        "simulated": true,
+        "fill_price": null
+      }
+    },
+    {
+      "timestamp": "2026-03-30T19:12:19.350582",
+      "type": "trade",
+      "message": "buy_btc $4422.91",
+      "data": {
+        "direction": "buy_btc",
+        "amount_usd": 4422.905393847,
+        "simulated": false,
+        "fill_price": 67636.0
+      }
+    },
+    {
+      "timestamp": "2026-03-30T19:23:17.686150",
+      "type": "trade",
+      "message": "buy_btc $232.42",
+      "data": {
+        "direction": "buy_btc",
+        "amount_usd": 232.421828793,
+        "simulated": false,
+        "fill_price": 67503.0
+      }
+    },
+    {
+      "timestamp": "2026-03-30T19:30:06.468750",
+      "type": "skip",
+      "message": "Deviation 0.2% < 10%"
+    },
+    {
+      "timestamp": "2026-03-30T19:30:44.927339",
+      "type": "skip",
+      "message": "Deviation 0.2% < 10.0%"
+    },
+    {
+      "timestamp": "2026-03-30T19:32:59.178269",
+      "type": "skip",
+      "message": "Deviation 0.2% < 10.0%"
+    },
+    {
+      "timestamp": "2026-03-30T20:33:18.965826",
+      "type": "skip",
+      "message": "Deviation 0.3% < 10.0%"
+    },
+    {
+      "timestamp": "2026-03-30T21:33:39.450703",
+      "type": "skip",
+      "message": "Deviation 0.1% < 10.0%"
+    },
+    {
+      "timestamp": "2026-03-30T22:33:58.815799",
+      "type": "skip",
+      "message": "Deviation 0.5% < 10.0%"
+    },
+    {
+      "timestamp": "2026-03-30T22:36:52.648366",
+      "type": "skip",
+      "message": "Deviation 0.6% < 10%"
+    },
+    {
+      "timestamp": "2026-03-30T23:10:15.964838",
+      "type": "trade",
+      "message": "sell_btc $2003.16",
+      "data": {
+        "direction": "sell_btc",
+        "amount_usd": 2003.157568165,
+        "simulated": false,
+        "fill_price": 67850.0
+      }
+    }
+  ],
+  "last_portfolio": {
+    "btc_position": 0.03293,
+    "usdc_balance": 185.302681,
+    "total_value_usd": 408.792005,
+    "btc_percent": 546.72,
+    "btc_price_usd": 67869.5
+  },
+  "last_signal": {
+    "date": "2026-03-30",
+    "price": 67869.5,
+    "allocation_pct": 56.7,
+    "floor": 58646.97,
+    "ceiling": 135609.78,
+    "revised_ceiling": 135609.78,
+    "model_price": 88977.64,
+    "position_in_band_pct": 12.0,
+    "cycle": 5,
+    "cycle_progress_pct": 48.5,
+    "phase": "late_cycle_peak_zone",
+    "valuation": "deep_value",
+    "stance": "balanced",
+    "tagline": "Cycle 5 | 48% complete | Late Cycle Peak Zone | Price at 12% of range (deep value) | Favorable accumulation: 57% BTC recommended"
+  }
+}
