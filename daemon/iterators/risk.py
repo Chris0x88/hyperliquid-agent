@@ -29,6 +29,15 @@ class RiskIterator:
         self._risk_mgr = RiskManager(limits=self._limits)
         self._tracker = PositionTracker()
         self._chain = protection_chain or ProtectionChain()
+        # P1 #6 (2026-04-17) — content-based dedup memo. The audit found this
+        # iterator was the second-largest noise source (~1.7k alerts/7d)
+        # because it re-emitted the same "All entries blocked" message every
+        # tick the chain stayed triggered. Time-based dedup (downstream in
+        # TelegramIterator) only suppressed within a 15-min window — anything
+        # longer leaked. Now we only re-emit when the (gate, reason-set)
+        # tuple actually changes. Recovery (gate clears) ALSO emits one
+        # transition alert so the operator sees the all-clear.
+        self._last_alert_signature: Optional[tuple] = None
 
     def on_start(self, ctx: TickContext) -> None:
         log.info("RiskIterator started with %d protections: %s",
@@ -79,6 +88,17 @@ class RiskIterator:
         # ``Protection chain [COOLDOWN]: reason | reason [tag, tag]``
         # with a labelled markdown block so the gate state, reasons, and
         # market context each get their own line.
+        # Compute the alert signature: (gate, sorted reason texts). Same
+        # signature → no new alert; signature change OR transition to clear →
+        # one alert. Recovery from triggered → clear emits a single info
+        # all-clear so the operator sees the resolution.
+        signature = (
+            chain_gate.value,
+            tuple(sorted(t.reason for t in triggered)) if triggered else (),
+        )
+        if signature == self._last_alert_signature:
+            return
+
         if triggered:
             worst_severity = "critical" if chain_gate == RiskGate.CLOSED else "warning"
             # C4: append calendar regime tags so the operator knows the
@@ -111,3 +131,12 @@ class RiskIterator:
                     "high_impact_event_24h": cal["high_impact_event_24h"],
                 },
             ))
+        elif self._last_alert_signature and self._last_alert_signature[1]:
+            # Transition: was triggered, now clear. One info alert.
+            ctx.alerts.append(Alert(
+                severity="info",
+                source=self.name,
+                message="*Risk status — back to Normal* (all chain protections cleared)",
+            ))
+
+        self._last_alert_signature = signature

@@ -1133,6 +1133,82 @@ def _author_pending_lessons(
     }
 
 
+_ENTRY_CRITIQUES_PATH = "data/research/entry_critiques.jsonl"
+
+
+def _load_recent_entry_critiques(open_coins: set, max_per_coin: int = 1, lookback: int = 50) -> str:
+    """Return a compact ENTRY-CRITIC block for the agent's currently open positions.
+
+    Reads the tail of ``entry_critiques.jsonl`` (deterministic per-entry grading
+    written by ``daemon/iterators/entry_critic.py``), filters to positions the
+    agent currently holds, and emits one bullet line per coin with the most
+    recent overall_label + the first suggestion. Empty string if no matches —
+    safe to splice into the live_context unconditionally.
+
+    Bounded reads: only the last ``lookback`` lines are scanned (file is
+    append-only so the tail is what matters), and at most ``max_per_coin``
+    rows per coin are surfaced.
+    """
+    try:
+        from pathlib import Path
+        path = Path(_ENTRY_CRITIQUES_PATH)
+        if not path.exists() or not open_coins:
+            return ""
+        # Normalize open_coins to handle xyz: prefix bug — match either form.
+        norm_open = set()
+        for c in open_coins:
+            if not c:
+                continue
+            norm_open.add(c)
+            norm_open.add(c.replace("xyz:", ""))
+            norm_open.add(f"xyz:{c}" if not c.startswith("xyz:") else c)
+        # Read last `lookback` lines without loading the whole file.
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            chunk = min(size, 64 * 1024)  # 64KB tail is enough for lookback
+            fh.seek(size - chunk)
+            tail = fh.read().decode("utf-8", errors="ignore")
+        rows = []
+        for line in tail.splitlines()[-lookback:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+        # Filter to open coins, keep newest first per coin.
+        per_coin: dict = {}
+        for row in reversed(rows):
+            inst = row.get("instrument") or row.get("market") or ""
+            if inst not in norm_open:
+                continue
+            per_coin.setdefault(inst, []).append(row)
+            if all(len(v) >= max_per_coin for v in per_coin.values()) and len(per_coin) >= len(norm_open):
+                break
+        if not per_coin:
+            return ""
+        lines = ["ENTRY CRITIQUES (your open positions, from daemon entry_critic):"]
+        for inst, rows in per_coin.items():
+            for row in rows[:max_per_coin]:
+                grade = row.get("grade") or {}
+                label = grade.get("overall_label", "?")
+                suggestions = grade.get("suggestions") or []
+                first_sug = suggestions[0] if suggestions else ""
+                created = row.get("created_at", "")
+                line = f"  {inst}: {label}"
+                if first_sug:
+                    line += f" — {first_sug}"
+                if created:
+                    line += f"  ({created})"
+                lines.append(line)
+        return "\n".join(lines)
+    except Exception as e:
+        log.debug("entry-critiques injection failed: %s", e)
+        return ""
+
+
 def _build_live_context() -> str:
     """Build token-budgeted, relevance-scored context using the context harness.
 
@@ -1195,8 +1271,20 @@ def _build_live_context() -> str:
         except Exception as e:
             log.warning(f"trade_evaluator failed to run: {e}")
 
+        # P2 #8 (2026-04-17): surface the entry-critic's own output for open
+        # positions. The daemon runs entry_critic on every new entry and writes
+        # a structured grade to data/research/entry_critiques.jsonl, but the
+        # agent never read its own output — so it couldn't cite concerns the
+        # critic had already flagged. Injecting the most recent matching
+        # critiques makes the agent's entry-review answers grounded instead
+        # of vague.
+        critiques_block = _load_recent_entry_critiques(
+            open_coins={p.get("coin", "") for p in account_state.get("positions", [])}
+        )
+        critiques_text = f"\n{critiques_block}\n" if critiques_block else ""
+
         footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
-        return f"{header}\n{alert_prefix}{evals}{assembled.text}\n{footer}"
+        return f"{header}\n{alert_prefix}{evals}{critiques_text}{assembled.text}\n{footer}"
 
     except Exception as e:
         log.warning("Context harness failed, using fallback: %s", e)
@@ -1337,6 +1425,24 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
             if c and c not in watchlist:
                 if f"xyz:{c}" not in watchlist:
                     watchlist[c] = c
+
+        # P2 #9 (2026-04-17): always include every approved trading market so
+        # the agent surfaces opportunities in markets Chris trades but doesn't
+        # currently hold. The audit found the agent was missing big moves in
+        # approved markets simply because it never saw them in its context.
+        # Approved markets come from the canonical MarketRegistry, not a
+        # hard-coded list, so adding a market via markets.yaml automatically
+        # promotes it to live_context. xyz markets need the xyz: prefix to
+        # resolve in HL allMids; native markets use the bare symbol.
+        try:
+            from common.markets import get_default_registry
+            _XYZ_ASSETS = {"BRENTOIL", "GOLD", "SILVER", "CL", "SP500", "NATGAS"}
+            for sym in get_default_registry().known_symbols():
+                key = f"xyz:{sym}" if sym in _XYZ_ASSETS else sym
+                if sym not in watchlist and key not in watchlist:
+                    watchlist[sym] = key
+        except Exception as e:
+            log.debug("approved-markets injection skipped: %s", e)
 
         # ── FRESH CANDLE INJECTION ──
         # Fetch fresh candles (1h, 4h, 1d) from HL API BEFORE building snapshots

@@ -105,6 +105,31 @@ def compute_stop_price(
     if not is_long and stop <= entry:
         return 0.0
 
+    # P0 #2 (2026-04-17) — defensive liquidation guard
+    # Catches the *whole class* of "SL on the wrong side of liquidation" bugs,
+    # regardless of which earlier branch produced the value. For a LONG,
+    # liquidation is below entry and the SL must be ABOVE liq. For a SHORT,
+    # liquidation is above entry and the SL must be BELOW liq. If the
+    # computed stop ever crosses to the dangerous side, refuse to place
+    # rather than guarantee liquidation. Caller treats 0.0 as "skip & alert".
+    if liq_price is not None and liq_price > 0:
+        if is_long and stop <= liq_price:
+            log.error(
+                "compute_stop_price: refusing to return LONG SL %.6f at/below "
+                "liquidation %.6f (entry=%.6f). Returning 0 (no SL placed). "
+                "Inputs may indicate the position has no safe SL — verify size/leverage.",
+                stop, liq_price, entry,
+            )
+            return 0.0
+        if not is_long and stop >= liq_price:
+            log.error(
+                "compute_stop_price: refusing to return SHORT SL %.6f at/above "
+                "liquidation %.6f (entry=%.6f). Returning 0 (no SL placed). "
+                "Inputs may indicate the position has no safe SL — verify size/leverage.",
+                stop, liq_price, entry,
+            )
+            return 0.0
+
     return stop
 
 
