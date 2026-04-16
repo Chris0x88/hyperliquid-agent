@@ -1,43 +1,33 @@
-"""ApexAdvisorIterator — dry-run APEX evaluator that proposes but never executes.
+"""ApexAdvisorIterator — signal-driven APEX evaluator (advisor or live executor).
 
-This is C3 from the 2026-04-07 connections audit. APEX (modules/apex_engine.py)
-is a complete decision engine but has been dead code in the daemon — its only
-caller is skills/apex/scripts/standalone_runner.py, which is not what runs in
-production.
+This is C3 from the 2026-04-07 connections audit. Reads radar_opportunities +
+pulse_signals (populated by the radar and pulse iterators each tick), runs them
+through ApexEngine, and either:
 
-This iterator brings APEX online as an ADVISOR. Each cycle:
+  - DRY-RUN mode (default): proposes actions as Telegram alerts, never executes
+  - LIVE mode: converts ApexAction → OrderIntent and queues real orders
 
-  1. Build an ApexState that mirrors the daemon's actual open positions
-     (one slot per real position) so the engine sees current reality
-  2. Read pulse_signals + radar_opportunities populated by the pulse and
-     radar iterators on the same tick
-  3. Call ApexEngine.evaluate() with current state + signals + prices
-  4. For each ApexAction the engine proposes, log it and emit a Telegram
-     alert tagged 'apex_advisor'
-  5. NEVER queue an OrderIntent. NEVER touch the exchange.
+Mode is controlled by the kill switch at data/config/apex_executor.json:
+  {"enabled": false}  → dry-run (default, safe)
+  {"enabled": true}   → live execution on technical signals
 
-Why "advisor" not "executor": the user explicitly wants to run in WATCH tier
-(observe-only) until the system has earned enough trust to be promoted past
-WATCH. The advisor lets APEX prove its judgement against real signals before
-any real money flows through it. After a week of clean proposals the user
-can decide whether to graduate this iterator into a true executor (which is
-what execution_engine in REBALANCE/OPPORTUNISTIC tiers does).
+The execution_engine (thesis-driven path) has its own kill switch at
+data/config/execution_engine.json and defaults to disabled. This means
+technical-signal execution is the DEFAULT path when you promote past WATCH tier.
 
-Throttle: 60s. Even at the slowest, the throttle is finer than pulse (120s)
-and radar (300s) so the advisor never misses a fresh signal.
-
-Heartbeat log: emits one INFO log line per cycle even when there are no
-proposals, so the operator can see the advisor is alive and silent on
-purpose. Quiet markets should produce a stream of "advised: no proposals
-(N pulse, M radar, K positions)" lines, NOT a confusing absence of output.
+Throttle: 60s. Finer than pulse (120s) and radar (300s) so no fresh signal is
+missed. Heartbeat log on every cycle so operator can see the advisor is alive.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
+from decimal import Decimal
 from typing import Dict, List, Optional
 
-from daemon.context import Alert, TickContext
+from daemon.context import Alert, OrderIntent, TickContext
 
 log = logging.getLogger("daemon.apex_advisor")
 
@@ -46,13 +36,26 @@ log = logging.getLogger("daemon.apex_advisor")
 # slowest input updates.
 ADVISE_INTERVAL_S = 60
 
-# Default APEX config knobs for advisor mode. We don't want it proposing
-# enormous slot counts; 3 is the same default as standalone_runner.
+# Default APEX config knobs. 3 slots = same default as standalone_runner.
 ADVISOR_MAX_SLOTS = 3
+
+# Kill switch path — write {"enabled": true} to activate live execution.
+_KILL_SWITCH = "data/config/apex_executor.json"
+
+
+def _read_live_mode() -> bool:
+    """Return True if apex_executor kill switch has enabled=true."""
+    try:
+        if os.path.exists(_KILL_SWITCH):
+            with open(_KILL_SWITCH) as f:
+                return bool(json.load(f).get("enabled", False))
+    except Exception:
+        pass
+    return False  # safe default: dry-run only
 
 
 class ApexAdvisorIterator:
-    """Dry-run APEX advisor — proposes actions, logs them, emits alerts."""
+    """Signal-driven APEX iterator — advisor by default, live executor when enabled."""
 
     name = "apex_advisor"
 
@@ -60,8 +63,8 @@ class ApexAdvisorIterator:
         self._engine = None
         self._config = None
         self._last_advise: float = 0.0
-        # Track last proposed action key per (instrument, action) so we don't
-        # spam the same proposal every cycle while signals persist.
+        self._live: bool = False  # set in on_start from kill switch
+        # Suppress repeated identical proposals (dry-run) or duplicate orders (live)
         self._last_proposal: Dict[str, str] = {}
 
     def on_start(self, ctx: TickContext) -> None:
@@ -74,8 +77,6 @@ class ApexAdvisorIterator:
         try:
             self._config = ApexConfig(max_slots=ADVISOR_MAX_SLOTS)
         except Exception as e:
-            # Some ApexConfig fields require positional/runtime values; fall
-            # back to bare construction.
             log.debug("ApexConfig with kwargs failed (%s); using bare init", e)
             try:
                 self._config = ApexConfig()
@@ -87,10 +88,12 @@ class ApexAdvisorIterator:
         except Exception as e:
             log.warning("ApexAdvisor: ApexEngine init failed: %s", e)
             return
+
+        self._live = _read_live_mode()
+        mode = "LIVE (signal-driven execution)" if self._live else "DRY-RUN (proposals only)"
         log.info(
-            "ApexAdvisor started  max_slots=%d  interval=%ds  mode=DRY_RUN (proposes only, never executes)",
-            ADVISOR_MAX_SLOTS,
-            ADVISE_INTERVAL_S,
+            "ApexAdvisor started  max_slots=%d  interval=%ds  mode=%s",
+            ADVISOR_MAX_SLOTS, ADVISE_INTERVAL_S, mode,
         )
 
     def on_stop(self) -> None:
@@ -219,21 +222,28 @@ class ApexAdvisorIterator:
             return  # already alerted this exact proposal
         self._last_proposal[key] = proposal
 
-        verb = action.action.upper()
         inst = action.instrument or "?"
         direction = (action.direction or "").upper()
         reason = action.reason or "no reason given"
-        # Translate code-style reasons into readable text
         if reason.startswith("hard_stop:"):
             detail = reason.split(":", 1)[1].strip()
             reason = f"Hard stop triggered ({detail})"
+
+        if self._live:
+            self._execute_action(ctx, action, inst, direction, reason)
+        else:
+            self._advise_action(ctx, action, inst, direction, reason)
+
+    def _advise_action(self, ctx: TickContext, action, inst: str, direction: str, reason: str) -> None:
+        """Dry-run: emit a Telegram alert only. No order queued."""
+        verb = action.action.upper()
         msg = (
-            f"*Trade suggestion* (not executed)\n"
+            f"*Trade signal* (not executed — apex_executor disabled)\n"
             f"  {verb} {inst} {direction}\n"
             f"  {reason}"
         )
         ctx.alerts.append(Alert(
-            severity="info",  # advisor is informational; user makes the call
+            severity="info",
             source=self.name,
             message=msg.strip(),
             data={
@@ -245,6 +255,79 @@ class ApexAdvisorIterator:
                 "signal_score": action.signal_score,
                 "reason": action.reason,
                 "execution_algo": action.execution_algo,
+                "mode": "dry_run",
             },
         ))
-        log.info("[advice] %s", msg)
+        log.info("[signal/dry-run] %s %s %s — %s", action.action, inst, direction, reason)
+
+    def _execute_action(self, ctx: TickContext, action, inst: str, direction: str, reason: str) -> None:
+        """Live mode: convert ApexAction → OrderIntent and queue it."""
+        from common.authority import is_agent_managed
+
+        # Strip '-PERP' suffix for exchange instrument name
+        exchange_inst = inst.replace("-PERP", "") if inst.endswith("-PERP") else inst
+
+        if not is_agent_managed(exchange_inst):
+            log.warning("ApexAdvisor: skipping %s — not agent-managed (check authority.json)", exchange_inst)
+            return
+
+        size = Decimal(str(round(action.size, 4))) if action.size > 0 else Decimal("0")
+
+        if action.action == "enter":
+            order_action = "buy" if action.direction == "long" else "sell"
+            intent = OrderIntent(
+                strategy_name=self.name,
+                instrument=exchange_inst,
+                action=order_action,
+                size=size,
+                meta={
+                    "reason": reason,
+                    "source": action.source,
+                    "signal_score": action.signal_score,
+                    "execution_algo": action.execution_algo,
+                    "slot_id": action.slot_id,
+                },
+            )
+        elif action.action == "exit":
+            intent = OrderIntent(
+                strategy_name=self.name,
+                instrument=exchange_inst,
+                action="close",
+                size=size,
+                reduce_only=True,
+                meta={
+                    "reason": reason,
+                    "source": action.source,
+                    "signal_score": action.signal_score,
+                    "slot_id": action.slot_id,
+                },
+            )
+        else:
+            return  # noop — nothing to queue
+
+        ctx.order_queue.append(intent)
+
+        verb = action.action.upper()
+        msg = (
+            f"*Signal trade queued*\n"
+            f"  {verb} {inst} {direction}\n"
+            f"  {reason}\n"
+            f"  score={action.signal_score:.0f}  src={action.source}"
+        )
+        ctx.alerts.append(Alert(
+            severity="info",
+            source=self.name,
+            message=msg.strip(),
+            data={
+                "action": action.action,
+                "instrument": exchange_inst,
+                "direction": action.direction,
+                "size": float(size),
+                "slot_id": action.slot_id,
+                "source": action.source,
+                "signal_score": action.signal_score,
+                "reason": action.reason,
+                "mode": "live",
+            },
+        ))
+        log.info("[signal/LIVE] %s %s %s size=%s — %s", action.action, exchange_inst, direction, size, reason)

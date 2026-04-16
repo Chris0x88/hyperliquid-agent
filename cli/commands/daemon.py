@@ -159,6 +159,7 @@ def daemon_start(
     from daemon.iterators.exchange_protection import ExchangeProtectionIterator
     from daemon.iterators.autoresearch import AutoresearchIterator
     from daemon.iterators.market_structure_iter import MarketStructureIterator
+    from daemon.iterators.price_move_alert import PriceMoveAlertIterator
     try:
         from daemon.iterators.funding_tracker import FundingTrackerIterator
         _has_funding = True
@@ -273,6 +274,7 @@ def daemon_start(
         clock.register(ArchitectIterator())  # mechanical self-improvement (kill switch OFF at ship)
     except ImportError:
         pass
+    clock.register(PriceMoveAlertIterator())   # big price move alerts (5m / 1h / 24h)
     clock.register(TelegramIterator(data_dir=data_dir))
 
     mode = "mock" if mock else ("mainnet" if mainnet else "testnet")

@@ -1,8 +1,12 @@
 """ExecutionEngineIterator — conviction-based adaptive sizing and ruin prevention.
 
-Layer 2 of the two-layer architecture. Reads ThesisState from ctx.thesis_states
-(written by AI, injected by thesis_engine) and generates OrderIntents to size
-positions appropriately.
+DISABLED BY DEFAULT. Enable with data/config/execution_engine.json:
+  {"enabled": true}
+
+This is the thesis-driven execution path. It reads ThesisState from
+ctx.thesis_states and sizes positions based on conviction bands. Unless you
+explicitly want the robot trading on thesis conviction, leave this disabled and
+use the signal-driven apex_advisor path instead (data/config/apex_executor.json).
 
 Conviction bands (Druckenmiller 70-80% rule):
   0.8-1.0  → 20% account, 15x max leverage (full conviction, pyramid dips)
@@ -10,7 +14,7 @@ Conviction bands (Druckenmiller 70-80% rule):
   0.2-0.5  →  6% account,  5x max leverage (cautious)
   0.0-0.2  →  0% account,  0x (exit positions)
 
-Account-level ruin prevention (UNCONDITIONAL — cannot be overridden by AI):
+Account-level ruin prevention (UNCONDITIONAL — always runs even if disabled):
   25% drawdown: halt new entries
   40% drawdown: close ALL positions
 
@@ -20,7 +24,9 @@ Time-aware leverage caps:
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -41,6 +47,20 @@ RUIN_DRAWDOWN_PCT = 40.0    # close all immediately
 # Rebalance only when position delta exceeds this fraction of target
 REBALANCE_THRESHOLD = 0.05  # 5%
 REBALANCE_INTERVAL_S = 120  # check every 2 minutes
+
+# Kill switch — defaults to DISABLED. Enable only if you want thesis-driven trading.
+_KILL_SWITCH = "data/config/execution_engine.json"
+
+
+def _is_enabled() -> bool:
+    """Return True only when execution_engine.json explicitly sets enabled=true."""
+    try:
+        if os.path.exists(_KILL_SWITCH):
+            with open(_KILL_SWITCH) as f:
+                return bool(json.load(f).get("enabled", False))
+    except Exception:
+        pass
+    return False  # safe default: disabled
 
 
 def _is_weekend_et() -> bool:
@@ -92,16 +112,18 @@ class ExecutionEngineIterator:
         self._last_rebalance: float = 0.0
 
     def on_start(self, ctx: TickContext) -> None:
+        enabled = _is_enabled()
+        status = "ENABLED (thesis-driven)" if enabled else "DISABLED (set execution_engine.json enabled=true to activate)"
         log.info(
-            "ExecutionEngine started  halt_at=%.0f%%  ruin_at=%.0f%%  rebalance_threshold=%.0f%%",
-            HALT_DRAWDOWN_PCT, RUIN_DRAWDOWN_PCT, REBALANCE_THRESHOLD * 100,
+            "ExecutionEngine started  status=%s  halt_at=%.0f%%  ruin_at=%.0f%%",
+            status, HALT_DRAWDOWN_PCT, RUIN_DRAWDOWN_PCT,
         )
 
     def on_stop(self) -> None:
         pass
 
     def tick(self, ctx: TickContext) -> None:
-        # --- RUIN PREVENTION (unconditional) ---
+        # --- RUIN PREVENTION — always runs, even when thesis execution disabled ---
         drawdown = ctx.account_drawdown_pct
 
         if drawdown >= RUIN_DRAWDOWN_PCT:
@@ -118,7 +140,10 @@ class ExecutionEngineIterator:
         if drawdown >= HALT_DRAWDOWN_PCT:
             log.warning("Drawdown %.1f%% — halting new entries (threshold: %.0f%%)",
                         drawdown, HALT_DRAWDOWN_PCT)
-            # Don't close existing, just don't open new
+            return
+
+        # --- Kill switch check — thesis-driven sizing disabled by default ---
+        if not _is_enabled():
             return
 
         # --- Throttle rebalancing ---

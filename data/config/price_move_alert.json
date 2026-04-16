@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "thresholds": {
+    "5m":  2.0,
+    "1h":  3.0,
+    "24h": 2.0
+  },
+  "cooldown_minutes": 30,
+  "_comment": "Price move alert thresholds (%). Cooldown prevents re-alerting the same move."
+}

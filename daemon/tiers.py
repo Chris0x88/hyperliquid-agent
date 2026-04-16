@@ -28,7 +28,8 @@ TIER_ITERATORS = {
         "pulse",               # capital inflow detector (read-only intelligence)
         "liquidity",
         "risk",
-        "apex_advisor",        # dry-run APEX advisor — proposes only (C3)
+        "price_move_alert",    # big price move alerts (5m / 1h / 24h windows)
+        "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "autoresearch",        # learning loop
         "memory_consolidation", # compress old events hourly
         "journal",
@@ -66,6 +67,7 @@ TIER_ITERATORS = {
         "oil_botpattern_reflect",    # sub-system 6 L2: weekly reflect proposals for #5 (kill switch OFF at ship)
         "oil_botpattern_patternlib", # sub-system 6 L3: pattern library growth (kill switch OFF at ship)
         "oil_botpattern_shadow",     # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
+        "price_move_alert",    # big price move alerts (5m / 1h / 24h windows)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -80,6 +82,7 @@ TIER_ITERATORS = {
         "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
+        "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "telegram",
     ],
     "opportunistic": [
@@ -107,6 +110,7 @@ TIER_ITERATORS = {
         "oil_botpattern_patternlib", # sub-system 6 L3: pattern library growth (kill switch OFF at ship)
         "oil_botpattern_shadow",     # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
         "pulse",
+        "price_move_alert",    # big price move alerts (5m / 1h / 24h windows)
         "profit_lock",
         "funding_tracker",
         "catalyst_deleverage",
@@ -121,6 +125,7 @@ TIER_ITERATORS = {
         "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
         "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
+        "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "telegram",
     ],
 }

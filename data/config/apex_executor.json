@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "_comment": "Set enabled=true to activate live signal-driven trading via radar/pulse/apex. Requires REBALANCE or OPPORTUNISTIC tier."
+}

@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "_comment": "Thesis-driven conviction sizing. Disabled by default — use apex_executor.json for signal-driven trading instead."
+}

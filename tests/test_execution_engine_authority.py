@@ -85,6 +85,9 @@ class TestExecutionEngineAuthorityGate:
         with patch(
             "daemon.iterators.execution_engine.is_agent_managed",
             return_value=True,
+        ), patch(
+            "daemon.iterators.execution_engine._is_enabled",
+            return_value=True,
         ):
             it.tick(ctx)
 
@@ -109,6 +112,9 @@ class TestExecutionEngineAuthorityGate:
         with patch(
             "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
+        ), patch(
+            "daemon.iterators.execution_engine._is_enabled",
+            return_value=True,
         ):
             it.tick(ctx)
 
@@ -127,6 +133,9 @@ class TestExecutionEngineAuthorityGate:
         with patch(
             "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
+        ), patch(
+            "daemon.iterators.execution_engine._is_enabled",
+            return_value=True,
         ):
             it.tick(ctx)
 
@@ -153,6 +162,9 @@ class TestExecutionEngineAuthorityGate:
         with patch(
             "daemon.iterators.execution_engine.is_agent_managed",
             side_effect=fake_is_agent_managed,
+        ), patch(
+            "daemon.iterators.execution_engine._is_enabled",
+            return_value=True,
         ):
             it.tick(ctx)
 
@@ -179,7 +191,10 @@ class TestExecutionEngineAuthorityGate:
         with patch(
             "daemon.iterators.execution_engine.is_agent_managed",
             return_value=False,
-        ) as mock_auth:
+        ) as mock_auth, patch(
+            "daemon.iterators.execution_engine._is_enabled",
+            return_value=True,
+        ):
             it.tick(ctx)
 
         # Authority was checked
