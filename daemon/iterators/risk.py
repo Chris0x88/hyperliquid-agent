@@ -1,4 +1,4 @@
-"""RiskIterator — wraps parent/risk_manager.py to set risk gate.
+"""RiskIterator — wraps exchange/risk_manager.py to set risk gate.
 
 Uses the composable ProtectionChain (Freqtrade + LEAN pattern) to run
 multiple independent risk checks. Worst gate wins, all reasons consolidated

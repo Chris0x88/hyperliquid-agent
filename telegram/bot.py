@@ -386,7 +386,7 @@ def cmd_orders(renderer: Renderer, _args: str) -> None:
 
 
 def cmd_commands(token: str, chat_id: str, args: str) -> None:
-    from cli.commands.commands import get_commands_text, CATEGORIES
+    from cli.commands.help_registry import get_commands_text, CATEGORIES
     arg = args.strip().lower()
     is_long = arg in ("--long", "-l", "long", "all")
     category = arg if arg in CATEGORIES else None

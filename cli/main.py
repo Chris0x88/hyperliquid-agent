@@ -29,7 +29,7 @@ from cli.commands.pulse import pulse_app
 from cli.commands.apex import apex_app
 from cli.commands.reflect import reflect_app
 from cli.commands.wallet import wallet_app
-from cli.commands.setup import setup_app
+from cli.commands.check import setup_app
 from cli.commands.mcp import mcp_app
 from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
@@ -40,7 +40,7 @@ from cli.commands.backtest import backtest_app
 from cli.commands.daemon import daemon_app
 from cli.commands.heartbeat_cmd import heartbeat_app
 from cli.commands.telegram import telegram_app
-from cli.commands.commands import commands_app
+from cli.commands.help_registry import commands_app
 from cli.commands.lab import app as lab_app
 from cli.commands.architect import app as architect_app
 

@@ -1,7 +1,7 @@
 """Cross-venue funding rate aggregator.
 
 Phase 2: HL adapter + constant mock + PushFundingRate for external venues.
-Real Binance/OKX/Bybit polling adapters live in parent/external_feeds.py
+Real Binance/OKX/Bybit polling adapters live in exchange/external_feeds.py (if re-added)
 (parent-side only, since the enclave has no network access).
 """
 from __future__ import annotations

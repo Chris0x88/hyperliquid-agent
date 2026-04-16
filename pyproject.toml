@@ -60,4 +60,8 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
-include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*", "plugins*"]
+include = [
+    "cli*", "common*", "exchange*", "engines*", "trading*",
+    "daemon*", "agent*", "telegram*", "adapters*",
+    "strategies*", "sdk*", "skills*", "quoting_engine*",
+]
