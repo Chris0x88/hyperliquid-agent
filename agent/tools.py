@@ -1281,7 +1281,7 @@ def _tool_introspect_self(args: dict) -> str:
 
     # Active model
     try:
-        from cli.telegram_agent import _get_active_model
+        from telegram.agent import _get_active_model
         lines.append(f"ACTIVE MODEL: {_get_active_model()}")
     except Exception as e:
         lines.append(f"ACTIVE MODEL: <unavailable: {e}>")

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.adaptlog import (
+from telegram.commands.adaptlog import (
     _filter_rows,
     _load_log_rows,
     cmd_adaptlog,
@@ -18,7 +18,7 @@ UTC = timezone.utc
 
 
 def _patch_path(tmp: Path):
-    p = patch("cli.telegram_commands.adaptlog.ADAPTIVE_LOG_JSONL",
+    p = patch("telegram.commands.adaptlog.ADAPTIVE_LOG_JSONL",
               str(tmp / "adaptive_log.jsonl"))
     p.start()
     return p
@@ -192,7 +192,7 @@ def test_load_tolerates_bad_lines(tmp_path):
 def test_adaptlog_empty(tmp_path):
     p = _patch_path(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No decisions logged" in body
@@ -210,7 +210,7 @@ def test_adaptlog_renders_rows(tmp_path):
                   decision={**_row()["decision"], "action": "trail_breakeven"}),
         ]
         _write_rows(tmp_path, rows)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Adaptive log" in body
@@ -230,7 +230,7 @@ def test_adaptlog_filter_exits_only(tmp_path):
             _row(decision={**_row()["decision"], "action": "hold"}),
         ]
         _write_rows(tmp_path, rows)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "exits")
             body = send.call_args[0][2]
             assert "exit" in body
@@ -248,7 +248,7 @@ def test_adaptlog_filter_instrument(tmp_path):
             _row(position={**_row()["position"], "instrument": "CL"}),
         ]
         _write_rows(tmp_path, rows)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "CL")
             body = send.call_args[0][2]
             assert "CL" in body
@@ -265,7 +265,7 @@ def test_adaptlog_filter_mode_live(tmp_path):
             _row(mode="shadow"),
         ]
         _write_rows(tmp_path, rows)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "live")
             body = send.call_args[0][2]
             # Should show the live row only
@@ -279,7 +279,7 @@ def test_adaptlog_limit_respected(tmp_path):
     try:
         rows = [_row() for _ in range(30)]
         _write_rows(tmp_path, rows)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_adaptlog("tok", "chat", "5")
             body = send.call_args[0][2]
             assert "last 5 of 30" in body
@@ -292,14 +292,14 @@ def test_adaptlog_limit_respected(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_adaptlog_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert "/adaptlog" in HANDLERS
     assert "adaptlog" in HANDLERS
 
 
 def test_adaptlog_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/adaptlog" in body

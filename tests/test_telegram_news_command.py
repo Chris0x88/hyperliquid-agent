@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_news, cmd_catalysts
+from telegram.bot import cmd_news, cmd_catalysts
 
 
 def _write_catalysts_jsonl(d, catalysts):
@@ -42,8 +42,8 @@ def test_cmd_news_returns_top_10_by_severity(tmp_path):
         })
     _write_catalysts_jsonl(str(tmp_path), catalysts)
 
-    with patch("cli.telegram_bot.CATALYSTS_JSONL", str(Path(tmp_path) / "catalysts.jsonl")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.CATALYSTS_JSONL", str(Path(tmp_path) / "catalysts.jsonl")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_news("fake_token", "chat_id", "")
             send.assert_called_once()
             body = send.call_args[0][2]  # third positional arg
@@ -80,8 +80,8 @@ def test_cmd_catalysts_filters_upcoming(tmp_path):
     ]
     _write_catalysts_jsonl(str(tmp_path), catalysts)
 
-    with patch("cli.telegram_bot.CATALYSTS_JSONL", str(Path(tmp_path) / "catalysts.jsonl")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.CATALYSTS_JSONL", str(Path(tmp_path) / "catalysts.jsonl")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_catalysts("fake_token", "chat_id", "")
             body = send.call_args[0][2]
             assert "near_future" in body or "opec_action" in body

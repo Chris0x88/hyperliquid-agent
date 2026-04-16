@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_supply, cmd_disruptions, cmd_disrupt, cmd_disrupt_update
+from telegram.bot import cmd_supply, cmd_disruptions, cmd_disrupt, cmd_disrupt_update
 
 
 def _write_state(d, payload):
@@ -25,8 +25,8 @@ def test_cmd_supply_renders_state(tmp_path):
         "active_disruption_count": 14,
         "high_confidence_count": 6,
     })
-    with patch("cli.telegram_bot.SUPPLY_STATE_JSON", str(Path(tmp_path) / "state.json")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.SUPPLY_STATE_JSON", str(Path(tmp_path) / "state.json")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_supply("tok", "chat", "")
             send.assert_called_once()
             body = send.call_args[0][2]
@@ -36,8 +36,8 @@ def test_cmd_supply_renders_state(tmp_path):
 
 
 def test_cmd_supply_missing_state(tmp_path):
-    with patch("cli.telegram_bot.SUPPLY_STATE_JSON", str(Path(tmp_path) / "no.json")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.SUPPLY_STATE_JSON", str(Path(tmp_path) / "no.json")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_supply("tok", "chat", "")
             body = send.call_args[0][2]
             assert "no supply state" in body.lower() or "not yet" in body.lower()
@@ -72,8 +72,8 @@ def test_cmd_disruptions_lists_active(tmp_path):
             "created_at": "2026-04-09T00:00:00+00:00",
             "updated_at": "2026-04-09T00:00:00+00:00",
         }) + "\n")
-    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_disruptions("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Volgograd refinery" in body
@@ -84,8 +84,8 @@ def test_cmd_disruptions_lists_active(tmp_path):
 
 def test_cmd_disrupt_appends_row(tmp_path):
     path = Path(tmp_path) / "d.jsonl"
-    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
-        with patch("cli.telegram_bot.tg_send"):
+    with patch("telegram.bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("telegram.bot.tg_send"):
             cmd_disrupt("tok", "chat", 'refinery Volgograd 200000 bpd active 2026-04-08 "drone strike"')
             assert path.exists()
             rows = [json.loads(l) for l in path.read_text().strip().split("\n")]
@@ -97,7 +97,7 @@ def test_cmd_disrupt_appends_row(tmp_path):
 
 
 def test_cmd_disrupt_rejects_empty():
-    with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.tg_send") as send:
         cmd_disrupt("tok", "chat", "")
         body = send.call_args[0][2]
         assert "usage" in body.lower() or "format" in body.lower()
@@ -123,8 +123,8 @@ def test_cmd_disrupt_update_appends_new_row(tmp_path):
     with path.open("w") as f:
         f.write(json.dumps(original) + "\n")
 
-    with patch("cli.telegram_bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
-        with patch("cli.telegram_bot.tg_send"):
+    with patch("telegram.bot.SUPPLY_DISRUPTIONS_JSONL", str(path)):
+        with patch("telegram.bot.tg_send"):
             cmd_disrupt_update("tok", "chat", "abc12345 status=restored")
 
     rows = [json.loads(l) for l in path.read_text().strip().split("\n")]

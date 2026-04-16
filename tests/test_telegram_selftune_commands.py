@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import (
+from telegram.bot import (
     cmd_selftune,
     cmd_selftuneapprove,
     cmd_selftuneproposals,
@@ -24,7 +24,7 @@ def _patch_paths(tmp: Path):
         ("OIL_BOTPATTERN_TUNE_AUDIT_JSONL", "tune_audit.jsonl"),
         ("OIL_BOTPATTERN_PROPOSALS_JSONL", "proposals.jsonl"),
     ]:
-        patchers.append(patch(f"cli.telegram_bot.{name}", str(tmp / fname)))
+        patchers.append(patch(f"telegram.bot.{name}", str(tmp / fname)))
     return patchers
 
 
@@ -55,7 +55,7 @@ def test_selftune_reports_both_kill_switches_off(tmp_path):
         (tmp_path / "reflect_cfg.json").write_text(json.dumps({"enabled": False}))
         (tmp_path / "oil_botpattern.json").write_text(json.dumps({"long_min_edge": 0.50}))
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftune("tok", "chat", "")
             body = send.call_args[0][2]
             assert "L1 auto-tune" in body
@@ -85,7 +85,7 @@ def test_selftune_shows_last_nudges(tmp_path):
             "\n".join(json.dumps(r) for r in audit_rows)
         )
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftune("tok", "chat", "")
             body = send.call_args[0][2]
             assert "0.5 → 0.475" in body or "0.50 → 0.475" in body
@@ -114,7 +114,7 @@ def test_selftune_shows_pending_proposal_count(tmp_path):
             "\n".join(json.dumps(p) for p in proposals)
         )
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftune("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Pending proposals" in body
@@ -131,7 +131,7 @@ def test_selftuneproposals_empty(tmp_path):
     patchers = _patch_paths(tmp_path)
     _apply_patches(patchers)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneproposals("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No pending self-tune proposals" in body
@@ -159,7 +159,7 @@ def test_selftuneproposals_lists_pending_only(tmp_path):
         (tmp_path / "proposals.jsonl").write_text(
             "\n".join(json.dumps(p) for p in proposals)
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneproposals("tok", "chat", "")
             body = send.call_args[0][2]
             assert "#1" in body
@@ -197,7 +197,7 @@ def test_selftuneapprove_config_change_applies(tmp_path):
             "\n".join(json.dumps(p) for p in proposals)
         )
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "42")
             body = send.call_args[0][2]
             assert "approved" in body.lower()
@@ -236,7 +236,7 @@ def test_selftuneapprove_advisory_is_no_op_file_change(tmp_path):
         (tmp_path / "proposals.jsonl").write_text(
             "\n".join(json.dumps(p) for p in proposals)
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "7")
             body = send.call_args[0][2]
             assert "approved" in body.lower()
@@ -253,7 +253,7 @@ def test_selftuneapprove_not_found(tmp_path):
     patchers = _patch_paths(tmp_path)
     _apply_patches(patchers)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "999")
             body = send.call_args[0][2]
             assert "not found" in body.lower()
@@ -273,7 +273,7 @@ def test_selftuneapprove_rejects_non_pending(tmp_path):
         (tmp_path / "proposals.jsonl").write_text(
             "\n".join(json.dumps(p) for p in proposals)
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "1")
             body = send.call_args[0][2]
             assert "not pending" in body.lower()
@@ -285,7 +285,7 @@ def test_selftuneapprove_bad_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     _apply_patches(patchers)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "nope")
             body = send.call_args[0][2]
             assert "Bad id" in body
@@ -297,7 +297,7 @@ def test_selftuneapprove_missing_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     _apply_patches(patchers)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftuneapprove("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Usage" in body
@@ -321,7 +321,7 @@ def test_selftunereject_marks_rejected(tmp_path):
         (tmp_path / "proposals.jsonl").write_text(
             "\n".join(json.dumps(p) for p in proposals)
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_selftunereject("tok", "chat", "5")
             body = send.call_args[0][2]
             assert "rejected" in body.lower()
@@ -357,7 +357,7 @@ def test_selftunereject_does_not_touch_target_file(tmp_path):
         (tmp_path / "proposals.jsonl").write_text(
             "\n".join(json.dumps(p) for p in proposals)
         )
-        with patch("cli.telegram_bot.tg_send"):
+        with patch("telegram.bot.tg_send"):
             cmd_selftunereject("tok", "chat", "5")
 
         # Target file MUST be unchanged
@@ -374,15 +374,15 @@ def test_selftunereject_does_not_touch_target_file(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_all_four_commands_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     for cmd in ("selftune", "selftuneproposals", "selftuneapprove", "selftunereject"):
         assert f"/{cmd}" in HANDLERS, f"/{cmd} missing from HANDLERS"
         assert cmd in HANDLERS, f"bare {cmd} missing from HANDLERS"
 
 
 def test_all_four_commands_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         for cmd in ("/selftune", "/selftuneproposals", "/selftuneapprove", "/selftunereject"):
@@ -390,8 +390,8 @@ def test_all_four_commands_in_help():
 
 
 def test_all_four_commands_in_guide():
-    from cli.telegram_bot import cmd_guide
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_guide
+    with patch("telegram.bot.tg_send") as send:
         cmd_guide("tok", "chat", "")
         body = send.call_args[0][2]
         for cmd in ("/selftune", "/selftuneproposals", "/selftuneapprove", "/selftunereject"):

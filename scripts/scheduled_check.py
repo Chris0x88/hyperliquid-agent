@@ -352,7 +352,7 @@ def main():
         lines.append(f"📆 **Market Time**: {result.get('timestamp')}")
         
         try:
-            from cli.telegram_handler import get_whitelist
+            from telegram.handler import get_whitelist
             wl = get_whitelist()
             lines.append(f"🛡️ **Active Whitelist**: {', '.join(wl)}")
         except Exception:

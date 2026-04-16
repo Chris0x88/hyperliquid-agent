@@ -21,8 +21,8 @@ import time
 
 import requests
 
-from cli.telegram_api import tg_send, tg_send_buttons, tg_answer_callback
-from cli.telegram_hl import _get_current_price, _get_account_values, _coin_matches
+from telegram.api import tg_send, tg_send_buttons, tg_answer_callback
+from common.exchange_helpers import _get_current_price, _get_account_values, _coin_matches
 
 log = logging.getLogger("telegram_bot")
 
@@ -87,7 +87,7 @@ def _handle_tool_approval(token: str, chat_id: str, callback_id: str,
 
 def _find_position(coin: str) -> dict | None:
     """Find a position by coin name (handles xyz: prefix matching)."""
-    from cli.telegram_menu import _cached_positions
+    from telegram.menu import _cached_positions
     for p in _cached_positions():
         if _coin_matches(p.get("coin", ""), coin):
             return p
@@ -96,7 +96,7 @@ def _find_position(coin: str) -> dict | None:
 
 def _handle_trade_size_prompt(token: str, chat_id: str, coin: str, side: str) -> None:
     """Prompt user for trade size, store pending input state."""
-    from cli.telegram_menu import _active_account, _get_active_addr
+    from telegram.menu import _active_account, _get_active_addr
 
     coin_name = coin
     current = _get_current_price(coin_name)

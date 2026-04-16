@@ -73,15 +73,15 @@ class TelegramRenderer(Renderer):
         self.chat_id = chat_id
 
     def send_text(self, text: str, markdown: bool = True) -> bool:
-        from cli.telegram_bot import tg_send
+        from telegram.bot import tg_send
         return tg_send(self.token, self.chat_id, text)
 
     def send_buttons(self, text: str, buttons: list) -> bool:
-        from cli.telegram_bot import tg_send_buttons
+        from telegram.bot import tg_send_buttons
         return tg_send_buttons(self.token, self.chat_id, text, buttons)
 
     def send_grid(self, text: str, rows: list) -> dict:
-        from cli.telegram_bot import tg_send_grid
+        from telegram.bot import tg_send_grid
         return tg_send_grid(self.token, self.chat_id, text, rows)
 
     def send_image(self, image_bytes: bytes, caption: str = "") -> bool:
@@ -90,11 +90,11 @@ class TelegramRenderer(Renderer):
         return False
 
     def answer_callback(self, callback_id: str, text: str = "") -> None:
-        from cli.telegram_bot import tg_answer_callback
+        from telegram.bot import tg_answer_callback
         tg_answer_callback(self.token, callback_id, text)
 
     def edit_grid(self, message_id: int, text: str, rows: list) -> bool:
-        from cli.telegram_bot import tg_edit_grid
+        from telegram.bot import tg_edit_grid
         return tg_edit_grid(self.token, self.chat_id, message_id, text, rows)
 
 

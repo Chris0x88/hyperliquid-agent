@@ -27,7 +27,7 @@ def _read_rows(path: Path) -> list[dict]:
 @pytest.fixture
 def patched_history(tmp_path, monkeypatch):
     """Redirect _HISTORY_FILE to a temp path so every test runs isolated."""
-    from cli import telegram_agent
+    from telegram import agent as telegram_agent
     hist = tmp_path / "chat_history.jsonl"
     monkeypatch.setattr(telegram_agent, "_HISTORY_FILE", hist)
     # Also redirect _PROJECT_ROOT so the snapshot reader looks at tmp_path,
@@ -42,14 +42,14 @@ def patched_history(tmp_path, monkeypatch):
 
 class TestWriterAppendOnly:
     def test_empty_file_is_created_on_first_write(self, patched_history):
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         assert not patched_history.exists()
         _log_chat("user", "hello")
         assert patched_history.exists()
         assert len(_read_rows(patched_history)) == 1
 
     def test_multiple_writes_append(self, patched_history):
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         _log_chat("user", "msg one")
         _log_chat("assistant", "msg two")
         _log_chat("user", "msg three")
@@ -63,7 +63,7 @@ class TestWriterAppendOnly:
         """Regression guard: writer must NEVER overwrite the file. If this
         test fails, someone has added rotation/truncation and violated
         the 'historical oracle' contract."""
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         for i in range(50):
             _log_chat("user", f"msg {i}")
         assert len(_read_rows(patched_history)) == 50
@@ -76,7 +76,7 @@ class TestWriterAppendOnly:
         assert rows[-1]["text"] == "msg 99"
 
     def test_row_contains_required_fields(self, patched_history):
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         _log_chat("user", "hello", user_name="chris")
         row = _read_rows(patched_history)[0]
         assert row["role"] == "user"
@@ -95,7 +95,7 @@ class TestRotationDisabled:
         """The writer module must not import shutil/move/rename/rotate APIs
         that could be used to truncate the live file. If someone adds them
         later, this test fails and forces a conversation."""
-        import cli.telegram_agent as ta
+        import telegram.agent as ta
         src = Path(ta.__file__).read_text()
         # Sanity: the word 'chat_history' MUST appear
         assert "chat_history" in src
@@ -114,7 +114,7 @@ class TestRotationDisabled:
 
     def test_writer_uses_append_mode(self):
         """The writer must open the history file in append mode."""
-        import cli.telegram_agent as ta
+        import telegram.agent as ta
         src = Path(ta.__file__).read_text()
         # The canonical append-mode open() call
         assert 'open(_HISTORY_FILE, "a")' in src or "open(_HISTORY_FILE, 'a')" in src
@@ -134,7 +134,7 @@ class TestMarketContext:
         return f
 
     def test_market_context_added_when_snapshot_present(self, patched_history, tmp_path):
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         self._write_snapshot(tmp_path, {
             "total_equity": 50234.12,
             "account_value": 50234.12,
@@ -179,7 +179,7 @@ class TestMarketContext:
     def test_market_context_null_when_no_snapshot(self, patched_history, tmp_path):
         """When snapshot dir is empty, market_context degrades gracefully
         and the row STILL writes — enrichment must not be a gate."""
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         # No snapshot written
         _log_chat("user", "/status")
         rows = _read_rows(patched_history)
@@ -194,8 +194,8 @@ class TestMarketContext:
 
     def test_market_context_snapshot_exception_is_swallowed(self, patched_history, tmp_path):
         """Even if the snapshot loader raises, the chat write must succeed."""
-        from cli import telegram_agent
-        from cli.telegram_agent import _log_chat
+        from telegram import agent as telegram_agent
+        from telegram.agent import _log_chat
 
         class _Explode:
             @staticmethod
@@ -211,7 +211,7 @@ class TestMarketContext:
         assert rows[0]["text"] == "hi"
 
     def test_positions_list_empty_when_no_positions(self, patched_history, tmp_path):
-        from cli.telegram_agent import _log_chat
+        from telegram.agent import _log_chat
         self._write_snapshot(tmp_path, {
             "total_equity": 100.00,
             "positions_native": [],
@@ -232,7 +232,7 @@ class TestBackwardsCompatibility:
     def test_old_schema_row_loads_fine(self, patched_history):
         """A row written before market_context existed must load with the
         existing _load_chat_history reader."""
-        from cli.telegram_agent import _load_chat_history
+        from telegram.agent import _load_chat_history
         # Write an old-schema row by hand
         patched_history.parent.mkdir(parents=True, exist_ok=True)
         old_row = {"ts": 1775104419, "role": "user", "text": "old message"}
@@ -246,7 +246,7 @@ class TestBackwardsCompatibility:
         assert "market_context" not in loaded[0] or loaded[0]["market_context"] is None
 
     def test_mixed_old_and_new_rows_load(self, patched_history):
-        from cli.telegram_agent import _load_chat_history
+        from telegram.agent import _load_chat_history
         patched_history.parent.mkdir(parents=True, exist_ok=True)
         rows = [
             {"ts": 1, "role": "user", "text": "old1"},
@@ -281,8 +281,8 @@ class TestBackwardsCompatibility:
 
 @pytest.fixture
 def patched_chathistory_path(tmp_path, monkeypatch):
-    """Redirect cli.telegram_commands.chat_history._HISTORY_PATH to tmp."""
-    from cli.telegram_commands import chat_history as ch
+    """Redirect telegram.commands.chat_history._HISTORY_PATH to tmp."""
+    from telegram.commands import chat_history as ch
     new_path = tmp_path / "chat_history.jsonl"
     monkeypatch.setattr(ch, "_HISTORY_PATH", new_path)
     return new_path
@@ -290,7 +290,7 @@ def patched_chathistory_path(tmp_path, monkeypatch):
 
 class TestChatHistoryUnionLoader:
     def test_live_only_when_no_bak_files(self, patched_chathistory_path):
-        from cli.telegram_commands.chat_history import (
+        from telegram.commands.chat_history import (
             _load_all_rows_unioned,
             _load_live_rows,
         )
@@ -308,7 +308,7 @@ class TestChatHistoryUnionLoader:
         assert [r["ts"] for r in unioned] == [100, 200]
 
     def test_union_pulls_in_bak_rows(self, patched_chathistory_path):
-        from cli.telegram_commands.chat_history import (
+        from telegram.commands.chat_history import (
             _load_all_rows_unioned,
             _load_live_rows,
         )
@@ -340,7 +340,7 @@ class TestChatHistoryUnionLoader:
     def test_union_hard_cap_drops_oldest(self, patched_chathistory_path, monkeypatch):
         """Per NORTH_STAR P10: regardless of corpus size, one load returns
         at most _MAX_LOADED_ROWS rows. Oldest are dropped, newest win."""
-        from cli.telegram_commands import chat_history as ch
+        from telegram.commands import chat_history as ch
         # Squeeze the cap so the test runs in a couple hundred rows
         monkeypatch.setattr(ch, "_MAX_LOADED_ROWS", 50)
 
@@ -362,7 +362,7 @@ class TestChatHistoryUnionLoader:
         assert max(ts_set) == 200
 
     def test_backwards_compat_alias_returns_live_only(self, patched_chathistory_path):
-        from cli.telegram_commands.chat_history import _load_all_rows
+        from telegram.commands.chat_history import _load_all_rows
         live_rows = [{"ts": 100, "role": "user", "text": "live"}]
         patched_chathistory_path.write_text(
             "\n".join(json.dumps(r) for r in live_rows) + "\n"
@@ -377,7 +377,7 @@ class TestChatHistoryUnionLoader:
         assert result[0]["text"] == "live"
 
     def test_malformed_bak_lines_skipped(self, patched_chathistory_path):
-        from cli.telegram_commands.chat_history import _load_all_rows_unioned
+        from telegram.commands.chat_history import _load_all_rows_unioned
         live_rows = [{"ts": 200, "role": "user", "text": "live"}]
         patched_chathistory_path.write_text(
             "\n".join(json.dumps(r) for r in live_rows) + "\n"
@@ -396,7 +396,7 @@ class TestChatHistoryUnionLoader:
     def test_search_subcommand_uses_unioned_loader(self, patched_chathistory_path):
         """End-to-end: /chathistory search should find a row that exists
         only in .bak (the original recovery use case)."""
-        from cli.telegram_commands.chat_history import cmd_chathistory
+        from telegram.commands.chat_history import cmd_chathistory
         from unittest.mock import patch
 
         # Live file: only contains a recent unrelated row
@@ -415,7 +415,7 @@ class TestChatHistoryUnionLoader:
             sent.append(text)
             return True
 
-        with patch("cli.telegram_bot.tg_send", fake_send):
+        with patch("telegram.bot.tg_send", fake_send):
             cmd_chathistory("tok", "chat", "search march")
 
         assert len(sent) == 1

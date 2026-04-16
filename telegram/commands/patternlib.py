@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 
 # Paths are centralized here so both the command handlers and any unit
-# tests can patch them via `cli.telegram_commands.patternlib.*`.
+# tests can patch them via `telegram.commands.patternlib.*`.
 OIL_BOTPATTERN_PATTERN_CATALOG_JSON = "data/research/bot_pattern_catalog.json"
 OIL_BOTPATTERN_PATTERN_CANDIDATES_JSONL = "data/research/bot_pattern_candidates.jsonl"
 
@@ -37,7 +37,7 @@ def cmd_patterncatalog(token: str, chat_id: str, _args: str) -> None:
         load_candidates,
         load_catalog,
     )
-    from cli.telegram_bot import tg_send  # lazy — avoids circular import
+    from telegram.bot import tg_send  # lazy — avoids circular import
 
     catalog = load_catalog(OIL_BOTPATTERN_PATTERN_CATALOG_JSON)
     candidates = load_candidates(OIL_BOTPATTERN_PATTERN_CANDIDATES_JSONL)
@@ -100,7 +100,7 @@ def cmd_patternpromote(token: str, chat_id: str, args: str) -> None:
     Usage: /patternpromote <id>
     """
     from daemon.iterators.oil_botpattern_patternlib import apply_promote
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     arg = (args or "").strip()
     if not arg:
@@ -131,7 +131,7 @@ def cmd_patternreject(token: str, chat_id: str, args: str) -> None:
     Usage: /patternreject <id>
     """
     from daemon.iterators.oil_botpattern_patternlib import apply_reject
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     arg = (args or "").strip()
     if not arg:

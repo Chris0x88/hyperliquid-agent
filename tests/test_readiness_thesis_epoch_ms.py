@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.readiness import check_heatmap, check_thesis, compute_readiness
+from telegram.commands.readiness import check_heatmap, check_thesis, compute_readiness
 
 
 UTC = timezone.utc
@@ -24,9 +24,9 @@ UTC = timezone.utc
 
 def _patch_paths(tmp: Path):
     patchers = [
-        patch("cli.telegram_commands.readiness.BRENTOIL_THESIS_JSON",
+        patch("telegram.commands.readiness.BRENTOIL_THESIS_JSON",
               str(tmp / "thesis.json")),
-        patch("cli.telegram_commands.readiness.HEATMAP_ZONES_JSONL",
+        patch("telegram.commands.readiness.HEATMAP_ZONES_JSONL",
               str(tmp / "zones.jsonl")),
     ]
     for p in patchers:

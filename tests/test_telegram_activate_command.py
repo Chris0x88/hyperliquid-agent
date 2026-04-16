@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.activate import (
+from telegram.commands.activate import (
     apply_patch_to_config,
     can_advance,
     classify_rung,
@@ -21,11 +21,11 @@ UTC = timezone.utc
 
 def _patch_paths(tmp: Path):
     patchers = [
-        patch("cli.telegram_commands.activate.OIL_BOTPATTERN_CONFIG_JSON",
+        patch("telegram.commands.activate.OIL_BOTPATTERN_CONFIG_JSON",
               str(tmp / "oil_botpattern.json")),
-        patch("cli.telegram_commands.activate.ACTIVATION_LOG_JSONL",
+        patch("telegram.commands.activate.ACTIVATION_LOG_JSONL",
               str(tmp / "activation_log.jsonl")),
-        patch("cli.telegram_commands.activate.PENDING_ADVANCE_JSON",
+        patch("telegram.commands.activate.PENDING_ADVANCE_JSON",
               str(tmp / "pending_advance.json")),
     ]
     for p in patchers:
@@ -51,7 +51,7 @@ def _write_cfg(tmp: Path, **fields):
 def _patch_readiness(verdict: str = "🟢 *GO* — all preflight checks green"):
     """Stub compute_readiness so /activate tests don't depend on real files."""
     return patch(
-        "cli.telegram_commands.readiness.compute_readiness",
+        "telegram.commands.readiness.compute_readiness",
         return_value=([("🟢", "stub", "ok", "green")], verdict),
     )
 
@@ -206,7 +206,7 @@ def test_activate_status_shows_current_rung(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=False)
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Rung 0" in body
@@ -220,7 +220,7 @@ def test_activate_next_stages_pending(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=False)
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "next")
             body = send.call_args[0][2]
             assert "Pending advance" in body
@@ -237,7 +237,7 @@ def test_activate_confirm_applies_patch(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=False)
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "next")
             cmd_activate("tok", "chat", "confirm")
             last_call = send.call_args_list[-1]
@@ -267,7 +267,7 @@ def test_activate_confirm_without_pending(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=False)
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "confirm")
             body = send.call_args[0][2]
             assert "No pending advance" in body
@@ -285,7 +285,7 @@ def test_activate_confirm_stale_pending(tmp_path):
             "patch": {"enabled": True, "decisions_only": True},
         }
         (tmp_path / "pending_advance.json").write_text(json.dumps(stale_pending))
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "confirm")
             body = send.call_args[0][2]
             assert "stale" in body.lower()
@@ -300,7 +300,7 @@ def test_activate_next_blocked_by_red_gate_for_live(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=True, decisions_only=True)
-        with _patch_readiness(verdict="🔴 *DO NOT ACTIVATE*"), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(verdict="🔴 *DO NOT ACTIVATE*"), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "next")
             body = send.call_args[0][2]
             assert "Cannot advance" in body
@@ -314,7 +314,7 @@ def test_activate_back_rolls_back_one_rung(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=True, decisions_only=True)  # rung 1
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "back")
             body = send.call_args[0][2]
             assert "Rolled back to Rung 0" in body
@@ -335,7 +335,7 @@ def test_activate_hard_rollback_force_disables(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=True, decisions_only=False, short_legs_enabled=True)  # rung 4
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send") as send:
+        with _patch_readiness(), patch("telegram.bot.tg_send") as send:
             cmd_activate("tok", "chat", "rollback")
             body = send.call_args[0][2]
             assert "HARD ROLLBACK" in body
@@ -349,7 +349,7 @@ def test_activate_next_replaces_previous_pending(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_cfg(tmp_path, enabled=False)
-        with _patch_readiness(), patch("cli.telegram_bot.tg_send"):
+        with _patch_readiness(), patch("telegram.bot.tg_send"):
             cmd_activate("tok", "chat", "next")
             first = json.loads((tmp_path / "pending_advance.json").read_text())
             cmd_activate("tok", "chat", "next")
@@ -365,14 +365,14 @@ def test_activate_next_replaces_previous_pending(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_activate_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert "/activate" in HANDLERS
     assert "activate" in HANDLERS
 
 
 def test_activate_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/activate" in body

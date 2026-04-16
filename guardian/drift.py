@@ -22,7 +22,7 @@ def is_enabled() -> bool:
 
 # Default entrypoint module tails that are allowed to have zero inbound edges.
 # Matched against the last dotted component of each module name so
-# `cli.telegram_bot` and `telegram_bot` both resolve to `telegram_bot`.
+# `telegram.bot` and `telegram_bot` both resolve to `telegram_bot`.
 DEFAULT_ENTRYPOINTS: frozenset[str] = frozenset({
     "telegram_bot",
     "daemon",

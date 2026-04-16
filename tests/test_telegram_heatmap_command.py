@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_heatmap
+from telegram.bot import cmd_heatmap
 
 
 def _write_zones(path: Path, rows: list[dict]) -> None:
@@ -30,9 +30,9 @@ def _zone(rank=1, side="bid", ts="2026-04-09T22:00:00+00:00", instrument="BRENTO
 
 
 def test_cmd_heatmap_no_data(tmp_path):
-    with patch("cli.telegram_bot.HEATMAP_ZONES_JSONL", str(tmp_path / "z.jsonl")):
-        with patch("cli.telegram_bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.HEATMAP_ZONES_JSONL", str(tmp_path / "z.jsonl")):
+        with patch("telegram.bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_heatmap("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "No heatmap data" in body or "still booting" in body
@@ -45,9 +45,9 @@ def test_cmd_heatmap_renders_zones(tmp_path):
         _zone(rank=2, side="bid", notional=300_000),
         _zone(rank=1, side="ask", notional=600_000),
     ])
-    with patch("cli.telegram_bot.HEATMAP_ZONES_JSONL", str(z)):
-        with patch("cli.telegram_bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.HEATMAP_ZONES_JSONL", str(z)):
+        with patch("telegram.bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_heatmap("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "BRENTOIL" in body
@@ -63,9 +63,9 @@ def test_cmd_heatmap_picks_latest_snapshot(tmp_path):
         _zone(rank=1, side="bid", ts="2026-04-09T22:00:00+00:00"),
         _zone(rank=1, side="bid", ts="2026-04-09T22:01:00+00:00", notional=999_999),
     ])
-    with patch("cli.telegram_bot.HEATMAP_ZONES_JSONL", str(z)):
-        with patch("cli.telegram_bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.HEATMAP_ZONES_JSONL", str(z)):
+        with patch("telegram.bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_heatmap("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "$1,000K" in body or "1000K" in body or "999K" in body
@@ -87,9 +87,9 @@ def test_cmd_heatmap_renders_cascades(tmp_path):
             "severity": 2,
             "notes": "test",
         }) + "\n")
-    with patch("cli.telegram_bot.HEATMAP_ZONES_JSONL", str(z)):
-        with patch("cli.telegram_bot.HEATMAP_CASCADES_JSONL", str(c)):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.HEATMAP_ZONES_JSONL", str(z)):
+        with patch("telegram.bot.HEATMAP_CASCADES_JSONL", str(c)):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_heatmap("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "Recent cascades" in body
@@ -99,9 +99,9 @@ def test_cmd_heatmap_renders_cascades(tmp_path):
 def test_cmd_heatmap_unknown_instrument(tmp_path):
     z = tmp_path / "z.jsonl"
     _write_zones(z, [_zone(rank=1, side="bid")])
-    with patch("cli.telegram_bot.HEATMAP_ZONES_JSONL", str(z)):
-        with patch("cli.telegram_bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.HEATMAP_ZONES_JSONL", str(z)):
+        with patch("telegram.bot.HEATMAP_CASCADES_JSONL", str(tmp_path / "c.jsonl")):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_heatmap("tok", "chat", "GOLD")
                 body = send.call_args[0][2]
                 assert "GOLD" in body
@@ -109,6 +109,6 @@ def test_cmd_heatmap_unknown_instrument(tmp_path):
 
 
 def test_cmd_heatmap_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert HANDLERS.get("/heatmap") is cmd_heatmap
     assert HANDLERS.get("heatmap") is cmd_heatmap

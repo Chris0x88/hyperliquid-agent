@@ -123,7 +123,7 @@ def parse_args(arg: str) -> tuple[int, str | None, str | None, str | None]:
 
 def cmd_adaptlog(token: str, chat_id: str, args: str) -> None:
     """Query the adaptive evaluator decision log."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     limit, action, mode, instrument = parse_args(args)
     rows = _load_log_rows(ADAPTIVE_LOG_JSONL)

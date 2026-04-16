@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_oilbot, cmd_oilbotjournal, cmd_oilbotreviewai
+from telegram.bot import cmd_oilbot, cmd_oilbotjournal, cmd_oilbotreviewai
 
 
 def test_cmd_oilbot_reports_kill_switch_off(tmp_path):
@@ -19,9 +19,9 @@ def test_cmd_oilbot_reports_kill_switch_off(tmp_path):
         },
     }))
     state_path = tmp_path / "state.json"
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_CONFIG_JSON", str(cfg_path)):
-        with patch("cli.telegram_bot.OIL_BOTPATTERN_STATE_JSON", str(state_path)):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.OIL_BOTPATTERN_CONFIG_JSON", str(cfg_path)):
+        with patch("telegram.bot.OIL_BOTPATTERN_STATE_JSON", str(state_path)):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_oilbot("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "🔴 OFF" in body
@@ -54,9 +54,9 @@ def test_cmd_oilbot_shows_open_position(tmp_path):
         "monthly_brake_tripped_at": None, "brake_cleared_at": None,
         "enabled_since": "2026-04-09T18:00:00+00:00",
     }))
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_CONFIG_JSON", str(cfg_path)):
-        with patch("cli.telegram_bot.OIL_BOTPATTERN_STATE_JSON", str(state_path)):
-            with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.OIL_BOTPATTERN_CONFIG_JSON", str(cfg_path)):
+        with patch("telegram.bot.OIL_BOTPATTERN_STATE_JSON", str(state_path)):
+            with patch("telegram.bot.tg_send") as send:
                 cmd_oilbot("tok", "chat", "")
                 body = send.call_args[0][2]
                 assert "LONG BRENTOIL" in body
@@ -66,8 +66,8 @@ def test_cmd_oilbot_shows_open_position(tmp_path):
 
 
 def test_cmd_oilbotjournal_no_data(tmp_path):
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(tmp_path / "d.jsonl")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(tmp_path / "d.jsonl")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_oilbotjournal("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No oil_botpattern decisions" in body
@@ -100,8 +100,8 @@ def test_cmd_oilbotjournal_renders(tmp_path):
     with path.open("w") as f:
         for d in decisions:
             f.write(json.dumps(d) + "\n")
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(path)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(path)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_oilbotjournal("tok", "chat", "")
             body = send.call_args[0][2]
             assert "open" in body
@@ -112,8 +112,8 @@ def test_cmd_oilbotjournal_renders(tmp_path):
 
 
 def test_cmd_oilbotreviewai_no_data(tmp_path):
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(tmp_path / "nope.jsonl")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(tmp_path / "nope.jsonl")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_oilbotreviewai("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No decisions" in body
@@ -129,8 +129,8 @@ def test_cmd_oilbotreviewai_routes_to_agent(tmp_path):
         "thesis_conviction": 0.0, "recent_outcome_bias": 0.0,
         "sizing": {}, "gate_results": [], "notes": "",
     }) + "\n")
-    with patch("cli.telegram_bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(path)):
-        with patch("cli.telegram_agent.handle_ai_message") as handle:
+    with patch("telegram.bot.OIL_BOTPATTERN_DECISIONS_JSONL", str(path)):
+        with patch("telegram.agent.handle_ai_message") as handle:
             cmd_oilbotreviewai("tok", "chat", "")
             handle.assert_called_once()
             msg = handle.call_args[0][2]
@@ -139,7 +139,7 @@ def test_cmd_oilbotreviewai_routes_to_agent(tmp_path):
 
 
 def test_handlers_registered():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert HANDLERS["/oilbot"] is cmd_oilbot
     assert HANDLERS["oilbot"] is cmd_oilbot
     assert HANDLERS["/oilbotjournal"] is cmd_oilbotjournal

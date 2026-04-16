@@ -39,7 +39,7 @@ def cmd_brutalreviewai(token: str, chat_id: str, args: str) -> None:
     time, free under session-token auth). Run weekly or on demand
     after a major architectural change.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     prompt_path = Path(BRUTAL_REVIEW_PROMPT_PATH)
     if not prompt_path.exists():
@@ -77,12 +77,12 @@ def cmd_brutalreviewai(token: str, chat_id: str, args: str) -> None:
     # Hand the prompt to the agent. handle_ai_message routes through
     # telegram_agent and the agent runtime, which knows how to use tools.
     try:
-        from cli.telegram_agent import handle_ai_message
+        from telegram.agent import handle_ai_message
     except ImportError:
         tg_send(
             token,
             chat_id,
-            "❌ Brutal review unavailable — `cli.telegram_agent` not loaded.",
+            "❌ Brutal review unavailable — `telegram.agent` not loaded.",
         )
         return
 

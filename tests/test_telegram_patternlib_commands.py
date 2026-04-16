@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.patternlib import (
+from telegram.commands.patternlib import (
     cmd_patterncatalog,
     cmd_patternpromote,
     cmd_patternreject,
@@ -15,11 +15,11 @@ from cli.telegram_commands.patternlib import (
 def _patch_paths(tmp: Path):
     patchers = [
         patch(
-            "cli.telegram_commands.patternlib.OIL_BOTPATTERN_PATTERN_CATALOG_JSON",
+            "telegram.commands.patternlib.OIL_BOTPATTERN_PATTERN_CATALOG_JSON",
             str(tmp / "catalog.json"),
         ),
         patch(
-            "cli.telegram_commands.patternlib.OIL_BOTPATTERN_PATTERN_CANDIDATES_JSONL",
+            "telegram.commands.patternlib.OIL_BOTPATTERN_PATTERN_CANDIDATES_JSONL",
             str(tmp / "candidates.jsonl"),
         ),
     ]
@@ -40,7 +40,7 @@ def _stop(patchers):
 def test_patterncatalog_empty(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patterncatalog("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Live catalog entries:* 0" in body
@@ -89,7 +89,7 @@ def test_patterncatalog_shows_live_and_pending(tmp_path):
             "\n".join(json.dumps(c) for c in candidates) + "\n"
         )
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patterncatalog("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Live catalog entries:* 1" in body
@@ -122,7 +122,7 @@ def test_patternpromote_success(tmp_path):
             "\n".join(json.dumps(c) for c in candidates) + "\n"
         )
 
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternpromote("tok", "chat", "7")
             body = send.call_args[0][2]
             assert "promoted" in body.lower()
@@ -146,7 +146,7 @@ def test_patternpromote_success(tmp_path):
 def test_patternpromote_missing_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternpromote("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Usage" in body
@@ -157,7 +157,7 @@ def test_patternpromote_missing_id(tmp_path):
 def test_patternpromote_bad_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternpromote("tok", "chat", "notanint")
             body = send.call_args[0][2]
             assert "Bad id" in body
@@ -168,7 +168,7 @@ def test_patternpromote_bad_id(tmp_path):
 def test_patternpromote_not_found(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternpromote("tok", "chat", "999")
             body = send.call_args[0][2]
             assert "not found" in body.lower()
@@ -185,7 +185,7 @@ def test_patternpromote_non_pending(tmp_path):
         (tmp_path / "candidates.jsonl").write_text(
             json.dumps(candidates[0]) + "\n"
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternpromote("tok", "chat", "1")
             body = send.call_args[0][2]
             assert "not pending" in body.lower()
@@ -206,7 +206,7 @@ def test_patternreject_success(tmp_path):
         (tmp_path / "candidates.jsonl").write_text(
             json.dumps(candidates[0]) + "\n"
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternreject("tok", "chat", "5")
             body = send.call_args[0][2]
             assert "rejected" in body.lower()
@@ -228,7 +228,7 @@ def test_patternreject_success(tmp_path):
 def test_patternreject_missing_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternreject("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Usage" in body
@@ -239,7 +239,7 @@ def test_patternreject_missing_id(tmp_path):
 def test_patternreject_not_found(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_patternreject("tok", "chat", "999")
             body = send.call_args[0][2]
             assert "not found" in body.lower()
@@ -252,15 +252,15 @@ def test_patternreject_not_found(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_all_three_commands_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     for cmd in ("patterncatalog", "patternpromote", "patternreject"):
         assert f"/{cmd}" in HANDLERS, f"/{cmd} missing from HANDLERS"
         assert cmd in HANDLERS, f"bare {cmd} missing from HANDLERS"
 
 
 def test_all_three_commands_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         for cmd in ("/patterncatalog", "/patternpromote", "/patternreject"):
@@ -268,8 +268,8 @@ def test_all_three_commands_in_help():
 
 
 def test_all_three_commands_in_guide():
-    from cli.telegram_bot import cmd_guide
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_guide
+    with patch("telegram.bot.tg_send") as send:
         cmd_guide("tok", "chat", "")
         body = send.call_args[0][2]
         for cmd in ("/patterncatalog", "/patternpromote", "/patternreject"):

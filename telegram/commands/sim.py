@@ -27,7 +27,7 @@ def cmd_sim(token: str, chat_id: str, args: str) -> None:
         new_balance,
         position_from_dict,
     )
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     def _read_json(path: str) -> dict | list | None:
         p = Path(path)

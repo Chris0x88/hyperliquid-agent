@@ -347,7 +347,7 @@ def compute_readiness(now: datetime | None = None) -> tuple[list[tuple[str, str,
 
 def cmd_readiness(token: str, chat_id: str, _args: str) -> None:
     """Run the activation preflight checklist and render to Telegram."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     now = datetime.now(tz=timezone.utc)
     results, overall = compute_readiness(now)

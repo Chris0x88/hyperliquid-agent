@@ -361,7 +361,7 @@ class TestSystemPromptInputCap:
     against a runaway dream inflating the prompt unbounded."""
 
     def test_read_capped_returns_full_text_under_cap(self, tmp_path):
-        from cli.telegram_agent import _read_capped
+        from telegram.agent import _read_capped
 
         small = tmp_path / "small.md"
         small.write_text("# Small File\n\nA few lines.\n")
@@ -370,7 +370,7 @@ class TestSystemPromptInputCap:
 
     def test_read_capped_truncates_over_cap(self, tmp_path, caplog):
         import logging
-        from cli.telegram_agent import _read_capped, _SYSTEM_PROMPT_INPUT_CAP
+        from telegram.agent import _read_capped, _SYSTEM_PROMPT_INPUT_CAP
 
         big = tmp_path / "MEMORY.md"
         big.write_text("x" * (_SYSTEM_PROMPT_INPUT_CAP + 5000))
@@ -385,14 +385,14 @@ class TestSystemPromptInputCap:
         assert any("MEMORY.md" in r.message and "TRUNCATED" in r.message for r in caplog.records)
 
     def test_read_capped_missing_file_returns_empty(self, tmp_path):
-        from cli.telegram_agent import _read_capped
+        from telegram.agent import _read_capped
 
         missing = tmp_path / "doesnotexist.md"
         result = _read_capped(missing, "doesnotexist.md")
         assert result == ""
 
     def test_system_prompt_cap_constant_is_20kb(self):
-        from cli.telegram_agent import _SYSTEM_PROMPT_INPUT_CAP
+        from telegram.agent import _SYSTEM_PROMPT_INPUT_CAP
         assert _SYSTEM_PROMPT_INPUT_CAP == 20_000
 
 
@@ -403,7 +403,7 @@ class TestSystemPromptInputCap:
 
 class TestLoadChatHistoryTailRead:
     def test_tail_read_returns_last_n_rows(self, tmp_path, monkeypatch):
-        from cli import telegram_agent
+        from telegram import agent as telegram_agent
         history_path = tmp_path / "chat_history.jsonl"
         rows = [
             {"ts": i, "role": "user", "text": f"msg {i}"}
@@ -423,7 +423,7 @@ class TestLoadChatHistoryTailRead:
     def test_tail_read_handles_giant_file(self, tmp_path, monkeypatch):
         """A 10k-row chat history file should still load in O(limit*5)
         memory via the deque tail."""
-        from cli import telegram_agent
+        from telegram import agent as telegram_agent
         history_path = tmp_path / "chat_history.jsonl"
         rows = [
             {"ts": i, "role": "user", "text": f"msg {i}"}

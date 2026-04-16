@@ -40,7 +40,7 @@ def telegram_start(
     if background:
         import subprocess
         proc = subprocess.Popen(
-            [sys.executable, "-m", "cli.telegram_bot"],
+            [sys.executable, "-m", "telegram.bot"],
             cwd=project_root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -53,7 +53,7 @@ def telegram_start(
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
         os.chdir(project_root)
-        from cli.telegram_bot import run
+        from telegram.bot import run
         typer.echo("Starting Telegram bot in foreground. Ctrl+C to stop.")
         run()
 

@@ -174,7 +174,7 @@ def apply_patch_to_config(config_path: str, patch: dict) -> dict:
 def readiness_verdict() -> tuple[str, list]:
     """Call compute_readiness from the readiness module and return
     (overall_verdict_line, results)."""
-    from cli.telegram_commands.readiness import compute_readiness
+    from telegram.commands.readiness import compute_readiness
     return compute_readiness()[::-1]
 
 
@@ -217,7 +217,7 @@ def can_advance(current_rung: int, target_rung: int) -> tuple[bool, str]:
 
 def cmd_activate(token: str, chat_id: str, args: str) -> None:
     """Guided sub-system 5 activation walkthrough."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     sub = (args or "").strip().lower()
     cfg = _read_json(OIL_BOTPATTERN_CONFIG_JSON) or {}

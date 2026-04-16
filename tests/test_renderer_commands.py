@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from common.renderer import BufferRenderer
-from cli.telegram_bot import (
+from telegram.bot import (
     cmd_status,
     cmd_price,
     cmd_orders,
@@ -76,9 +76,9 @@ class TestCmdStatus:
         buf = BufferRenderer()
         with (
             patch("common.account_state.fetch_registered_account_state", return_value=_MOCK_BUNDLE),
-            patch("cli.telegram_bot._get_current_price", return_value=51000.0),
-            patch("cli.telegram_bot._get_market_oi", return_value="OI: $1.2B"),
-            patch("cli.telegram_bot._get_all_orders", return_value=[]),
+            patch("telegram.bot._get_current_price", return_value=51000.0),
+            patch("telegram.bot._get_market_oi", return_value="OI: $1.2B"),
+            patch("telegram.bot._get_all_orders", return_value=[]),
         ):
             cmd_status(buf, "")
         return buf
@@ -104,7 +104,7 @@ class TestCmdStatus:
         buf = BufferRenderer()
         with (
             patch("common.account_state.fetch_registered_account_state", return_value=_EMPTY_BUNDLE),
-            patch("cli.telegram_bot._get_all_orders", return_value=[]),
+            patch("telegram.bot._get_all_orders", return_value=[]),
         ):
             cmd_status(buf, "")
         assert "No open positions" in buf.messages[0]["text"]
@@ -122,9 +122,9 @@ class TestCmdPrice:
     def _run(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._get_all_market_ctx", return_value={"BTC": {"prevDayPx": 50000}}),
-            patch("cli.telegram_bot._get_current_price", return_value=51000.0),
-            patch("cli.telegram_bot.WATCHLIST", [("Bitcoin", "BTC", [], "crypto")]),
+            patch("telegram.bot._get_all_market_ctx", return_value={"BTC": {"prevDayPx": 50000}}),
+            patch("telegram.bot._get_current_price", return_value=51000.0),
+            patch("telegram.bot.WATCHLIST", [("Bitcoin", "BTC", [], "crypto")]),
         ):
             cmd_price(buf, "")
         return buf
@@ -158,14 +158,14 @@ class TestCmdPrice:
 class TestCmdOrders:
     def test_no_orders(self):
         buf = BufferRenderer()
-        with patch("cli.telegram_bot._get_all_orders", return_value=[]):
+        with patch("telegram.bot._get_all_orders", return_value=[]):
             cmd_orders(buf, "")
         assert len(buf.messages) == 1
         assert "No open orders" in buf.messages[0]["text"]
 
     def test_with_orders(self):
         buf = BufferRenderer()
-        with patch("cli.telegram_bot._get_all_orders", return_value=[MOCK_ORDER]):
+        with patch("telegram.bot._get_all_orders", return_value=[MOCK_ORDER]):
             cmd_orders(buf, "")
         assert len(buf.messages) == 1
         text = buf.messages[0]["text"]
@@ -178,7 +178,7 @@ class TestCmdOrders:
             {**MOCK_ORDER, "coin": "BTC"},
             {**MOCK_ORDER, "coin": "GOLD"},
         ]
-        with patch("cli.telegram_bot._get_all_orders", return_value=orders):
+        with patch("telegram.bot._get_all_orders", return_value=orders):
             cmd_orders(buf, "")
         text = buf.messages[0]["text"]
         assert "BTC" in text
@@ -191,7 +191,7 @@ class TestCmdHealth:
     def test_sends_one_text_message(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._diag", None),
+            patch("telegram.bot._diag", None),
             patch("common.authority.get_all", return_value={}),
         ):
             cmd_health(buf, "")
@@ -201,7 +201,7 @@ class TestCmdHealth:
     def test_output_contains_app_health_header(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._diag", None),
+            patch("telegram.bot._diag", None),
             patch("common.authority.get_all", return_value={}),
         ):
             cmd_health(buf, "")
@@ -210,7 +210,7 @@ class TestCmdHealth:
     def test_output_mentions_telegram_bot(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._diag", None),
+            patch("telegram.bot._diag", None),
             patch("common.authority.get_all", return_value={}),
         ):
             cmd_health(buf, "")
@@ -219,7 +219,7 @@ class TestCmdHealth:
     def test_output_has_diag_hint(self):
         buf = BufferRenderer()
         with (
-            patch("cli.telegram_bot._diag", None),
+            patch("telegram.bot._diag", None),
             patch("common.authority.get_all", return_value={}),
         ):
             cmd_health(buf, "")
@@ -232,7 +232,7 @@ class TestCmdMenu:
     def test_main_menu_sends_grid(self):
         buf = BufferRenderer()
         mock_rows = [[{"text": "Status", "callback_data": "mn:status"}]]
-        with patch("cli.telegram_bot._build_main_menu", return_value=("*Menu*", mock_rows)):
+        with patch("telegram.bot._build_main_menu", return_value=("*Menu*", mock_rows)):
             cmd_menu(buf, "")
         assert len(buf.messages) == 1
         assert buf.messages[0]["type"] == "grid"
@@ -243,8 +243,8 @@ class TestCmdMenu:
         buf = BufferRenderer()
         mock_rows = [[{"text": "Close", "callback_data": "mn:close:BTC"}]]
         with (
-            patch("cli.telegram_bot._build_position_detail", return_value=("*BTC Position*", mock_rows)),
-            patch("cli.telegram_bot.resolve_coin", return_value="BTC"),
+            patch("telegram.bot._build_position_detail", return_value=("*BTC Position*", mock_rows)),
+            patch("telegram.bot.resolve_coin", return_value="BTC"),
         ):
             cmd_menu(buf, "btc")
         assert len(buf.messages) == 1
@@ -263,6 +263,6 @@ class TestRendererCommandsSet:
         assert cmd_menu in RENDERER_COMMANDS
 
     def test_legacy_commands_not_in_set(self):
-        from cli.telegram_bot import cmd_pnl, cmd_diag
+        from telegram.bot import cmd_pnl, cmd_diag
         assert cmd_pnl not in RENDERER_COMMANDS
         assert cmd_diag not in RENDERER_COMMANDS

@@ -156,7 +156,7 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
 
     Deterministic. Reads only. Never writes or mutates the history file.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     arg = (args or "").strip()
     live_rows = _load_live_rows()
@@ -212,7 +212,7 @@ def cmd_chathistory(token: str, chat_id: str, args: str) -> None:
 
 def _render_tail(token: str, chat_id: str, rows: List[Dict], n: int) -> None:
     """Render the last N rows."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
     recent = rows[-n:]
     lines = [f"💬 *Chat History — Last {len(recent)} of {len(rows)}*", ""]
     for row in recent:
@@ -236,7 +236,7 @@ def _render_search(
     _MAX_LOADED_ROWS). ``live_count`` is the size of the live file alone
     so we can compute how many archived rows were searched.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
     q = query.lower()
     matches = [r for r in rows if q in (r.get("text") or "").lower()]
     archived_searched = max(0, len(rows) - live_count)
@@ -269,7 +269,7 @@ def _render_search(
 
 def _render_stats(token: str, chat_id: str, rows: List[Dict]) -> None:
     """Render count, date range, role distribution, market_context coverage."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     total = len(rows)
     roles: Dict[str, int] = {}

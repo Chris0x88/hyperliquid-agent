@@ -670,7 +670,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
                         action_id = store_pending(r.name, fn_args, chat_id)
                         conf_text, buttons = format_confirmation(r.name, fn_args, action_id)
-                        from cli.telegram_bot import tg_send_buttons
+                        from telegram.bot import tg_send_buttons
                         tg_send_buttons(token, chat_id, conf_text, buttons)
                         result_parts.append(f"[{r.name}] Action requires user approval. Confirmation sent.")
                         log.info("Write tool %s pending approval: %s", r.name, action_id)
@@ -745,7 +745,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
 
                     action_id = store_pending(fn_name, fn_args, chat_id)
                     conf_text, buttons = format_confirmation(fn_name, fn_args, action_id)
-                    from cli.telegram_bot import tg_send_buttons
+                    from telegram.bot import tg_send_buttons
                     tg_send_buttons(token, chat_id, conf_text, buttons)
                     messages.append({
                         "role": "tool" if response.get("tool_calls") else "user",

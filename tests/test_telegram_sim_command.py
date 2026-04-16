@@ -5,15 +5,15 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.sim import cmd_sim
+from telegram.commands.sim import cmd_sim
 
 
 def _patch_paths(tmp: Path):
     patchers = [
-        patch("cli.telegram_commands.sim.SHADOW_POSITIONS_JSON", str(tmp / "shadow_positions.json")),
-        patch("cli.telegram_commands.sim.SHADOW_TRADES_JSONL", str(tmp / "shadow_trades.jsonl")),
-        patch("cli.telegram_commands.sim.SHADOW_BALANCE_JSON", str(tmp / "shadow_balance.json")),
-        patch("cli.telegram_commands.sim.OIL_BOTPATTERN_CONFIG_JSON", str(tmp / "oil_botpattern.json")),
+        patch("telegram.commands.sim.SHADOW_POSITIONS_JSON", str(tmp / "shadow_positions.json")),
+        patch("telegram.commands.sim.SHADOW_TRADES_JSONL", str(tmp / "shadow_trades.jsonl")),
+        patch("telegram.commands.sim.SHADOW_BALANCE_JSON", str(tmp / "shadow_balance.json")),
+        patch("telegram.commands.sim.OIL_BOTPATTERN_CONFIG_JSON", str(tmp / "oil_botpattern.json")),
     ]
     for p in patchers:
         p.start()
@@ -45,7 +45,7 @@ def test_sim_reports_disabled_mode(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_config(tmp_path, enabled=False, decisions_only=False)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "DISABLED" in body
@@ -58,7 +58,7 @@ def test_sim_reports_shadow_mode(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_config(tmp_path, enabled=True, decisions_only=True)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "SHADOW" in body
@@ -71,7 +71,7 @@ def test_sim_reports_live_mode(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_config(tmp_path, enabled=True, decisions_only=False)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "LIVE" in body
@@ -97,7 +97,7 @@ def test_sim_renders_balance_with_pnl(tmp_path):
             "losses": 3,
             "last_updated_at": "2026-04-09T10:00:00+00:00",
         }))
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "$103,450" in body
@@ -113,7 +113,7 @@ def test_sim_seed_when_no_balance_file(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_config(tmp_path, shadow_seed_balance_usd=50_000.0)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "$50,000" in body
@@ -150,7 +150,7 @@ def test_sim_renders_open_positions(tmp_path):
                 },
             ],
         }))
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Open shadow positions" in body
@@ -166,7 +166,7 @@ def test_sim_no_positions_message(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         _write_config(tmp_path)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Open shadow positions:* none" in body
@@ -203,7 +203,7 @@ def test_sim_renders_recent_trades(tmp_path):
         (tmp_path / "shadow_trades.jsonl").write_text(
             "".join(json.dumps(t) + "\n" for t in trades)
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_sim("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Recent closed trades" in body
@@ -220,14 +220,14 @@ def test_sim_renders_recent_trades(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_sim_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert "/sim" in HANDLERS
     assert "sim" in HANDLERS
 
 
 def test_sim_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/sim" in body

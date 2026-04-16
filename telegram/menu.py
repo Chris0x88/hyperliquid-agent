@@ -17,10 +17,10 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from cli.telegram_api import (
+from telegram.api import (
     tg_send, tg_send_grid, tg_edit_grid, tg_answer_callback,
 )
-from cli.telegram_hl import (
+from common.exchange_helpers import (
     _get_all_orders, _get_current_price, _get_account_values,
     _coin_matches, resolve_coin,
 )
@@ -286,7 +286,7 @@ def _build_trade_menu() -> tuple:
 
 def _build_trade_side_menu(coin: str) -> tuple:
     """Build buy/sell selection for a specific coin. Returns (text, rows)."""
-    from cli.telegram_approval import _find_position
+    from telegram.approval import _find_position
 
     price = _get_current_price(coin)
     px_str = f"${price:,.2f}" if price else "\u2014"
@@ -371,7 +371,7 @@ def _menu_dispatch(token: str, chat_id: str, handler, args: str) -> None:
 
     Needs RENDERER_COMMANDS from telegram_bot — imported lazily to avoid circular imports.
     """
-    from cli.telegram_bot import RENDERER_COMMANDS
+    from telegram.bot import RENDERER_COMMANDS
     if handler in RENDERER_COMMANDS:
         from common.renderer import TelegramRenderer
         handler(TelegramRenderer(token, chat_id), args)
@@ -381,7 +381,7 @@ def _menu_dispatch(token: str, chat_id: str, handler, args: str) -> None:
 
 def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, message_id: int) -> None:
     """Central router for all mn: prefixed callbacks."""
-    from cli.telegram_approval import (
+    from telegram.approval import (
         _handle_close_position, _handle_sl_prompt, _handle_tp_prompt,
         _handle_trade_size_prompt,
     )
@@ -420,12 +420,12 @@ def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, messa
         if len(parts) >= 5 and parts[2] == "xyz":
             coin = f"xyz:{parts[3]}"
             hours = parts[4]
-        from cli.telegram_bot import cmd_chart
+        from telegram.bot import cmd_chart
         cmd_chart(token, chat_id, f"{coin} {hours}")
 
     elif action == "mk" and len(parts) >= 3:
         coin = ":".join(parts[2:])
-        from cli.telegram_bot import cmd_market
+        from telegram.bot import cmd_market
         cmd_market(token, chat_id, coin)
 
     elif action == "watch":
@@ -437,16 +437,16 @@ def _handle_menu_callback(token: str, chat_id: str, cb_id: str, data: str, messa
         tg_edit_grid(token, chat_id, message_id, text, rows)
 
     elif action == "ord":
-        from cli.telegram_bot import cmd_orders
+        from telegram.bot import cmd_orders
         _menu_dispatch(token, chat_id, cmd_orders, "")
 
     elif action == "pnl":
-        from cli.telegram_commands.portfolio import cmd_pnl
+        from telegram.commands.portfolio import cmd_pnl
         _menu_dispatch(token, chat_id, cmd_pnl, "")
 
     elif action == "run" and len(parts) >= 3:
         cmd_name = parts[2]
-        from cli.telegram_bot import (
+        from telegram.bot import (
             cmd_status, cmd_health, cmd_diag, cmd_models, cmd_authority, cmd_memory,
         )
         run_map = {

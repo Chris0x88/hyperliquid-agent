@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.readiness import (
+from telegram.commands.readiness import (
     check_bot_classifier,
     check_catalyst_feed,
     check_drawdown_brakes,
@@ -25,14 +25,14 @@ UTC = timezone.utc
 
 def _patch_paths(tmp: Path):
     patchers = [
-        patch("cli.telegram_commands.readiness.CATALYSTS_JSONL", str(tmp / "catalysts.jsonl")),
-        patch("cli.telegram_commands.readiness.SUPPLY_STATE_JSON", str(tmp / "supply.json")),
-        patch("cli.telegram_commands.readiness.HEATMAP_ZONES_JSONL", str(tmp / "zones.jsonl")),
-        patch("cli.telegram_commands.readiness.BOT_PATTERNS_JSONL", str(tmp / "bot_patterns.jsonl")),
-        patch("cli.telegram_commands.readiness.BRENTOIL_THESIS_JSON", str(tmp / "thesis.json")),
-        patch("cli.telegram_commands.readiness.RISK_CAPS_JSON", str(tmp / "risk_caps.json")),
-        patch("cli.telegram_commands.readiness.OIL_BOTPATTERN_CONFIG_JSON", str(tmp / "oil_botpattern.json")),
-        patch("cli.telegram_commands.readiness.OIL_BOTPATTERN_STATE_JSON", str(tmp / "state.json")),
+        patch("telegram.commands.readiness.CATALYSTS_JSONL", str(tmp / "catalysts.jsonl")),
+        patch("telegram.commands.readiness.SUPPLY_STATE_JSON", str(tmp / "supply.json")),
+        patch("telegram.commands.readiness.HEATMAP_ZONES_JSONL", str(tmp / "zones.jsonl")),
+        patch("telegram.commands.readiness.BOT_PATTERNS_JSONL", str(tmp / "bot_patterns.jsonl")),
+        patch("telegram.commands.readiness.BRENTOIL_THESIS_JSON", str(tmp / "thesis.json")),
+        patch("telegram.commands.readiness.RISK_CAPS_JSON", str(tmp / "risk_caps.json")),
+        patch("telegram.commands.readiness.OIL_BOTPATTERN_CONFIG_JSON", str(tmp / "oil_botpattern.json")),
+        patch("telegram.commands.readiness.OIL_BOTPATTERN_STATE_JSON", str(tmp / "state.json")),
     ]
     for p in patchers:
         p.start()
@@ -369,7 +369,7 @@ def test_cmd_readiness_renders(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
         (tmp_path / "oil_botpattern.json").write_text(json.dumps({"enabled": False}))
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_readiness("tok", "chat", "")
             body = send.call_args[0][2]
             assert "activation preflight" in body
@@ -385,14 +385,14 @@ def test_cmd_readiness_renders(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_readiness_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert "/readiness" in HANDLERS
     assert "readiness" in HANDLERS
 
 
 def test_readiness_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/readiness" in body

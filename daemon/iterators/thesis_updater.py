@@ -37,7 +37,7 @@ class ThesisUpdaterIterator:
     def _setup_haiku(self) -> None:
         """Set up the Haiku call function using existing Anthropic auth."""
         try:
-            from cli.telegram_agent import _call_anthropic
+            from telegram.agent import _call_anthropic
             def call_haiku(messages):
                 resp = _call_anthropic(messages, model_override="claude-haiku-4-5")
                 return resp.get("content", "")

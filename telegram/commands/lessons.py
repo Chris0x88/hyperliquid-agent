@@ -29,7 +29,7 @@ def cmd_lessons(token: str, chat_id: str, args: str) -> None:
     Optional argument: integer limit (default 10, max 25).
     Rejected lessons (reviewed_by_chris = -1) are excluded by default.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
     from common import memory as common_memory
 
     limit = 10
@@ -83,7 +83,7 @@ def cmd_lesson(token: str, chat_id: str, args: str) -> None:
 
     Deterministic — reads/writes data/memory/memory.db directly, no AI.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
     from common import memory as common_memory
 
     parts = args.strip().split()
@@ -178,7 +178,7 @@ def cmd_lessonauthorai(token: str, chat_id: str, args: str) -> None:
         /lessonauthorai all      — author every pending candidate (capped at 25
                                    to keep the bot responsive)
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     arg = (args or "").strip().lower()
     if arg == "all":
@@ -193,7 +193,7 @@ def cmd_lessonauthorai(token: str, chat_id: str, args: str) -> None:
         max_lessons = 3
 
     try:
-        from cli.telegram_agent import _author_pending_lessons
+        from telegram.agent import _author_pending_lessons
         result = _author_pending_lessons(max_lessons=max_lessons)
     except Exception as e:
         tg_send(token, chat_id, f"📓 Authoring failed: {e}")
@@ -227,7 +227,7 @@ def cmd_lessonsearch(token: str, chat_id: str, args: str) -> None:
     Usage: /lessonsearch <query>
     Deterministic — reads data/memory/memory.db directly, no AI.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
     from common import memory as common_memory
 
     query = args.strip()

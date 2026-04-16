@@ -33,7 +33,7 @@ from common.account_state import fetch_registered_account_state
 
 def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
     """Summarise unrealized PnL across all positions (main + vault)."""
-    from cli.telegram_bot import (
+    from telegram.bot import (
         tg_send,
     )
 
@@ -82,7 +82,7 @@ def cmd_pnl(token: str, chat_id: str, _args: str) -> None:
 def cmd_position(token: str, chat_id: str, _args: str) -> None:
     """Detailed position report with risk metrics + per-asset authority +
     SL/TP audit. Deterministic — no AI."""
-    from cli.telegram_bot import (
+    from telegram.bot import (
         _coin_matches,
         _get_all_orders,
         _get_current_price,

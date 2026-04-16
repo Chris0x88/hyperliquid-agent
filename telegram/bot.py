@@ -6,7 +6,7 @@ run pure Python against the HyperLiquid API directly. Only free-text messages
 that need Claude's brain get queued for the scheduled task.
 
 Run as a background process:
-    python3 -m cli.telegram_bot &
+    python3 -m telegram.bot &
 
 Or via the CLI:
     hl telegram start
@@ -28,26 +28,26 @@ import requests
 
 from common.renderer import Renderer, TelegramRenderer
 
-import cli.telegram_hl as telegram_hl
-from cli.telegram_hl import (
+import common.exchange_helpers as telegram_hl
+from common.exchange_helpers import (
     HL_API,
     _hl_post, _get_all_positions, _get_all_orders, _get_account_values,
     _get_market_oi, _get_current_price, _get_all_market_ctx,
     _coin_matches, resolve_coin,
 )
-from cli.telegram_api import (
+from telegram.api import (
     tg_send, tg_send_buttons, tg_remove_buttons, tg_answer_callback,
     tg_send_grid, tg_edit_grid, tg_get_updates,
 )
-import cli.telegram_api as _tg_api  # for mutable _poll_fail_count access
-from cli.telegram_menu import (  # noqa: E402
+import telegram.api as _tg_api  # for mutable _poll_fail_count access
+from telegram.menu import (  # noqa: E402
     _cached_positions, _btn, _build_main_menu, _build_position_detail,
     _build_watchlist_menu, _build_trade_menu, _build_trade_side_menu,
     _build_account_menu, _build_tools_menu, _menu_dispatch,
     _handle_menu_callback, _get_active_addr, _pos_cache,
 )
-import cli.telegram_menu as _tg_menu  # for mutable _active_account access
-from cli.telegram_approval import (  # noqa: E402
+import telegram.menu as _tg_menu  # for mutable _active_account access
+from telegram.approval import (  # noqa: E402
     _lock_approval_message, _handle_tool_approval, _handle_pending_input,
     _handle_trade_size_prompt, _find_position, _handle_close_position,
     _handle_sl_prompt, _handle_tp_prompt, _pending_inputs,
@@ -102,7 +102,7 @@ from common.watchlist import (
 )
 
 WATCHLIST = _get_wl_tuples()
-# Local copy kept for global-reload sites; canonical copy in cli.telegram_hl
+# Local copy kept for global-reload sites; canonical copy in common.exchange_helpers
 COIN_ALIASES: dict[str, str] = _get_aliases()
 APPROVED_MARKETS = _get_coins()
 
@@ -2303,7 +2303,7 @@ def cmd_oilbotreviewai(token: str, chat_id: str, args: str) -> None:
         }))
 
     try:
-        from cli.telegram_agent import handle_ai_message
+        from telegram.agent import handle_ai_message
         handle_ai_message(token, chat_id, "\n".join(summary_lines))
     except ImportError:
         tg_send(token, chat_id,
@@ -2790,27 +2790,27 @@ def cmd_architect(token: str, chat_id: str, args: str) -> None:
 # The four cmd_lessons / cmd_lesson / cmd_lessonauthorai / cmd_lessonsearch
 # handlers now live in cli/telegram_commands/lessons.py and are imported
 # below so the HANDLERS dict references resolve correctly.
-from cli.telegram_commands.lessons import (  # noqa: E402
+from telegram.commands.lessons import (  # noqa: E402
     cmd_lesson,
     cmd_lessonauthorai,
     cmd_lessons,
     cmd_lessonsearch,
 )
-from cli.telegram_commands.brutal_review import cmd_brutalreviewai  # noqa: E402
-from cli.telegram_commands.entry_critic import cmd_critique  # noqa: E402
-from cli.telegram_commands.portfolio import cmd_pnl, cmd_position  # noqa: E402
-from cli.telegram_commands.action_queue import cmd_nudge  # noqa: E402
-from cli.telegram_commands.chat_history import cmd_chathistory  # noqa: E402
-from cli.telegram_commands.patternlib import (  # noqa: E402
+from telegram.commands.brutal_review import cmd_brutalreviewai  # noqa: E402
+from telegram.commands.entry_critic import cmd_critique  # noqa: E402
+from telegram.commands.portfolio import cmd_pnl, cmd_position  # noqa: E402
+from telegram.commands.action_queue import cmd_nudge  # noqa: E402
+from telegram.commands.chat_history import cmd_chathistory  # noqa: E402
+from telegram.commands.patternlib import (  # noqa: E402
     cmd_patterncatalog,
     cmd_patternpromote,
     cmd_patternreject,
 )
-from cli.telegram_commands.shadow import cmd_shadoweval  # noqa: E402
-from cli.telegram_commands.sim import cmd_sim  # noqa: E402
-from cli.telegram_commands.readiness import cmd_readiness  # noqa: E402
-from cli.telegram_commands.activate import cmd_activate  # noqa: E402
-from cli.telegram_commands.adaptlog import cmd_adaptlog  # noqa: E402
+from telegram.commands.shadow import cmd_shadoweval  # noqa: E402
+from telegram.commands.sim import cmd_sim  # noqa: E402
+from telegram.commands.readiness import cmd_readiness  # noqa: E402
+from telegram.commands.activate import cmd_activate  # noqa: E402
+from telegram.commands.adaptlog import cmd_adaptlog  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -3284,7 +3284,7 @@ def cmd_memory(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_models(token: str, chat_id: str, args: str) -> None:
     """Show AI model selector with compact inline keyboard grid."""
-    from cli.telegram_agent import get_available_models, _get_active_model
+    from telegram.agent import get_available_models, _get_active_model
 
     models = get_available_models()
     current = _get_active_model()
@@ -3342,7 +3342,7 @@ def cmd_models(token: str, chat_id: str, args: str) -> None:
 
 def _handle_model_callback(token: str, chat_id: str, callback_id: str, model_id: str) -> None:
     """Handle inline keyboard button press for model selection."""
-    from cli.telegram_agent import get_available_models, set_active_model
+    from telegram.agent import get_available_models, set_active_model
 
     valid_ids = [m["id"] for m in get_available_models()]
     if model_id not in valid_ids:
@@ -3940,7 +3940,7 @@ def run() -> None:
     try:
         import subprocess as _sp
         result = _sp.run(
-            ["pgrep", "-f", "cli.telegram_bot"],
+            ["pgrep", "-f", "telegram.bot"],
             capture_output=True, text=True, timeout=5,
         )
         for line in result.stdout.strip().split("\n"):
@@ -4080,7 +4080,7 @@ def run() -> None:
                         handler(token, reply_chat_id, args)
                     # Log to chat history so AI knows what commands were used
                     try:
-                        from cli.telegram_agent import _log_chat
+                        from telegram.agent import _log_chat
                         _log_chat("user", f"[command] {cmd_key} {args}".strip())
                     except Exception:
                         pass
@@ -4100,7 +4100,7 @@ def run() -> None:
                 else:
                     log.info("AI chat: %s", text[:80])
                     try:
-                        from cli.telegram_agent import handle_ai_message
+                        from telegram.agent import handle_ai_message
                         handle_ai_message(
                             token, reply_chat_id, text,
                             user_name=msg.get("from", {}).get("first_name", ""),

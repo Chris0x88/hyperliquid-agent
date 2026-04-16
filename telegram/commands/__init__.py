@@ -1,4 +1,4 @@
-"""cli.telegram_commands — incremental split of the telegram_bot.py monolith.
+"""telegram.commands — incremental split of the telegram_bot.py monolith.
 
 The 4,200+ line cli/telegram_bot.py is being incrementally decomposed into
 cohesive submodules, one group of related commands per file. The HANDLERS

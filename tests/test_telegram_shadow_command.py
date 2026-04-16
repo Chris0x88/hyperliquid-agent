@@ -5,17 +5,17 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_commands.shadow import cmd_shadoweval
+from telegram.commands.shadow import cmd_shadoweval
 
 
 def _patch_paths(tmp: Path):
     patchers = [
         patch(
-            "cli.telegram_commands.shadow.OIL_BOTPATTERN_SHADOW_EVALS_JSONL",
+            "telegram.commands.shadow.OIL_BOTPATTERN_SHADOW_EVALS_JSONL",
             str(tmp / "shadow_evals.jsonl"),
         ),
         patch(
-            "cli.telegram_commands.shadow.OIL_BOTPATTERN_PROPOSALS_JSONL",
+            "telegram.commands.shadow.OIL_BOTPATTERN_PROPOSALS_JSONL",
             str(tmp / "proposals.jsonl"),
         ),
     ]
@@ -55,7 +55,7 @@ def _eval_row(pid: int = 42) -> dict:
 def test_shadoweval_empty_summary(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No shadow evaluations" in body
@@ -70,7 +70,7 @@ def test_shadoweval_summary_lists_evals(tmp_path):
             json.dumps(_eval_row(1)) + "\n"
             + json.dumps(_eval_row(2)) + "\n"
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "")
             body = send.call_args[0][2]
             assert "Shadow evaluations" in body
@@ -98,7 +98,7 @@ def test_shadoweval_detail_for_existing(tmp_path):
                 "status": "approved",
             }) + "\n"
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "42")
             body = send.call_args[0][2]
             assert "Shadow eval #42" in body
@@ -113,7 +113,7 @@ def test_shadoweval_detail_for_existing(tmp_path):
 def test_shadoweval_detail_not_found(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "999")
             body = send.call_args[0][2]
             assert "No shadow evaluation found" in body
@@ -124,7 +124,7 @@ def test_shadoweval_detail_not_found(tmp_path):
 def test_shadoweval_bad_id(tmp_path):
     patchers = _patch_paths(tmp_path)
     try:
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "nope")
             body = send.call_args[0][2]
             assert "Bad id" in body
@@ -138,7 +138,7 @@ def test_shadoweval_insufficient_sample_flag(tmp_path):
         row = _eval_row(7)
         row["sample_sufficient"] = False
         (tmp_path / "shadow_evals.jsonl").write_text(json.dumps(row) + "\n")
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_shadoweval("tok", "chat", "7")
             body = send.call_args[0][2]
             assert "insufficient" in body.lower()
@@ -151,22 +151,22 @@ def test_shadoweval_insufficient_sample_flag(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_shadoweval_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert "/shadoweval" in HANDLERS
     assert "shadoweval" in HANDLERS
 
 
 def test_shadoweval_in_help():
-    from cli.telegram_bot import cmd_help
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_help
+    with patch("telegram.bot.tg_send") as send:
         cmd_help("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/shadoweval" in body
 
 
 def test_shadoweval_in_guide():
-    from cli.telegram_bot import cmd_guide
-    with patch("cli.telegram_bot.tg_send") as send:
+    from telegram.bot import cmd_guide
+    with patch("telegram.bot.tg_send") as send:
         cmd_guide("tok", "chat", "")
         body = send.call_args[0][2]
         assert "/shadoweval" in body

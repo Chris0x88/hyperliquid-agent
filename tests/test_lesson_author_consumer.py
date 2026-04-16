@@ -101,14 +101,14 @@ def _valid_response(
 
 class TestAuthorPendingLessonsHelper:
     def test_no_candidate_dir_is_noop(self, tmp_db, tmp_path):
-        from cli.telegram_agent import _author_pending_lessons
+        from telegram.agent import _author_pending_lessons
         result = _author_pending_lessons(
             candidate_dir=str(tmp_path / "missing"),
         )
         assert result == {"processed": 0, "failed": 0, "skipped": 0, "errors": []}
 
     def test_empty_dir_is_noop(self, tmp_db, tmp_candidates):
-        from cli.telegram_agent import _author_pending_lessons
+        from telegram.agent import _author_pending_lessons
         result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
         assert result["processed"] == 0
         assert result["failed"] == 0
@@ -118,10 +118,10 @@ class TestAuthorPendingLessonsHelper:
         path = _write_candidate(tmp_candidates, "test1")
 
         with patch(
-            "cli.telegram_agent._call_anthropic",
+            "telegram.agent._call_anthropic",
             return_value={"content": _valid_response()},
         ) as mock_call:
-            from cli.telegram_agent import _author_pending_lessons
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         assert result["processed"] == 1
@@ -152,8 +152,8 @@ class TestAuthorPendingLessonsHelper:
                                 "entry_ts": 1, "close_ts": 2},
             )
 
-        with patch("cli.telegram_agent._call_anthropic", return_value={"content": _valid_response()}):
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", return_value={"content": _valid_response()}):
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates), max_lessons=2)
 
         assert result["processed"] == 2
@@ -164,8 +164,8 @@ class TestAuthorPendingLessonsHelper:
         path = _write_candidate(tmp_candidates, "bad")
         bad_response = "no sentinels here at all"
 
-        with patch("cli.telegram_agent._call_anthropic", return_value={"content": bad_response}):
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", return_value={"content": bad_response}):
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         assert result["processed"] == 0
@@ -176,8 +176,8 @@ class TestAuthorPendingLessonsHelper:
     def test_empty_response_leaves_candidate(self, tmp_db, tmp_candidates):
         path = _write_candidate(tmp_candidates, "empty")
 
-        with patch("cli.telegram_agent._call_anthropic", return_value={"content": ""}):
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", return_value={"content": ""}):
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         assert result["failed"] == 1
@@ -190,8 +190,8 @@ class TestAuthorPendingLessonsHelper:
         def raise_it(*a, **kw):
             raise RuntimeError("rate limit")
 
-        with patch("cli.telegram_agent._call_anthropic", side_effect=raise_it):
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", side_effect=raise_it):
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         assert result["failed"] == 1
@@ -224,8 +224,8 @@ class TestAuthorPendingLessonsHelper:
 
         path = _write_candidate(tmp_candidates, "dup")
 
-        with patch("cli.telegram_agent._call_anthropic", return_value={"content": _valid_response()}) as mock_call:
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", return_value={"content": _valid_response()}) as mock_call:
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         # The model still got called (we don't check duplicates before
@@ -265,8 +265,8 @@ class TestAuthorPendingLessonsHelper:
         # Alternate between valid and broken responses
         responses = [{"content": _valid_response()}, {"content": "broken"}]
 
-        with patch("cli.telegram_agent._call_anthropic", side_effect=responses):
-            from cli.telegram_agent import _author_pending_lessons
+        with patch("telegram.agent._call_anthropic", side_effect=responses):
+            from telegram.agent import _author_pending_lessons
             result = _author_pending_lessons(candidate_dir=str(tmp_candidates))
 
         assert result["processed"] == 1
@@ -291,26 +291,26 @@ class TestCmdLessonauthorai:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
 
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 0, "failed": 0, "skipped": 0, "errors": [],
         }):
-            with patch("cli.telegram_bot.tg_send") as send:
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send") as send:
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "")
                 assert "No pending lesson candidates" in _body(send)
 
     def test_invalid_arg(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
-            from cli.telegram_bot import cmd_lessonauthorai
+        with patch("telegram.bot.tg_send") as send:
+            from telegram.bot import cmd_lessonauthorai
             cmd_lessonauthorai("tok", "chat", "abc")
             assert "Usage" in _body(send)
 
     def test_default_count(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 2, "failed": 0, "skipped": 0, "errors": [],
         }) as mock_helper:
-            with patch("cli.telegram_bot.tg_send") as send:
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send") as send:
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "")
                 # Default max_lessons is 3
                 assert mock_helper.call_args.kwargs["max_lessons"] == 3
@@ -318,41 +318,41 @@ class TestCmdLessonauthorai:
                 assert "✅" in _body(send)
 
     def test_explicit_count(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 5, "failed": 0, "skipped": 0, "errors": [],
         }) as mock_helper:
-            with patch("cli.telegram_bot.tg_send"):
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send"):
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "5")
                 assert mock_helper.call_args.kwargs["max_lessons"] == 5
 
     def test_all_count(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 25, "failed": 0, "skipped": 0, "errors": [],
         }) as mock_helper:
-            with patch("cli.telegram_bot.tg_send"):
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send"):
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "all")
                 assert mock_helper.call_args.kwargs["max_lessons"] == 25
 
     def test_count_clamped_to_25(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 25, "failed": 0, "skipped": 0, "errors": [],
         }) as mock_helper:
-            with patch("cli.telegram_bot.tg_send"):
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send"):
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "1000")
                 assert mock_helper.call_args.kwargs["max_lessons"] == 25
 
     def test_failures_listed_in_response(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", return_value={
+        with patch("telegram.agent._author_pending_lessons", return_value={
             "processed": 1,
             "failed": 2,
             "skipped": 0,
             "errors": ["c1.json: parse failed", "c2.json: model call failed"],
         }):
-            with patch("cli.telegram_bot.tg_send") as send:
-                from cli.telegram_bot import cmd_lessonauthorai
+            with patch("telegram.bot.tg_send") as send:
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "")
                 body = _body(send)
                 assert "1 authored" in body
@@ -361,9 +361,9 @@ class TestCmdLessonauthorai:
                 assert "model call failed" in body
 
     def test_helper_exception_returns_friendly_error(self, tmp_db):
-        with patch("cli.telegram_agent._author_pending_lessons", side_effect=RuntimeError("boom")):
-            with patch("cli.telegram_bot.tg_send") as send:
-                from cli.telegram_bot import cmd_lessonauthorai
+        with patch("telegram.agent._author_pending_lessons", side_effect=RuntimeError("boom")):
+            with patch("telegram.bot.tg_send") as send:
+                from telegram.bot import cmd_lessonauthorai
                 cmd_lessonauthorai("tok", "chat", "")
                 assert "Authoring failed" in _body(send)
                 assert "boom" in _body(send)
@@ -375,29 +375,29 @@ class TestCmdLessonauthorai:
 
 class TestRegistration:
     def test_handlers_dict_has_slash_and_bare(self):
-        from cli.telegram_bot import HANDLERS
+        from telegram.bot import HANDLERS
         assert "/lessonauthorai" in HANDLERS
         assert "lessonauthorai" in HANDLERS
 
     def test_handler_points_at_command(self):
-        from cli.telegram_bot import HANDLERS, cmd_lessonauthorai
+        from telegram.bot import HANDLERS, cmd_lessonauthorai
         assert HANDLERS["/lessonauthorai"] is cmd_lessonauthorai
         assert HANDLERS["lessonauthorai"] is cmd_lessonauthorai
 
     def test_cmd_help_lists_lessonauthorai(self):
-        with patch("cli.telegram_bot.tg_send") as send:
-            from cli.telegram_bot import cmd_help
+        with patch("telegram.bot.tg_send") as send:
+            from telegram.bot import cmd_help
             cmd_help("tok", "chat", "")
             assert "/lessonauthorai" in _body(send)
 
     def test_cmd_guide_lists_lessonauthorai(self):
-        with patch("cli.telegram_bot.tg_send") as send:
-            from cli.telegram_bot import cmd_guide
+        with patch("telegram.bot.tg_send") as send:
+            from telegram.bot import cmd_guide
             cmd_guide("tok", "chat", "")
             assert "/lessonauthorai" in _body(send)
 
     def test_ai_suffix_present(self):
         """Per CLAUDE.md slash-command rule, the AI-dependent command must
         carry the `ai` suffix."""
-        from cli.telegram_bot import HANDLERS
+        from telegram.bot import HANDLERS
         assert any(name.endswith("ai") and "lesson" in name for name in HANDLERS)

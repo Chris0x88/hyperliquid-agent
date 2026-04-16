@@ -42,7 +42,7 @@ def cmd_critique(token: str, chat_id: str, args: str) -> None:
     Deterministic — reads the JSONL written by the entry_critic iterator
     when each new position was detected. No AI.
     """
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     parts = args.strip().split() if args else []
     instrument_filter: str | None = None

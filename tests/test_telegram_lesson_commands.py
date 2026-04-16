@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cli.telegram_bot import cmd_lessons, cmd_lesson, cmd_lessonsearch
+from telegram.bot import cmd_lessons, cmd_lesson, cmd_lessonsearch
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def _body(send) -> str:
 
 class TestCmdLessons:
     def test_empty_corpus_shows_friendly_message(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "")
             assert send.call_count == 1
             assert "No lessons" in _body(send)
@@ -69,7 +69,7 @@ class TestCmdLessons:
     def test_lists_recent_lessons(self, tmp_db):
         _seed(summary="first lesson", trade_closed_at="2026-04-09T12:00:00Z")
         _seed(summary="second lesson", trade_closed_at="2026-04-08T12:00:00Z")
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "")
             body = _body(send)
             assert "first lesson" in body
@@ -81,7 +81,7 @@ class TestCmdLessons:
     def test_limit_argument(self, tmp_db):
         for i in range(15):
             _seed(summary=f"lesson {i}", trade_closed_at=f"2026-04-0{i % 9 + 1}T12:00:00Z")
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "5")
             body = _body(send)
             # Header says 5 lessons
@@ -90,7 +90,7 @@ class TestCmdLessons:
     def test_limit_clamped_to_25(self, tmp_db):
         for i in range(30):
             _seed(summary=f"lesson {i}", trade_closed_at=f"2026-04-0{i % 9 + 1}T12:00:00Z")
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "1000")
             body = _body(send)
             # Capped at 25
@@ -98,7 +98,7 @@ class TestCmdLessons:
 
     def test_invalid_limit_uses_default(self, tmp_db):
         _seed()
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "abc")
             assert send.call_count == 1  # didn't crash
 
@@ -106,7 +106,7 @@ class TestCmdLessons:
         from common import memory as common_memory
         rid = _seed(summary="approved one")
         common_memory.set_lesson_review(rid, 1)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "")
             assert "✅" in _body(send)
 
@@ -115,7 +115,7 @@ class TestCmdLessons:
         rid_r = _seed(summary="rejected one")
         _seed(summary="kept one")
         common_memory.set_lesson_review(rid_r, -1)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessons("tok", "chat", "")
             body = _body(send)
             assert "kept one" in body
@@ -128,24 +128,24 @@ class TestCmdLessons:
 
 class TestCmdLessonRead:
     def test_no_args_shows_usage(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "")
             assert "Usage" in _body(send)
 
     def test_invalid_id_shows_error(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "abc")
             assert "Invalid id" in _body(send)
 
     def test_missing_id_returns_not_found(self, tmp_db):
         _seed()  # ensure schema exists
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "999")
             assert "not found" in _body(send).lower()
 
     def test_returns_full_body(self, tmp_db):
         rid = _seed()
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", str(rid))
             body = _body(send)
             assert f"Lesson #{rid}" in body
@@ -156,7 +156,7 @@ class TestCmdLessonRead:
 
     def test_renders_tags(self, tmp_db):
         rid = _seed(tags=["fed-day", "false-breakout"])
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", str(rid))
             body = _body(send)
             assert "fed-day" in body
@@ -166,13 +166,13 @@ class TestCmdLessonRead:
         from common import memory as common_memory
         rid = _seed()
         common_memory.set_lesson_review(rid, 1)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", str(rid))
             assert "approved" in _body(send)
 
     def test_long_body_truncated(self, tmp_db):
         rid = _seed(body_full="x" * 5000)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", str(rid))
             body = _body(send)
             assert "truncated" in body
@@ -184,7 +184,7 @@ class TestCmdLessonCuration:
     def test_approve(self, tmp_db):
         from common import memory as common_memory
         rid = _seed()
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", f"approve {rid}")
             assert "approved" in _body(send)
         assert common_memory.get_lesson(rid)["reviewed_by_chris"] == 1
@@ -192,7 +192,7 @@ class TestCmdLessonCuration:
     def test_reject(self, tmp_db):
         from common import memory as common_memory
         rid = _seed()
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", f"reject {rid}")
             assert "rejected" in _body(send)
         assert common_memory.get_lesson(rid)["reviewed_by_chris"] == -1
@@ -200,24 +200,24 @@ class TestCmdLessonCuration:
     def test_unreview(self, tmp_db):
         from common import memory as common_memory
         rid = _seed(reviewed_by_chris=1)
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", f"unreview {rid}")
             assert "unreviewed" in _body(send)
         assert common_memory.get_lesson(rid)["reviewed_by_chris"] == 0
 
     def test_curate_missing_id(self, tmp_db):
         _seed()
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "approve 999")
             assert "not found" in _body(send).lower()
 
     def test_curate_missing_arg(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "approve")
             assert "Usage" in _body(send)
 
     def test_curate_invalid_id(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lesson("tok", "chat", "approve abc")
             assert "Invalid id" in _body(send)
 
@@ -228,13 +228,13 @@ class TestCmdLessonCuration:
 
 class TestCmdLessonsearch:
     def test_no_query_shows_usage(self, tmp_db):
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessonsearch("tok", "chat", "")
             assert "Usage" in _body(send)
 
     def test_no_hits(self, tmp_db):
         _seed(summary="brent supply story")
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessonsearch("tok", "chat", "nonexistent xyzzy term")
             assert "No lessons match" in _body(send)
 
@@ -250,7 +250,7 @@ class TestCmdLessonsearch:
             tags=["cpi"],
             market="xyz:GOLD",
         )
-        with patch("cli.telegram_bot.tg_send") as send:
+        with patch("telegram.bot.tg_send") as send:
             cmd_lessonsearch("tok", "chat", "weekend wick")
             body = _body(send)
             assert "weekend wick stopped" in body
@@ -260,7 +260,7 @@ class TestCmdLessonsearch:
     def test_injection_resistance(self, tmp_db):
         _seed()
         for bad in ['" OR 1=1', "*", "(foo)", "NOT AND OR"]:
-            with patch("cli.telegram_bot.tg_send") as send:
+            with patch("telegram.bot.tg_send") as send:
                 cmd_lessonsearch("tok", "chat", bad)
                 assert send.call_count == 1  # never crashes
 
@@ -271,20 +271,20 @@ class TestCmdLessonsearch:
 
 class TestRegistrationSurfaces:
     def test_handlers_dict_has_slash_and_bare(self):
-        from cli.telegram_bot import HANDLERS
+        from telegram.bot import HANDLERS
         for cmd in ("lessons", "lesson", "lessonsearch"):
             assert f"/{cmd}" in HANDLERS, f"/{cmd} missing from HANDLERS"
             assert cmd in HANDLERS, f"bare '{cmd}' missing from HANDLERS"
 
     def test_handlers_point_at_lesson_funcs(self):
-        from cli.telegram_bot import HANDLERS, cmd_lessons, cmd_lesson, cmd_lessonsearch
+        from telegram.bot import HANDLERS, cmd_lessons, cmd_lesson, cmd_lessonsearch
         assert HANDLERS["/lessons"] is cmd_lessons
         assert HANDLERS["/lesson"] is cmd_lesson
         assert HANDLERS["/lessonsearch"] is cmd_lessonsearch
 
     def test_cmd_help_lists_lesson_commands(self):
-        with patch("cli.telegram_bot.tg_send") as send:
-            from cli.telegram_bot import cmd_help
+        with patch("telegram.bot.tg_send") as send:
+            from telegram.bot import cmd_help
             cmd_help("tok", "chat", "")
             body = _body(send)
             assert "/lessons" in body
@@ -292,8 +292,8 @@ class TestRegistrationSurfaces:
             assert "/lessonsearch" in body
 
     def test_cmd_guide_lists_lesson_commands(self):
-        with patch("cli.telegram_bot.tg_send") as send:
-            from cli.telegram_bot import cmd_guide
+        with patch("telegram.bot.tg_send") as send:
+            from telegram.bot import cmd_guide
             cmd_guide("tok", "chat", "")
             body = _body(send)
             assert "/lessons" in body

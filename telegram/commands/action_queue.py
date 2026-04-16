@@ -26,7 +26,7 @@ from engines.learning.action_queue import (
 
 def cmd_nudge(token: str, chat_id: str, args: str) -> None:
     """User-Action Queue — list, add, remove, and mark-done nudge items."""
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     parts = args.strip().split()
     sub = parts[0].lower() if parts else ""

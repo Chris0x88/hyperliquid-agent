@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.telegram_bot import cmd_botpatterns
+from telegram.bot import cmd_botpatterns
 
 
 def _row(detected_at="2026-04-09T22:30:00+00:00", classification="bot_driven_overextension",
@@ -30,8 +30,8 @@ def _write_patterns(path: Path, rows: list[dict]) -> None:
 
 
 def test_no_data(tmp_path):
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(tmp_path / "p.jsonl")):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(tmp_path / "p.jsonl")):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "")
             body = send.call_args[0][2]
             assert "No bot-pattern" in body or "still booting" in body
@@ -43,8 +43,8 @@ def test_renders_patterns(tmp_path):
         _row(detected_at="2026-04-09T22:00:00+00:00"),
         _row(detected_at="2026-04-09T22:30:00+00:00", classification="informed_move", conf=0.7),
     ])
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(p)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(p)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "")
             body = send.call_args[0][2]
             assert "BRENTOIL" in body
@@ -59,8 +59,8 @@ def test_sorts_most_recent_first(tmp_path):
         _row(detected_at="2026-04-09T20:00:00+00:00"),
         _row(detected_at="2026-04-09T22:30:00+00:00", classification="informed_move"),
     ])
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(p)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(p)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "")
             body = send.call_args[0][2]
             # 22:30 line must come before 20:00 line
@@ -73,8 +73,8 @@ def test_filters_by_instrument(tmp_path):
         _row(instrument="BRENTOIL"),
         _row(instrument="GOLD"),
     ])
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(p)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(p)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "GOLD")
             body = send.call_args[0][2]
             assert "GOLD" in body
@@ -83,8 +83,8 @@ def test_filters_by_instrument(tmp_path):
 def test_unknown_instrument(tmp_path):
     p = tmp_path / "p.jsonl"
     _write_patterns(p, [_row()])
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(p)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(p)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "SILVER")
             body = send.call_args[0][2]
             assert "No classifications" in body
@@ -94,14 +94,14 @@ def test_limit_argument(tmp_path):
     p = tmp_path / "p.jsonl"
     rows = [_row(detected_at=f"2026-04-09T{20+i:02d}:00:00+00:00") for i in range(5)]
     _write_patterns(p, rows)
-    with patch("cli.telegram_bot.BOT_PATTERNS_JSONL", str(p)):
-        with patch("cli.telegram_bot.tg_send") as send:
+    with patch("telegram.bot.BOT_PATTERNS_JSONL", str(p)):
+        with patch("telegram.bot.tg_send") as send:
             cmd_botpatterns("tok", "chat", "BRENTOIL 2")
             body = send.call_args[0][2]
             assert "last 2" in body
 
 
 def test_registered_in_handlers():
-    from cli.telegram_bot import HANDLERS
+    from telegram.bot import HANDLERS
     assert HANDLERS.get("/botpatterns") is cmd_botpatterns
     assert HANDLERS.get("botpatterns") is cmd_botpatterns

@@ -1,5 +1,5 @@
 import pytest
-from cli.telegram_agent import _parse_text_tool_calls, _strip_tool_calls
+from telegram.agent import _parse_text_tool_calls, _strip_tool_calls
 
 
 def test_parse_valid_tool_calls():

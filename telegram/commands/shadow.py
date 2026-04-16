@@ -30,7 +30,7 @@ def cmd_shadoweval(token: str, chat_id: str, args: str) -> None:
         find_shadow_eval,
         load_shadow_evals,
     )
-    from cli.telegram_bot import tg_send
+    from telegram.bot import tg_send
 
     arg = (args or "").strip()
     evals = load_shadow_evals(OIL_BOTPATTERN_SHADOW_EVALS_JSONL)

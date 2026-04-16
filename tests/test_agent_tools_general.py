@@ -50,10 +50,10 @@ class TestSearchCode:
 class TestListFiles:
     def test_glob_python(self):
         from agent.tool_functions import list_files
-        result = list_files("cli/*.py")
+        result = list_files("telegram/*.py")
         assert "count" in result
         assert result["count"] > 0
-        assert any("telegram_agent.py" in f for f in result["files"])
+        assert any("agent.py" in f for f in result["files"])
 
     def test_glob_wiki(self):
         from agent.tool_functions import list_files
