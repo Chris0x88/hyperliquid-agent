@@ -4,8 +4,8 @@ import random
 import pytest
 
 from common.models import MarketSnapshot
-from execution.parent_order import ParentOrder
-from execution.twap import TWAPExecutor, ChildSlice
+from exchange.parent_order import ParentOrder
+from exchange.twap import TWAPExecutor, ChildSlice
 
 
 def _make_snapshot(mid=2500.0, bid=2499.0, ask=2501.0, ts=1000) -> MarketSnapshot:

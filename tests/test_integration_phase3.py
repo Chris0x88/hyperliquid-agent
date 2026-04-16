@@ -470,7 +470,7 @@ class TestRotationCooldown:
 # Phase 3e — Risk Guardian
 # ---------------------------------------------------------------------------
 
-from parent.risk_manager import RiskGate, RiskManager
+from exchange.risk_manager import RiskGate, RiskManager
 
 
 class TestRiskGuardian:

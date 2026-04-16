@@ -42,7 +42,7 @@ class WalletConfig:
 
         Imports RiskLimits locally to avoid circular dependency.
         """
-        from parent.risk_manager import RiskLimits
+        from exchange.risk_manager import RiskLimits
 
         return RiskLimits(
             max_notional_usd=Decimal(str(self.budget)),

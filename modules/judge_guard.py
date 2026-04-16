@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from modules.judge_engine import JudgeEngine, JudgeReport
-from parent.store import JSONLStore
+from exchange.store import JSONLStore
 
 
 class JudgeGuard:

@@ -10,12 +10,12 @@ import logging
 from typing import Optional
 
 from cli.daemon.context import Alert, TickContext
-from parent.risk_manager import (
+from exchange.risk_manager import (
     RiskGate, RiskLimits, RiskManager,
     ProtectionChain, MaxDrawdownProtection, StoplossGuardProtection,
     DailyLossProtection, RuinProtection,
 )
-from parent.position_tracker import PositionTracker
+from exchange.position_tracker import PositionTracker
 
 log = logging.getLogger("daemon.risk")
 

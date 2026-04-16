@@ -195,7 +195,7 @@ class TestConnectorNativePositions:
         it = ConnectorIterator(adapter=_MinimalAdapter())
         ctx = TickContext()
         # Pre-populate to prove the fallback does not clobber it
-        from parent.position_tracker import Position
+        from exchange.position_tracker import Position
         ctx.positions = [Position(instrument="PRESET", net_qty=Decimal("1"))]
         it.tick(ctx)
 
@@ -206,7 +206,7 @@ class TestConnectorNativePositions:
 
     def test_get_positions_path_still_works_when_adapter_provides_it(self):
         """Backward-compat: if a future adapter provides get_positions(), use it."""
-        from parent.position_tracker import Position
+        from exchange.position_tracker import Position
 
         class _LegacyAdapter:
             def get_positions(self):

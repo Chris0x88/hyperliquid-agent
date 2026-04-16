@@ -13,8 +13,8 @@ if _root not in sys.path:
 from modules.wallet_manager import WalletConfig, WalletManager
 from modules.apex_config import ApexConfig
 from modules.apex_state import ApexSlot, ApexState
-from parent.position_tracker import PositionTracker
-from parent.risk_manager import RiskManager, RiskLimits
+from exchange.position_tracker import PositionTracker
+from exchange.risk_manager import RiskManager, RiskLimits
 
 
 # ---------------------------------------------------------------------------

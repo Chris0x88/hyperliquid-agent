@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from modules.journal_engine import JournalEntry
-from parent.store import JSONLStore
+from exchange.store import JSONLStore
 
 
 class JournalGuard:

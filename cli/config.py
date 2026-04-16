@@ -58,7 +58,7 @@ class TradingConfig:
         return cls(**filtered)
 
     def to_risk_limits(self):
-        from parent.risk_manager import RiskLimits
+        from exchange.risk_manager import RiskLimits
         # If mainnet and using default testnet values, switch to mainnet defaults
         if self.mainnet and self._is_default_risk():
             return RiskLimits.mainnet_defaults()

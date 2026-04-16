@@ -42,10 +42,10 @@ from modules.strategy_guard import StrategyGuard
 from modules.apex_config import ApexConfig
 from modules.apex_engine import ApexAction, ApexEngine
 from modules.apex_state import ApexSlot, ApexState, ApexStateStore
-from execution.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
+from exchange.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
 from modules.reconciliation import ReconciliationEngine
 from modules.wallet_manager import WalletManager
-from parent.store import JSONLStore
+from exchange.store import JSONLStore
 log = logging.getLogger("apex_runner")
 
 

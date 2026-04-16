@@ -105,7 +105,7 @@ def _write_config(d, *, adaptive_overrides=None, **overrides):
 
 
 def _ctx(brentoil_price=67.00):
-    from parent.risk_manager import RiskGate
+    from exchange.risk_manager import RiskGate
     c = MagicMock()
     c.alerts = []
     c.order_queue = []

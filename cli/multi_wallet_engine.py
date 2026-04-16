@@ -16,8 +16,8 @@ from typing import Any, Callable, Dict, List, Optional
 from cli.engine import TradingEngine
 from common.venue_adapter import VenueAdapter
 from modules.wallet_manager import WalletConfig, WalletManager
-from parent.house_risk import HouseRiskManager
-from parent.risk_manager import RiskLimits, RiskManager
+from exchange.house_risk import HouseRiskManager
+from exchange.risk_manager import RiskLimits, RiskManager
 from sdk.strategy_sdk.base import BaseStrategy
 
 log = logging.getLogger("multi_wallet_engine")

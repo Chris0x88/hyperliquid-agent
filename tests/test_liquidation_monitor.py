@@ -11,7 +11,7 @@ from cli.daemon.iterators.liquidation_monitor import (
     CRITICAL_REPEAT_TICKS,
     _classify,
 )
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 def _ctx(positions=None, prices=None, tick=1):

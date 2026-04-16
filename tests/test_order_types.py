@@ -4,8 +4,8 @@ from __future__ import annotations
 import pytest
 
 from common.models import MarketSnapshot, StrategyDecision
-from execution.order_types import BracketOrder, ConditionalOrder, PeggedOrder
-from execution.order_book import ManagedOrderBook
+from exchange.order_types import BracketOrder, ConditionalOrder, PeggedOrder
+from exchange.order_book import ManagedOrderBook
 
 
 # ---------------------------------------------------------------------------

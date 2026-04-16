@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from modules.memory_engine import MemoryEvent, Playbook
-from parent.store import JSONLStore
+from exchange.store import JSONLStore
 
 
 class MemoryGuard:

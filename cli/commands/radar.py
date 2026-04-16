@@ -181,7 +181,7 @@ def _run_radar(
     else:
         from cli.hl_adapter import DirectHLProxy
         from cli.config import TradingConfig
-        from parent.hl_proxy import HLProxy
+        from exchange.hl_proxy import HLProxy
 
         try:
             private_key = TradingConfig().get_private_key()

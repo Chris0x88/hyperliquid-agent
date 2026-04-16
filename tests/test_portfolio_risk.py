@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-from execution.portfolio_risk import (
+from exchange.portfolio_risk import (
     COIN_TO_GROUP,
     CORRELATION_GROUPS,
     PortfolioRiskConfig,

@@ -18,7 +18,7 @@ import pytest
 from cli.daemon.context import TickContext
 from cli.daemon.iterators.execution_engine import ExecutionEngineIterator
 from common.thesis import ThesisState
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 # ---------------------------------------------------------------------------

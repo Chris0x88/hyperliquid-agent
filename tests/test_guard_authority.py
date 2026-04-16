@@ -17,7 +17,7 @@ import pytest
 
 from cli.daemon.context import TickContext
 from cli.daemon.iterators.guard import GuardIterator
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 # ---------------------------------------------------------------------------

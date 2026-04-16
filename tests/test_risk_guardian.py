@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from parent.risk_manager import RiskGate, RiskManager, RiskState
+from exchange.risk_manager import RiskGate, RiskManager, RiskState
 
 
 @pytest.fixture

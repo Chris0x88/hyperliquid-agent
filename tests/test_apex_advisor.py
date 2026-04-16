@@ -9,7 +9,7 @@ from cli.daemon.iterators.apex_advisor import (
     ADVISE_INTERVAL_S,
     ADVISOR_MAX_SLOTS,
 )
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 def _ctx(positions=None, prices=None, pulse=None, radar=None, tick=1):

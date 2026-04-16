@@ -7,8 +7,8 @@ from unittest import mock
 
 import pytest
 
-import parent.sdk_patches as sdk_patches_mod
-from parent.sdk_patches import patch_spot_meta_indexing
+import exchange.sdk_patches as sdk_patches_mod
+from exchange.sdk_patches import patch_spot_meta_indexing
 
 
 class TestPatchSpotMetaIndexing:

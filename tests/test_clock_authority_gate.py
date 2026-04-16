@@ -21,7 +21,7 @@ from cli.daemon.config import DaemonConfig
 from cli.daemon.context import OrderIntent, TickContext
 from cli.daemon.roster import Roster
 from cli.daemon.state import StateStore
-from parent.risk_manager import RiskGate
+from exchange.risk_manager import RiskGate
 
 
 # ---------------------------------------------------------------------------

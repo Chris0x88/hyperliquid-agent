@@ -17,7 +17,7 @@ import pytest
 
 from cli.daemon.context import TickContext
 from cli.daemon.iterators.journal import JournalIterator, RETENTION_DAYS
-from parent.risk_manager import RiskGate
+from exchange.risk_manager import RiskGate
 
 
 def _ctx(tick: int = 1) -> TickContext:

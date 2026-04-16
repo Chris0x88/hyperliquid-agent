@@ -936,7 +936,7 @@ def run_heartbeat(
             take_size = round(size * take_pct / 100, 6)
             if take_size >= 0.001 and not dry_run:
                 try:
-                    from parent.hl_proxy import HLProxy
+                    from exchange.hl_proxy import HLProxy
                     from cli.hl_adapter import DirectHLProxy
                     if account_label == "vault":
                         hl = HLProxy(testnet=False, vault_address=_get_vault_address())
@@ -1108,7 +1108,7 @@ def run_heartbeat(
             account_label = pos.get("account", "main")
             coin = pos.get("coin", "")
             try:
-                from parent.hl_proxy import HLProxy
+                from exchange.hl_proxy import HLProxy
                 if account_label == "vault":
                     hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                 else:
@@ -1506,7 +1506,7 @@ def _fetch_funding_rates(dex: str = None) -> dict[str, float]:
 
 def _build_proxy_for_position(account_label: str, wallet_address: str = ""):
     """Build an exchange proxy for the wallet that owns a position."""
-    from parent.hl_proxy import HLProxy
+    from exchange.hl_proxy import HLProxy
     from cli.hl_adapter import DirectHLProxy
 
     if account_label == "vault":

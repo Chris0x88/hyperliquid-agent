@@ -199,7 +199,7 @@ def _read_engine_state(cli_dir: str) -> Dict[str, Any] | None:
         sys.path.insert(0, project_root)
 
     try:
-        from parent.store import StateDB
+        from exchange.store import StateDB
 
         db = StateDB(path=str(db_path))
         try:

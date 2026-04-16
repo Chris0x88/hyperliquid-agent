@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from common.models import MarketSnapshot
-from execution.parent_order import ParentOrder
+from exchange.parent_order import ParentOrder
 
 
 @dataclass

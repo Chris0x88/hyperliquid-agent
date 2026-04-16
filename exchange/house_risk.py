@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from parent.risk_manager import RiskState
+from exchange.risk_manager import RiskState
 
 log = logging.getLogger("house_risk")
 ZERO = Decimal("0")

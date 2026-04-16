@@ -19,7 +19,7 @@ log = logging.getLogger("hl_proxy")
 
 ZERO = Decimal("0")
 
-from parent.sdk_patches import patch_spot_meta_indexing as _patch_spot_meta_indexing
+from exchange.sdk_patches import patch_spot_meta_indexing as _patch_spot_meta_indexing
 
 
 @dataclass

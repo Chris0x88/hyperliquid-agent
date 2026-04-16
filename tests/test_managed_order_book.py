@@ -3,8 +3,8 @@ import time
 import pytest
 
 from common.models import MarketSnapshot, StrategyDecision
-from execution.order_book import ManagedOrderBook
-from execution.order_types import BracketOrder, ConditionalOrder
+from exchange.order_book import ManagedOrderBook
+from exchange.order_types import BracketOrder, ConditionalOrder
 
 
 def _snapshot(mid=2500.0):

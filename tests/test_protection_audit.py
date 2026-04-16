@@ -11,7 +11,7 @@ from cli.daemon.iterators.protection_audit import (
     MIN_STOP_DISTANCE_PCT,
     MAX_STOP_DISTANCE_PCT,
 )
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 def _ctx(positions=None, prices=None, tick=1):

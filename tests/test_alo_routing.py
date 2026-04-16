@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from modules.apex_config import ApexConfig
-from parent.hl_proxy import HLFill
+from exchange.hl_proxy import HLFill
 
 
 # ---------------------------------------------------------------------------

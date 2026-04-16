@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Protocol
 
-from parent.position_tracker import Position
-from parent.risk_manager import RiskGate
+from exchange.position_tracker import Position
+from exchange.risk_manager import RiskGate
 
 # ThesisState imported lazily to avoid circular imports — use Any type hint here
 

@@ -16,7 +16,7 @@ from common.authority import is_agent_managed
 from common.middleware import run_with_middleware
 from common.telemetry import TelemetryRecorder
 from common.trajectory import TrajectoryLogger
-from parent.risk_manager import RiskGate
+from exchange.risk_manager import RiskGate
 
 log = logging.getLogger("daemon.clock")
 

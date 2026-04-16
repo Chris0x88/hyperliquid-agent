@@ -26,7 +26,7 @@ import pytest
 
 from cli.daemon.context import TickContext
 from cli.daemon.iterators.journal import JournalIterator, _TrackedPosition
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 def _make_iterator(tmp: Path) -> JournalIterator:

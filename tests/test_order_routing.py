@@ -14,7 +14,7 @@ import pytest
 
 from common.models import MarketSnapshot, StrategyDecision
 from common.venue_adapter import VenueCapabilities
-from execution.routing import ALOStats, OrderRouter
+from exchange.routing import ALOStats, OrderRouter
 
 
 # ---------------------------------------------------------------------------

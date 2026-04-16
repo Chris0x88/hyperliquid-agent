@@ -50,7 +50,7 @@ def _build_adapter(mock: bool, mainnet: bool):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from parent.hl_proxy import HLProxy
+    from exchange.hl_proxy import HLProxy
     from cli.hl_adapter import DirectHLProxy
 
     testnet = not mainnet

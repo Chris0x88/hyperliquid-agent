@@ -13,7 +13,7 @@ import time
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
+from exchange.hl_proxy import HLFill, HLProxy, MockHLProxy
 
 from cli.strategy_registry import YEX_MARKETS
 

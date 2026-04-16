@@ -28,9 +28,9 @@ def status_cmd(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from parent.store import StateDB, JSONLStore
-    from parent.position_tracker import PositionTracker
-    from parent.risk_manager import RiskManager
+    from exchange.store import StateDB, JSONLStore
+    from exchange.position_tracker import PositionTracker
+    from exchange.risk_manager import RiskManager
     from cli.display import status_table
 
     db = StateDB(path=f"{data_dir}/state.db")

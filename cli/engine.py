@@ -13,15 +13,15 @@ from typing import Any, Dict, Optional
 from cli.hl_adapter import APICircuitBreakerOpen
 from common.models import MarketSnapshot
 from common.venue_adapter import VenueAdapter
-from parent.position_tracker import Position, PositionTracker
-from parent.risk_manager import RiskLimits, RiskManager
-from parent.store import JSONLStore, StateDB
+from exchange.position_tracker import Position, PositionTracker
+from exchange.risk_manager import RiskLimits, RiskManager
+from exchange.store import JSONLStore, StateDB
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 from cli.display import shutdown_summary, tick_line
 from cli.order_manager import OrderManager
 from common.account_state import fetch_registered_account_state
-from execution.order_book import ManagedOrderBook
+from exchange.order_book import ManagedOrderBook
 
 log = logging.getLogger("engine")
 ZERO = Decimal("0")

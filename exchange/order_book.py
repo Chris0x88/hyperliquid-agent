@@ -5,7 +5,7 @@ import logging
 from typing import Dict, List, Optional, Union
 
 from common.models import MarketSnapshot, StrategyDecision
-from execution.order_types import BracketOrder, ConditionalOrder, PeggedOrder
+from exchange.order_types import BracketOrder, ConditionalOrder, PeggedOrder
 
 log = logging.getLogger("order_book")
 

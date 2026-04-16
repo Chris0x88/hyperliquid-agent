@@ -217,7 +217,7 @@ def run_cmd(
         typer.echo(f"Mode: {'DRY RUN' if dry_run else 'MOCK'}")
     else:
         from cli.hl_adapter import DirectHLProxy
-        from parent.hl_proxy import HLProxy
+        from exchange.hl_proxy import HLProxy
 
         private_key = cfg.get_private_key()
         raw_hl = HLProxy(private_key=private_key, testnet=not cfg.mainnet)

@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from cli.hl_adapter import DirectMockProxy
 from common.models import MarketSnapshot
 from common.venue_adapter import Fill, VenueAdapter, VenueCapabilities
-from parent.hl_proxy import HLFill
+from exchange.hl_proxy import HLFill
 
 log = logging.getLogger("adapters.mock")
 

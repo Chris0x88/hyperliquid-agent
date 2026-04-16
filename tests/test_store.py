@@ -4,7 +4,7 @@ import os
 import pytest
 import tempfile
 
-from parent.store import JSONLStore, StateDB
+from exchange.store import JSONLStore, StateDB
 
 
 @pytest.fixture

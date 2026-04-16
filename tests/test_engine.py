@@ -6,7 +6,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from common.models import MarketSnapshot, StrategyDecision
-from parent.hl_proxy import HLFill
+from exchange.hl_proxy import HLFill
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 from cli.engine import TradingEngine, TICK_TIMEOUT_S, MAX_CONSECUTIVE_TIMEOUTS
 

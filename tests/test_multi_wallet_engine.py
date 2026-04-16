@@ -18,8 +18,8 @@ from cli.multi_wallet_engine import MultiWalletEngine, WalletEngineContext
 from common.models import MarketSnapshot, StrategyDecision
 from common.venue_adapter import Fill, VenueAdapter, VenueCapabilities
 from modules.wallet_manager import WalletConfig, WalletManager
-from parent.house_risk import HouseRiskManager, HouseRiskState
-from parent.risk_manager import RiskLimits, RiskManager, RiskState
+from exchange.house_risk import HouseRiskManager, HouseRiskState
+from exchange.risk_manager import RiskLimits, RiskManager, RiskState
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 

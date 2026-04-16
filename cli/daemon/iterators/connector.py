@@ -105,7 +105,7 @@ class ConnectorIterator:
             if hasattr(self._adapter, 'get_positions'):
                 ctx.positions = self._adapter.get_positions()
             elif hasattr(self._adapter, 'get_account_state'):
-                from parent.position_tracker import Position
+                from exchange.position_tracker import Position
                 from decimal import Decimal as _D
                 state = self._adapter.get_account_state()
                 native_positions = state.get("positions", []) or []
@@ -145,7 +145,7 @@ class ConnectorIterator:
                     except (TypeError, ValueError):
                         pass
 
-                    from parent.position_tracker import Position
+                    from exchange.position_tracker import Position
                     from decimal import Decimal as _D
                     for ap in xyz.get("assetPositions", []):
                         p = ap.get("position", ap)

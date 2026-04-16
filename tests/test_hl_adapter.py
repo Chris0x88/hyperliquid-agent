@@ -5,7 +5,7 @@ import time
 from decimal import Decimal
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from parent.hl_proxy import HLFill, MockHLProxy
+from exchange.hl_proxy import HLFill, MockHLProxy
 from common.models import MarketSnapshot
 from cli.hl_adapter import (
     DirectHLProxy,

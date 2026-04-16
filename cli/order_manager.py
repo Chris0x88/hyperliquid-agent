@@ -5,10 +5,10 @@ import logging
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from common.models import MarketSnapshot, StrategyDecision
-from execution.parent_order import ParentOrder
-from execution.routing import OrderRouter
-from execution.twap import TWAPExecutor, ChildSlice
-from parent.hl_proxy import HLFill
+from exchange.parent_order import ParentOrder
+from exchange.routing import OrderRouter
+from exchange.twap import TWAPExecutor, ChildSlice
+from exchange.hl_proxy import HLFill
 
 if TYPE_CHECKING:
     from cli.hl_adapter import DirectHLProxy, DirectMockProxy

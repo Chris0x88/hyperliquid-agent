@@ -723,7 +723,7 @@ class BotPatternStrategyIterator:
         if gate is None:
             return (False, "")
         try:
-            from parent.risk_manager import RiskGate
+            from exchange.risk_manager import RiskGate
         except ImportError:
             return (False, "")
         if gate == RiskGate.OPEN:

@@ -23,7 +23,7 @@ def _get_proxy(mainnet: bool):
         return DirectMockProxy()
 
     from cli.config import TradingConfig
-    from parent.hl_proxy import HLProxy
+    from exchange.hl_proxy import HLProxy
 
     cfg = TradingConfig()
     try:

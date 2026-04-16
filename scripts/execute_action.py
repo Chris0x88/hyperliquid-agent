@@ -15,7 +15,7 @@ import sys
 import os
 
 from cli.config import TradingConfig
-from parent.hl_proxy import HLProxy
+from exchange.hl_proxy import HLProxy
 from cli.hl_adapter import DirectHLProxy
 from cli.strategy_registry import YEX_MARKETS
 

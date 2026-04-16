@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from parent.risk_manager import (
+from exchange.risk_manager import (
     DailyLossProtection,
     MaxDrawdownProtection,
     ProtectionChain,

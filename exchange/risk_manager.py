@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from parent.position_tracker import PositionTracker
+from exchange.position_tracker import PositionTracker
 
 log = logging.getLogger("risk_manager")
 ZERO = Decimal("0")

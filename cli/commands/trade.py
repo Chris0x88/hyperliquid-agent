@@ -48,7 +48,7 @@ def trade_cmd(
     from cli.config import TradingConfig
     from cli.hl_adapter import DirectHLProxy
     from cli.strategy_registry import resolve_instrument
-    from parent.hl_proxy import HLProxy
+    from exchange.hl_proxy import HLProxy
 
     instrument = resolve_instrument(instrument)
     cfg = TradingConfig()

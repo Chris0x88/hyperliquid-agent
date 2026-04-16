@@ -21,7 +21,7 @@ from cli.daemon.iterators.exchange_protection import (
     ExchangeProtectionIterator,
     RuinProtectionConfig,
 )
-from parent.position_tracker import Position
+from exchange.position_tracker import Position
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from common.models import MarketSnapshot, StrategyDecision
 from cli.order_manager import OrderManager
-from parent.hl_proxy import HLFill
+from exchange.hl_proxy import HLFill
 
 
 def _snapshot(mid=2500.0):

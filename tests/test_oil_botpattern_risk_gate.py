@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from cli.daemon.iterators.oil_botpattern import BotPatternStrategyIterator
-from parent.risk_manager import RiskGate
+from exchange.risk_manager import RiskGate
 
 
 def _now():
