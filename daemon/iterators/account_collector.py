@@ -32,11 +32,15 @@ class AccountCollectorIterator:
 
     name = "account_collector"
 
+    # Only re-alert when drawdown worsens by this many percentage points
+    _DRAWDOWN_REPEAT_DELTA = 5.0
+
     def __init__(self, adapter: Any = None, snapshot_dir: str = SNAPSHOT_DIR):
         self._adapter = adapter
         self._snapshot_dir = snapshot_dir
         self._last_snapshot: float = 0.0
         self._high_water_mark: float = 0.0
+        self._last_alerted_drawdown: float = 0.0  # drawdown % at last alert
 
     def on_start(self, ctx: TickContext) -> None:
         Path(self._snapshot_dir).mkdir(parents=True, exist_ok=True)
@@ -162,27 +166,34 @@ class AccountCollectorIterator:
         # were already correct here (account_collector has always summed
         # native + xyz + spot in _build_snapshot).
         if has_positions and drawdown_pct >= 25.0:
-            ctx.alerts.append(Alert(
-                severity="critical",
-                source=self.name,
-                message=(
-                    f"*Account drawdown — entries halted*\n"
-                    f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
-                    f"  Down `{drawdown_pct:.0f}%` — no new trades until recovery"
-                ),
-                data={"drawdown_pct": drawdown_pct, "hwm": self._high_water_mark, "equity": equity},
-            ))
+            if drawdown_pct >= self._last_alerted_drawdown + self._DRAWDOWN_REPEAT_DELTA:
+                ctx.alerts.append(Alert(
+                    severity="critical",
+                    source=self.name,
+                    message=(
+                        f"*Account drawdown — entries halted*\n"
+                        f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
+                        f"  Down `{drawdown_pct:.0f}%` — no new trades until recovery"
+                    ),
+                    data={"drawdown_pct": drawdown_pct, "hwm": self._high_water_mark, "equity": equity},
+                ))
+                self._last_alerted_drawdown = drawdown_pct
         elif has_positions and drawdown_pct >= 15.0:
-            ctx.alerts.append(Alert(
-                severity="warning",
-                source=self.name,
-                message=(
-                    f"*Drawdown warning*\n"
-                    f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
-                    f"  Down `{drawdown_pct:.0f}%` — consider reducing risk"
-                ),
-                data={"drawdown_pct": drawdown_pct, "equity": equity},
-            ))
+            if drawdown_pct >= self._last_alerted_drawdown + self._DRAWDOWN_REPEAT_DELTA:
+                ctx.alerts.append(Alert(
+                    severity="warning",
+                    source=self.name,
+                    message=(
+                        f"*Drawdown warning*\n"
+                        f"  Equity `${equity:,.2f}` (peak was `${self._high_water_mark:,.2f}`)\n"
+                        f"  Down `{drawdown_pct:.0f}%` — consider reducing risk"
+                    ),
+                    data={"drawdown_pct": drawdown_pct, "equity": equity},
+                ))
+                self._last_alerted_drawdown = drawdown_pct
+        else:
+            # Drawdown recovered below threshold — reset so next breach alerts fresh
+            self._last_alerted_drawdown = 0.0
 
         # Cleanup old snapshots (keep 7 days full, 1/day for 30 days)
         self._expire_old_snapshots()
