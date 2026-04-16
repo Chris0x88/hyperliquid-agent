@@ -48,16 +48,34 @@ class TrajectoryLogger:
         traj.close()
     """
 
+    RETENTION_DAYS = 7
+
     def __init__(self, component: str, log_dir: Optional[Path] = None):
         self.component = component
         self.log_dir = Path(log_dir) if log_dir else DEFAULT_LOG_DIR
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        self._purge_old()
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filepath = self.log_dir / f"trajectory_{ts}_{component}.jsonl"
         self._file = open(self.filepath, "a", buffering=1)  # line-buffered
         self._entry_count = 0
         log.info("Trajectory logger started: %s", self.filepath)
+
+    def _purge_old(self) -> None:
+        """Delete trajectory files older than RETENTION_DAYS."""
+        cutoff = time.time() - self.RETENTION_DAYS * 86400
+        removed = 0
+        for f in self.log_dir.glob("trajectory_*.jsonl"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    removed += 1
+            except OSError:
+                pass
+        if removed:
+            log.info("Trajectory retention: removed %d files older than %d days", removed, self.RETENTION_DAYS)
 
     def log(
         self,
