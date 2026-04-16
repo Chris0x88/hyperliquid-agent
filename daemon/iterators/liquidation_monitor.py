@@ -1,33 +1,30 @@
-"""LiquidationMonitorIterator — leverage-aware cushion alerts before ruin SL fires.
+"""LiquidationMonitorIterator — margin-burn alerts before ruin SL fires.
 
-Walks ctx.positions every tick, computes liquidation cushion %, and emits
-tiered alerts when positions get close to liquidation. Runs ahead of
-exchange_protection (which places the actual ruin SL near liq) — its job
-is to give the user early warning before things get bad enough that the
-ruin SL even has to fire.
+Walks ctx.positions every tick, computes how much of the initial margin
+has been consumed, and emits tiered alerts when positions approach liquidation.
 
-Tiers use leverage-adjusted "turns" (cushion% × leverage) to normalize
-risk across leverage levels. 2% cushion at 10x (0.20 turns) is totally
-different from 2% at 37x (0.74 turns):
+The key metric is **margin_remaining** = current_cushion / entry_cushion.
+This tells you what fraction of your starting safety margin is left.
+At entry price, margin_remaining = 100% (safe by definition, any leverage).
+At liquidation, margin_remaining = 0%.
 
-  >= 1.0 turns  — safe (no alert except recovery from a worse state)
-  0.5 to 1.0    — warning (alert on transition INTO this tier, once only)
-  < 0.5 turns   — critical (alert on transition + repeat every 30 min,
-                   but ONLY if cushion actually worsened since last alert)
+Tiers (margin_remaining = fraction of initial cushion still intact):
+  >= 50%     — safe (no alert except recovery from a worse state)
+  25% to 50% — warning (alert on transition INTO this tier, once only)
+  < 25%      — critical (alert + repeat every 30 min IF worsened)
 
-Concrete examples:
-  10x lev, 6% cushion = 0.60 turns → warning (alert once)
-  10x lev, 3% cushion = 0.30 turns → critical
-  20x lev, 3% cushion = 0.60 turns → warning
-  37x lev, 3% cushion = 1.11 turns → safe
-  37x lev, 1% cushion = 0.37 turns → critical
+This works at ALL leverage levels because it's relative to your entry:
+  25x, at entry price  → margin_remaining=100% → safe ✓
+  25x, lost half margin → margin_remaining=50%  → warning
+  10x, at entry price  → margin_remaining=100% → safe ✓
+  10x, lost half margin → margin_remaining=50%  → warning
+  Any leverage, price at entry → ALWAYS safe. No false alarms.
 
 Anti-spam rules:
   1. Warning fires ONCE per transition (no repeats)
-  2. Critical repeats only if cushion got worse (>0.1% delta) since last alert
+  2. Critical repeats only if margin got worse (>2pp delta) since last alert
   3. Critical repeat interval is time-based (30 min), not tick-based
-  4. Oscillation dampening: transitioning warning→safe requires 20% hysteresis
-     above the safe threshold to prevent boundary jitter alerts
+  4. Oscillation dampening: warning→safe requires 10pp hysteresis above safe
 
 Pure alert layer. Does NOT close positions, place orders, or modify state.
 This is the "F6" early-warning piece referenced in docs/plans/AUDIT_FIX_PLAN.md.
@@ -45,42 +42,43 @@ log = logging.getLogger("daemon.liquidation_monitor")
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
+HUNDRED = Decimal("100")
 
-# Leverage-adjusted "turns" thresholds.
-# turns = cushion_fraction × leverage
-# Higher leverage positions need less % cushion to be "normal".
-SAFE_TURNS = Decimal("1.0")     # >= 1.0 turns = comfortable
-WARN_TURNS = Decimal("0.5")     # 0.5-1.0 turns = warning, < 0.5 = critical
+# Margin-remaining thresholds (fraction of initial cushion still intact).
+# At entry price, margin_remaining = 1.0 (100%) — always safe.
+# At liquidation, margin_remaining = 0.0 (0%).
+SAFE_THRESHOLD = Decimal("0.50")     # >= 50% of initial margin left = safe
+WARN_THRESHOLD = Decimal("0.25")     # 25%-50% = warning, < 25% = critical
 
-# Hysteresis: to transition from warning→safe, need 20% above safe threshold.
+# Hysteresis: to transition from warning→safe, need this much above safe.
 # Prevents oscillation spam when price bounces around the boundary.
-SAFE_HYSTERESIS = Decimal("1.2")  # need 1.2 × SAFE_TURNS to recover
+SAFE_HYSTERESIS = Decimal("0.60")  # need 60% to recover from warning
 
 # Critical repeat: time-based (seconds), not tick-based.
-# Only re-alerts if cushion actually worsened.
+# Only re-alerts if margin actually worsened.
 CRITICAL_REPEAT_SECS = 1800  # 30 minutes
-CRITICAL_WORSENED_DELTA = Decimal("0.001")  # must worsen by >0.1% to re-fire
+CRITICAL_WORSENED_DELTA = Decimal("0.02")  # must worsen by >2pp to re-fire
 
 
-def _classify(turns: Decimal, prev_tier: str) -> str:
+def _classify(margin_remaining: Decimal, prev_tier: str) -> str:
     """Classify risk tier with hysteresis on the safe boundary."""
     if prev_tier == "warning":
         # Need extra clearance to transition back to safe (anti-oscillation)
-        if turns >= SAFE_TURNS * SAFE_HYSTERESIS:
+        if margin_remaining >= SAFE_HYSTERESIS:
             return "safe"
-        if turns >= WARN_TURNS:
+        if margin_remaining >= WARN_THRESHOLD:
             return "warning"  # stay in warning
         return "critical"
     # Normal classification
-    if turns >= SAFE_TURNS:
+    if margin_remaining >= SAFE_THRESHOLD:
         return "safe"
-    if turns >= WARN_TURNS:
+    if margin_remaining >= WARN_THRESHOLD:
         return "warning"
     return "critical"
 
 
 class LiquidationMonitorIterator:
-    """Per-position liquidation cushion monitor with leverage-adjusted alerts."""
+    """Per-position margin-burn monitor. Alerts based on how much initial margin is consumed."""
 
     name = "liquidation_monitor"
 
@@ -89,15 +87,14 @@ class LiquidationMonitorIterator:
         self._last_tier: Dict[str, str] = {}
         # Track last critical-alert time (epoch seconds) per instrument
         self._last_critical_time: Dict[str, float] = {}
-        # Track last alerted cushion per instrument (for worsening check)
-        self._last_alert_cushion: Dict[str, Decimal] = {}
+        # Track last alerted margin_remaining per instrument (for worsening check)
+        self._last_alert_margin: Dict[str, Decimal] = {}
 
     def on_start(self, ctx: TickContext) -> None:
         log.info(
-            "LiquidationMonitor started  safe>=%.1f turns  warn>=%.1f turns  "
-            "crit<%.1f turns  repeat=%ds (if worsened)",
-            float(SAFE_TURNS), float(WARN_TURNS), float(WARN_TURNS),
-            CRITICAL_REPEAT_SECS,
+            "LiquidationMonitor started  safe>=%.0f%%  warn>=%.0f%%  crit<%.0f%%  repeat=%ds (if worsened)",
+            float(SAFE_THRESHOLD * 100), float(WARN_THRESHOLD * 100),
+            float(WARN_THRESHOLD * 100), CRITICAL_REPEAT_SECS,
         )
 
     def on_stop(self) -> None:
@@ -113,35 +110,50 @@ class LiquidationMonitorIterator:
             inst = pos.instrument
             seen_instruments.add(inst)
 
-            # Need both liquidation price and current mark price
+            # Need liquidation price, mark price, AND entry price
             liq_px = pos.liquidation_price
             if liq_px is None or liq_px <= ZERO:
-                continue  # exchange didn't report a liq price — skip silently
+                continue
 
             mark_px = ctx.prices.get(inst)
             if mark_px is None or Decimal(str(mark_px)) <= ZERO:
-                continue  # no mark — skip
+                continue
+
+            entry_px = pos.avg_entry_price
+            if entry_px is None or entry_px <= ZERO:
+                continue
 
             mark_dec = Decimal(str(mark_px))
             liq_dec = Decimal(str(liq_px))
-
-            # Cushion as positive fraction of mark
+            entry_dec = Decimal(str(entry_px))
             is_long = pos.net_qty > ZERO
+
+            # Current cushion = distance from mark to liq (as fraction of mark)
             if is_long:
-                cushion = (mark_dec - liq_dec) / mark_dec
+                current_cushion = mark_dec - liq_dec
+                entry_cushion = entry_dec - liq_dec
             else:
-                cushion = (liq_dec - mark_dec) / mark_dec
+                current_cushion = liq_dec - mark_dec
+                entry_cushion = liq_dec - entry_dec
 
-            # Defensive: if already past liq, treat as critical
-            if cushion < ZERO:
-                cushion = ZERO
+            # Defensive: clamp to zero
+            if current_cushion < ZERO:
+                current_cushion = ZERO
+            if entry_cushion <= ZERO:
+                # Edge case: liq is at or beyond entry (shouldn't happen, but defensive)
+                entry_cushion = ONE  # avoid division by zero, treat as max risk
 
-            # Leverage-adjusted turns: normalize across leverage levels
-            leverage = pos.leverage if pos.leverage else Decimal("1")
-            turns = cushion * Decimal(str(leverage))
+            # margin_remaining = what fraction of initial cushion is left
+            # At entry price: margin_remaining = 1.0 (100%)
+            # At liquidation: margin_remaining = 0.0 (0%)
+            # Above entry: margin_remaining > 1.0 (in profit, extra safe)
+            margin_remaining = current_cushion / entry_cushion
+
+            cushion_pct = (float(current_cushion) / float(mark_dec)) * 100 if mark_dec > ZERO else 0.0
+            margin_pct = float(margin_remaining) * 100
 
             prev_tier = self._last_tier.get(inst, "safe")
-            tier = _classify(turns, prev_tier)
+            tier = _classify(margin_remaining, prev_tier)
 
             should_alert = False
             severity = "info"
@@ -150,47 +162,40 @@ class LiquidationMonitorIterator:
 
             if tier == "critical":
                 last_time = self._last_critical_time.get(inst, 0.0)
-                last_cushion = self._last_alert_cushion.get(inst, ONE)
+                last_margin = self._last_alert_margin.get(inst, ONE)
                 time_elapsed = now - last_time >= CRITICAL_REPEAT_SECS
-                worsened = (last_cushion - cushion) > CRITICAL_WORSENED_DELTA
+                worsened = (last_margin - margin_remaining) > CRITICAL_WORSENED_DELTA
 
                 if prev_tier != "critical":
-                    # First transition into critical — always alert
                     should_alert = True
                 elif time_elapsed and worsened:
-                    # Repeat only if enough time passed AND cushion got worse
                     should_alert = True
 
                 if should_alert:
                     severity = "critical"
-                    prefix = "LIQUIDATION RISK CRITICAL "
+                    prefix = "LIQUIDATION RISK "
                     self._last_critical_time[inst] = now
-                    self._last_alert_cushion[inst] = cushion
+                    self._last_alert_margin[inst] = margin_remaining
 
             elif tier == "warning":
                 if prev_tier != "warning":
-                    # Warning fires exactly once per transition
                     should_alert = True
                     severity = "warning"
-                    prefix = "Approaching liquidation "
-                    self._last_alert_cushion[inst] = cushion
+                    prefix = "Margin warning "
+                    self._last_alert_margin[inst] = margin_remaining
 
             elif tier == "safe":
                 if prev_tier in ("warning", "critical"):
                     should_alert = True
                     severity = "info"
                     prefix = "RECOVERED "
-                    # Clear critical tracking on recovery
                     self._last_critical_time.pop(inst, None)
-                    self._last_alert_cushion.pop(inst, None)
+                    self._last_alert_margin.pop(inst, None)
 
             if should_alert:
                 direction = "LONG" if is_long else "SHORT"
-                cushion_pct = float(cushion) * 100
-                turns_f = float(turns)
+                leverage = pos.leverage if pos.leverage else Decimal("1")
                 lev_str = f"{float(leverage):.0f}x"
-                # C4: append calendar regime tags so the operator knows what
-                # market context this alert fired in
                 from daemon.calendar_tags import get_current_tags
                 from daemon.iterators._format import dir_dot, fmt_price, humanize_tags as _humanize_tags
                 cal = get_current_tags()
@@ -199,7 +204,7 @@ class LiquidationMonitorIterator:
                     f"{prefix.strip()}\n"
                     f"  {dir_dot(direction)} *{inst}* {direction} `{lev_str}`\n"
                     f"  Mark `{fmt_price(mark_dec)}` → Liq `{fmt_price(liq_dec)}`\n"
-                    f"  Cushion `{cushion_pct:.1f}%` ({turns_f:.2f} turns){tag_suffix}"
+                    f"  Margin left `{margin_pct:.0f}%` · cushion `{cushion_pct:.1f}%`{tag_suffix}"
                 )
                 ctx.alerts.append(Alert(
                     severity=severity,
@@ -209,9 +214,10 @@ class LiquidationMonitorIterator:
                         "instrument": inst,
                         "direction": direction.lower(),
                         "cushion_pct": cushion_pct,
-                        "turns": turns_f,
+                        "margin_remaining_pct": margin_pct,
                         "mark_price": float(mark_dec),
                         "liquidation_price": float(liq_dec),
+                        "entry_price": float(entry_dec),
                         "leverage": float(leverage),
                         "tier": tier,
                         "previous_tier": prev_tier,
@@ -230,5 +236,5 @@ class LiquidationMonitorIterator:
         for inst in gone:
             self._last_tier.pop(inst, None)
             self._last_critical_time.pop(inst, None)
-            self._last_alert_cushion.pop(inst, None)
+            self._last_alert_margin.pop(inst, None)
             log.debug("Cleaned cushion state for closed position: %s", inst)
