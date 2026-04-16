@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from modules.action_queue import (
+from engines.learning.action_queue import (
     DEFAULT_STATE_PATH,
     ActionItem,
     ActionQueue,
@@ -175,7 +175,7 @@ def _status_marker(item: ActionItem, now_ts: float) -> tuple[str, str]:
 
 def _detail(item: ActionItem, now_ts: float) -> str:
     """Short per-item status line used in both list and nudge views."""
-    from modules.action_queue import PER_SESSION_KINDS, THRESHOLD_KINDS
+    from engines.learning.action_queue import PER_SESSION_KINDS, THRESHOLD_KINDS
 
     if item.kind in PER_SESSION_KINDS:
         return "per-session ritual"

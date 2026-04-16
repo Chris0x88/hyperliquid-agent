@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from common.models import MarketSnapshot
-from modules.candle_cache import CandleCache
+from engines.data.candle_cache import CandleCache
 
 log = logging.getLogger("backtest")
 

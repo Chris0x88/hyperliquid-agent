@@ -8,8 +8,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from modules.pulse_config import PulseConfig
-from modules.pulse_state import AssetSnapshot, PulseResult, PulseSignal
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_state import AssetSnapshot, PulseResult, PulseSignal
 
 
 class PulseEngine:
@@ -118,7 +118,7 @@ class PulseEngine:
         cfg = self.config
 
         # Compute baselines
-        from modules.pulse_state import PulseHistoryStore
+        from engines.analysis.pulse_state import PulseHistoryStore
         store = PulseHistoryStore.__new__(PulseHistoryStore)
         oi_baseline = store.get_asset_oi_baseline(snap.asset, scan_history, cfg.oi_baseline_window)
         funding_history = store.get_asset_funding_history(snap.asset, scan_history, 3)

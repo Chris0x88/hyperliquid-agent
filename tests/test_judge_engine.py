@@ -1,5 +1,5 @@
 """Tests for judge evaluation engine."""
-from modules.judge_engine import JudgeEngine, JudgeReport
+from engines.protection.judge_engine import JudgeEngine, JudgeReport
 
 
 def _make_trades(pairs):

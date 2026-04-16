@@ -18,7 +18,7 @@ app = typer.Typer(help="Self-improvement engine")
 @app.command()
 def status():
     """Show findings and proposal summary."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     info = arch.get_status()
@@ -36,7 +36,7 @@ def status():
 @app.command()
 def detect():
     """Run detection now (pure Python, zero AI, zero cost)."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     if not arch.enabled:
@@ -63,7 +63,7 @@ def detect():
 @app.command()
 def proposals():
     """List pending proposals."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     pending = arch.get_pending_proposals()
@@ -83,7 +83,7 @@ def proposals():
 @app.command()
 def approve(proposal_id: str, notes: str = ""):
     """Approve a proposal."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     if arch.approve(proposal_id, notes):
@@ -95,7 +95,7 @@ def approve(proposal_id: str, notes: str = ""):
 @app.command()
 def reject(proposal_id: str, notes: str = ""):
     """Reject a proposal."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     if arch.reject(proposal_id, notes):
@@ -107,7 +107,7 @@ def reject(proposal_id: str, notes: str = ""):
 @app.command()
 def findings():
     """Show all detected patterns."""
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     arch._load_state()

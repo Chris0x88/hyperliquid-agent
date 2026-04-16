@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from modules.reflect_engine import ReflectMetrics
+from engines.learning.reflect_engine import ReflectMetrics
 
 
 def _ms_to_human(ms: float) -> str:

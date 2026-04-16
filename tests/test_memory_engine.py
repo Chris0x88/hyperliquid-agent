@@ -1,6 +1,6 @@
 """Tests for agent memory engine."""
 import time
-from modules.memory_engine import (
+from engines.learning.memory_engine import (
     MemoryEngine, MemoryEvent, Playbook, PlaybookEntry,
 )
 
@@ -41,7 +41,7 @@ class TestPlaybook:
 
 class TestMemoryEngine:
     def test_create_param_change_event(self):
-        from modules.reflect_adapter import Adjustment
+        from engines.learning.reflect_adapter import Adjustment
         engine = MemoryEngine()
         adj = [Adjustment(param="radar_score_threshold", old_value=170, new_value=180, reason="test")]
         event = engine.create_param_change_event(adj)

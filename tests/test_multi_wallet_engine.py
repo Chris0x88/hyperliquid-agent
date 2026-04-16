@@ -17,7 +17,7 @@ if _root not in sys.path:
 from cli.multi_wallet_engine import MultiWalletEngine, WalletEngineContext
 from common.models import MarketSnapshot, StrategyDecision
 from common.venue_adapter import Fill, VenueAdapter, VenueCapabilities
-from modules.wallet_manager import WalletConfig, WalletManager
+from engines.data.wallet_manager import WalletConfig, WalletManager
 from exchange.house_risk import HouseRiskManager, HouseRiskState
 from exchange.risk_manager import RiskLimits, RiskManager, RiskState
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext

@@ -99,7 +99,7 @@ def radar_status(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.radar_state import RadarHistoryStore, RadarResult
+    from engines.analysis.radar_state import RadarHistoryStore, RadarResult
 
     store = RadarHistoryStore(path=f"{data_dir}/scan-history.json")
     history = store.get_history()
@@ -133,7 +133,7 @@ def radar_presets():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.radar_config import RADAR_PRESETS
+    from engines.analysis.radar_config import RADAR_PRESETS
 
     for name, cfg in RADAR_PRESETS.items():
         typer.echo(f"\n{name}:")
@@ -152,7 +152,7 @@ def _run_radar(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.radar_config import RadarConfig, RADAR_PRESETS
+    from engines.analysis.radar_config import RadarConfig, RADAR_PRESETS
 
     # Build config
     if config:

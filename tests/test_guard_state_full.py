@@ -3,7 +3,7 @@ import json
 import tempfile
 import pytest
 
-from modules.guard_state import GuardState, GuardStateStore
+from engines.protection.guard_state import GuardState, GuardStateStore
 
 
 class TestGuardStateNew:

@@ -1,7 +1,7 @@
 """Tests for modules/radar_technicals.py — pure math, zero I/O."""
 import pytest
 
-from modules.radar_technicals import (
+from engines.analysis.radar_technicals import (
     calc_ema,
     calc_rsi,
     classify_hourly_trend,

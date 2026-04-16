@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from modules.bot_classifier import (
+from engines.data.bot_classifier import (
     BotPattern,
     append_pattern,
     classify_pattern,

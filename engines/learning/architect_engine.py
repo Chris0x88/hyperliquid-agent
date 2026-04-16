@@ -16,7 +16,7 @@ Zero AI calls. Zero API costs.
 Kill switch: data/config/architect.json → enabled: false
 
 Usage:
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
     findings = arch.detect()           # pure Python pattern matching
     proposals = arch.hypothesize(findings)  # generate fix proposals

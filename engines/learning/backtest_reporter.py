@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from modules.backtest_engine import BacktestResult
+from engines.learning.backtest_engine import BacktestResult
 
 log = logging.getLogger("backtest_reporter")
 

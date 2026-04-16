@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.rotation import RotationPolicy
+from engines.data.rotation import RotationPolicy
 
 
 class TestMinHold:

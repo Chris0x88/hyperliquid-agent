@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cli.daemon.context import Alert, TickContext
-from modules.action_queue import (
+from engines.learning.action_queue import (
     DEFAULT_STATE_PATH,
     ActionQueue,
     format_nudge_telegram,

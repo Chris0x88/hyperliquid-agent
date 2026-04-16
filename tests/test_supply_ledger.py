@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from modules.supply_ledger import Disruption, SupplyState
+from engines.data.supply_ledger import Disruption, SupplyState
 
 
 def test_disruption_dataclass_constructs():
@@ -40,7 +40,7 @@ def test_supply_state_dataclass_constructs():
     assert s.total_offline_bpd == 2_400_000.0
 
 
-from modules.supply_ledger import classify_region
+from engines.data.supply_ledger import classify_region
 
 
 def test_classify_region_russia():
@@ -61,7 +61,7 @@ def test_classify_region_unknown():
     assert classify_region("unrelated headline") == "unknown"
 
 
-from modules.supply_ledger import refine_facility_type
+from engines.data.supply_ledger import refine_facility_type
 
 
 def test_refine_facility_type_pipeline_wins():
@@ -81,7 +81,7 @@ def test_refine_facility_type_fallback():
 
 
 import tempfile
-from modules.supply_ledger import load_auto_extract_rules, AutoExtractRule
+from engines.data.supply_ledger import load_auto_extract_rules, AutoExtractRule
 
 
 def test_load_auto_extract_rules_from_yaml():
@@ -106,7 +106,7 @@ mappings:
     assert rules[1].catalyst_category == "shipping_attack"
 
 
-from modules.supply_ledger import auto_extract_from_catalyst
+from engines.data.supply_ledger import auto_extract_from_catalyst
 
 CATALYST_PHYSICAL = {
     "id": "cat-001",
@@ -175,7 +175,7 @@ def test_auto_extract_unknown_category_returns_none():
 
 
 from pathlib import Path
-from modules.supply_ledger import append_disruption, read_disruptions, latest_per_id
+from engines.data.supply_ledger import append_disruption, read_disruptions, latest_per_id
 
 
 def _make_disruption(did, status="active", updated=None):
@@ -222,7 +222,7 @@ def test_latest_per_id_keeps_newest(tmp_path):
     assert latest[0].status == "restored"
 
 
-from modules.supply_ledger import compute_state
+from engines.data.supply_ledger import compute_state
 
 
 def test_compute_state_empty():
@@ -274,7 +274,7 @@ def test_compute_state_latest_per_id_semantics():
 
 
 def test_write_state_atomic(tmp_path):
-    from modules.supply_ledger import write_state_atomic
+    from engines.data.supply_ledger import write_state_atomic
     import json as _json
     state = SupplyState(
         computed_at=datetime(2026, 4, 9, tzinfo=timezone.utc),

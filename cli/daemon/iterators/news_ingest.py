@@ -19,7 +19,7 @@ import requests
 import yaml
 
 from cli.daemon.context import Alert, TickContext
-from modules.news_engine import (
+from engines.learning.news_engine import (
     Catalyst,
     Headline,
     dedupe_headlines,
@@ -27,7 +27,7 @@ from modules.news_engine import (
     load_rules,
     parse_feed,
 )
-from modules import catalyst_bridge
+from engines.data import catalyst_bridge
 
 log = logging.getLogger("daemon.news_ingest")
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.reflect_engine import ReflectMetrics
-from modules.reflect_reporter import ReflectReporter, _ms_to_human, _pf_str
+from engines.learning.reflect_engine import ReflectMetrics
+from engines.learning.reflect_reporter import ReflectReporter, _ms_to_human, _pf_str
 
 
 # ---------------------------------------------------------------------------

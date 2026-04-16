@@ -1,9 +1,9 @@
 """Tests for modules/radar_engine.py — full pipeline with synthetic data."""
 import pytest
 
-from modules.radar_config import RadarConfig
-from modules.radar_engine import AssetMeta, OpportunityRadarEngine
-from modules.radar_state import Opportunity, RadarResult
+from engines.analysis.radar_config import RadarConfig
+from engines.analysis.radar_engine import AssetMeta, OpportunityRadarEngine
+from engines.analysis.radar_state import Opportunity, RadarResult
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

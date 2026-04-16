@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cli.engine import TradingEngine
 from common.venue_adapter import VenueAdapter
-from modules.wallet_manager import WalletConfig, WalletManager
+from engines.data.wallet_manager import WalletConfig, WalletManager
 from exchange.house_risk import HouseRiskManager
 from exchange.risk_manager import RiskLimits, RiskManager
 from sdk.strategy_sdk.base import BaseStrategy

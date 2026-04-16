@@ -850,7 +850,7 @@ def cmd_todo(token: str, chat_id: str, args: str) -> None:
 
     Event-sourced append-only. See modules/feedback_store.py.
     """
-    from modules import feedback_store as fs
+    from engines.learning import feedback_store as fs
 
     text = args.strip()
 
@@ -1199,7 +1199,7 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
     # Technicals — full signal engine
     try:
         from common.market_snapshot import build_snapshot, render_signal_summary
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         cache = CandleCache()
 
         # Refresh candles for all timeframes BEFORE building snapshot
@@ -1352,7 +1352,7 @@ def cmd_feedback(token: str, chat_id: str, args: str) -> None:
     Historical: this is an event-sourced append-only log. Rows are
     NEVER rewritten in place. See modules/feedback_store.py.
     """
-    from modules import feedback_store as fs
+    from engines.learning import feedback_store as fs
 
     text = args.strip()
     if not text:
@@ -1498,7 +1498,7 @@ def cmd_feedback_resolve(token: str, chat_id: str, args: str) -> None:
     rows Chris said he values most. This now dispatches to the
     append-only event store — primary rows are never touched.
     """
-    from modules import feedback_store as fs
+    from engines.learning import feedback_store as fs
 
     arg = args.strip()
     all_items = fs.load_feedback()
@@ -1809,7 +1809,7 @@ def cmd_disrupt(token: str, chat_id: str, args: str) -> None:
         incident_dt = incident_dt.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
 
-    from modules.supply_ledger import classify_region
+    from engines.data.supply_ledger import classify_region
     region = classify_region(f"{location} {notes}")
 
     did = hashlib.sha256(f"{location}|{incident_dt.isoformat()}".encode("utf-8")).hexdigest()[:16]
@@ -2655,7 +2655,7 @@ def cmd_lab(token: str, chat_id: str, args: str) -> None:
       /lab promote <id> — promote graduated experiment
     Deterministic. Zero AI calls.
     """
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     arg = (args or "").strip()
@@ -2716,7 +2716,7 @@ def cmd_architect(token: str, chat_id: str, args: str) -> None:
       /architect reject <id>  — reject a proposal
     Deterministic. Zero AI calls. Zero API costs.
     """
-    from modules.architect_engine import ArchitectEngine
+    from engines.learning.architect_engine import ArchitectEngine
     arch = ArchitectEngine()
 
     arg = (args or "").strip()

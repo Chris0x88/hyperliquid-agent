@@ -38,9 +38,9 @@ def backtest_run(
     """
     _ensure_path()
 
-    from modules.candle_cache import CandleCache
-    from modules.backtest_engine import BacktestEngine, BacktestConfig
-    from modules.backtest_reporter import BacktestReporter
+    from engines.data.candle_cache import CandleCache
+    from engines.learning.backtest_engine import BacktestEngine, BacktestConfig
+    from engines.learning.backtest_reporter import BacktestReporter
 
     db_path = f"{data_dir}/candles/candles.db"
     cache = CandleCache(db_path=db_path)
@@ -58,7 +58,7 @@ def backtest_run(
     existing = cache.count(coin, interval)
     if existing == 0 and auto_fetch:
         typer.echo(f"\n  No cached data for {coin.upper()} {interval}. Fetching {days} days...")
-        from modules.data_fetcher import DataFetcher
+        from engines.data.data_fetcher import DataFetcher
         import time, os
         os.environ.setdefault("HL_TESTNET", "false")
         from hyperliquid.info import Info

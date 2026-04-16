@@ -4,9 +4,9 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-from modules.pulse_config import PulseConfig
-from modules.pulse_engine import PulseEngine
-from modules.pulse_state import PulseHistoryStore, PulseResult
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_engine import PulseEngine
+from engines.analysis.pulse_state import PulseHistoryStore, PulseResult
 
 log = logging.getLogger("pulse_guard")
 

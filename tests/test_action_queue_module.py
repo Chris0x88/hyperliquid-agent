@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.action_queue import (
+from engines.learning.action_queue import (
     NUDGE_COOLDOWN_S,
     ActionItem,
     ActionQueue,

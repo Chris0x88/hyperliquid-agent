@@ -18,7 +18,7 @@ The daemon iterator (`lab`) drives the tick loop.
 Kill switch: data/config/lab.json → enabled: false
 
 Usage:
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
     lab.discover("BRENTOIL")  # profiles market, creates candidate experiments
     lab.create_experiment("BTC", "momentum_breakout", params={...})
@@ -237,7 +237,7 @@ class LabEngine:
 
         # Read from radar/market_structure data if available
         try:
-            from modules.candle_cache import CandleCache
+            from engines.data.candle_cache import CandleCache
             cache = CandleCache()
             candles = cache.read(market, "1d", limit=30)
             if candles:
@@ -373,7 +373,7 @@ class LabEngine:
         self._save_experiments()
 
         try:
-            from modules.backtest_engine import BacktestEngine
+            from engines.learning.backtest_engine import BacktestEngine
             bt = BacktestEngine()
             results = bt.run(
                 market=exp.market,

@@ -10,9 +10,9 @@ _root = str(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from modules.wallet_manager import WalletConfig, WalletManager
-from modules.apex_config import ApexConfig
-from modules.apex_state import ApexSlot, ApexState
+from engines.data.wallet_manager import WalletConfig, WalletManager
+from engines.analysis.apex_config import ApexConfig
+from engines.analysis.apex_state import ApexSlot, ApexState
 from exchange.position_tracker import PositionTracker
 from exchange.risk_manager import RiskManager, RiskLimits
 

@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from modules.guard_config import GuardConfig
-from modules.guard_state import GuardState
+from engines.protection.guard_config import GuardConfig
+from engines.protection.guard_state import GuardState
 
 
 class GuardAction(Enum):

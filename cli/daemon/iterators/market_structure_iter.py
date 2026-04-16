@@ -18,7 +18,7 @@ import requests
 
 from cli.daemon.context import TickContext
 from common.market_snapshot import MarketSnapshot, build_snapshot_from_candles, render_snapshot
-from modules.candle_cache import CandleCache
+from engines.data.candle_cache import CandleCache
 
 log = logging.getLogger("daemon.market_structure")
 

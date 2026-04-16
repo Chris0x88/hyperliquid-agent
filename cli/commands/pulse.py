@@ -52,7 +52,7 @@ def pulse_status(data_dir: str = typer.Option("data/pulse", "--data-dir")):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.pulse_state import PulseHistoryStore, PulseResult
+    from engines.analysis.pulse_state import PulseHistoryStore, PulseResult
     import time as _time
 
     store = PulseHistoryStore(path=f"{data_dir}/scan-history.json")
@@ -81,7 +81,7 @@ def pulse_presets():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.pulse_config import PULSE_PRESETS
+    from engines.analysis.pulse_config import PULSE_PRESETS
 
     for name, cfg in PULSE_PRESETS.items():
         typer.echo(f"\n{name}:")
@@ -97,7 +97,7 @@ def _run_pulse(tick, min_volume, preset, config, mock, mainnet,
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.pulse_config import PulseConfig, PULSE_PRESETS
+    from engines.analysis.pulse_config import PulseConfig, PULSE_PRESETS
 
     if config:
         cfg = PulseConfig.from_yaml(str(config))

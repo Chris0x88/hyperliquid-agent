@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from cli.daemon.context import Alert, TickContext
-from modules.entry_critic import (
+from engines.protection.entry_critic import (
     EntryGrade,
     SignalStack,
     format_critique_jsonl,

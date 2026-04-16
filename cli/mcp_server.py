@@ -115,7 +115,7 @@ def create_mcp_server():
             snapshot_text = ""
             try:
                 from common.market_snapshot import build_snapshot, render_snapshot
-                from modules.candle_cache import CandleCache
+                from engines.data.candle_cache import CandleCache
                 cache = CandleCache()
                 price = 0
                 # Get price from positions we just fetched
@@ -204,9 +204,9 @@ def create_mcp_server():
             days: Lookback days (default: 30)
         """
         import time as _time
-        from modules.candle_cache import CandleCache
-        from modules.data_fetcher import DataFetcher
-        from modules.radar_technicals import calc_ema, calc_rsi, classify_hourly_trend, volume_ratio
+        from engines.data.candle_cache import CandleCache
+        from engines.data.data_fetcher import DataFetcher
+        from engines.analysis.radar_technicals import calc_ema, calc_rsi, classify_hourly_trend, volume_ratio
 
         cache = CandleCache()
         end_ms = int(_time.time() * 1000)
@@ -261,8 +261,8 @@ def create_mcp_server():
             days: How many days (default: 7, max: 30)
         """
         import time as _time
-        from modules.candle_cache import CandleCache
-        from modules.data_fetcher import DataFetcher
+        from engines.data.candle_cache import CandleCache
+        from engines.data.data_fetcher import DataFetcher
 
         days = min(days, 30)
         cache = CandleCache()
@@ -319,7 +319,7 @@ def create_mcp_server():
             query_type: "recent" for latest events, "playbook" for knowledge
             limit: Max events (default: 10, max: 20)
         """
-        from modules.memory_guard import MemoryGuard
+        from engines.learning.memory_guard import MemoryGuard
 
         limit = min(limit, 20)
         guard = MemoryGuard()
@@ -354,7 +354,7 @@ def create_mcp_server():
         Args:
             limit: Max entries (default: 10, max: 20)
         """
-        from modules.journal_guard import JournalGuard
+        from engines.learning.journal_guard import JournalGuard
 
         limit = min(limit, 20)
         guard = JournalGuard()
@@ -518,7 +518,7 @@ def create_mcp_server():
     @mcp.tool()
     def cache_stats() -> str:
         """Show cached historical data summary."""
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         cache = CandleCache()
         stats = cache.stats()
         lines = ["Cache:"]

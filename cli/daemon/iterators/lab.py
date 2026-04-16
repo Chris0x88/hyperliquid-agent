@@ -31,7 +31,7 @@ class LabIterator:
 
     def on_start(self, ctx: TickContext) -> None:
         try:
-            from modules.lab_engine import LabEngine
+            from engines.learning.lab_engine import LabEngine
             self._engine = LabEngine()
             if self._engine.enabled:
                 log.info("LabIterator started — %d experiments tracked", len(self._engine._experiments))

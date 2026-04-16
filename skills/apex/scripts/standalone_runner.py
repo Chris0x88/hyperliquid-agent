@@ -25,26 +25,26 @@ except ImportError:
     class APICircuitBreakerOpen(Exception):  # type: ignore[no-redef]
         pass
 
-from modules.guard_config import GuardConfig, PRESETS as GUARD_PRESETS
-from modules.guard_bridge import GuardBridge
-from modules.guard_state import GuardState, GuardStateStore
-from modules.reflect_adapter import adapt, apply_adjustments
-from modules.reflect_engine import ReflectEngine, TradeRecord
-from modules.reflect_reporter import ReflectReporter
-from modules.journal_engine import JournalEngine
-from modules.journal_guard import JournalGuard
-from modules.judge_guard import JudgeGuard
-from modules.memory_engine import MemoryEngine
-from modules.memory_guard import MemoryGuard
-from modules.pulse_guard import PulseGuard
-from modules.radar_guard import RadarGuard
-from modules.strategy_guard import StrategyGuard
-from modules.apex_config import ApexConfig
-from modules.apex_engine import ApexAction, ApexEngine
-from modules.apex_state import ApexSlot, ApexState, ApexStateStore
+from engines.protection.guard_config import GuardConfig, PRESETS as GUARD_PRESETS
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.guard_state import GuardState, GuardStateStore
+from engines.learning.reflect_adapter import adapt, apply_adjustments
+from engines.learning.reflect_engine import ReflectEngine, TradeRecord
+from engines.learning.reflect_reporter import ReflectReporter
+from engines.learning.journal_engine import JournalEngine
+from engines.learning.journal_guard import JournalGuard
+from engines.protection.judge_guard import JudgeGuard
+from engines.learning.memory_engine import MemoryEngine
+from engines.learning.memory_guard import MemoryGuard
+from engines.analysis.pulse_guard import PulseGuard
+from engines.analysis.radar_guard import RadarGuard
+from engines.protection.strategy_guard import StrategyGuard
+from engines.analysis.apex_config import ApexConfig
+from engines.analysis.apex_engine import ApexAction, ApexEngine
+from engines.analysis.apex_state import ApexSlot, ApexState, ApexStateStore
 from exchange.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
-from modules.reconciliation import ReconciliationEngine
-from modules.wallet_manager import WalletManager
+from engines.protection.reconciliation import ReconciliationEngine
+from engines.data.wallet_manager import WalletManager
 from exchange.store import JSONLStore
 log = logging.getLogger("apex_runner")
 
@@ -142,8 +142,8 @@ class ApexRunner:
         self._obsidian_context = None
         if self.config.obsidian_vault_path:
             try:
-                from modules.obsidian_reader import ObsidianReader
-                from modules.obsidian_writer import ObsidianWriter
+                from engines.learning.obsidian_reader import ObsidianReader
+                from engines.learning.obsidian_writer import ObsidianWriter
                 self._obsidian_reader = ObsidianReader(self.config.obsidian_vault_path)
                 self._obsidian_writer = ObsidianWriter(self.config.obsidian_vault_path)
                 if self._obsidian_reader.available:
@@ -175,8 +175,8 @@ class ApexRunner:
         # Smart money tracker (optional)
         self.smart_money_tracker = None
         if self.config.smart_money_enabled and self.config.smart_money_addresses:
-            from modules.smart_money.tracker import SmartMoneyTracker
-            from modules.smart_money.config import SmartMoneyConfig
+            from engines.data.smart_money.tracker import SmartMoneyTracker
+            from engines.data.smart_money.config import SmartMoneyConfig
             sm_cfg = SmartMoneyConfig(
                 watch_addresses=self.config.smart_money_addresses,
                 min_position_usd=self.config.smart_money_min_position_usd,
@@ -912,7 +912,7 @@ class ApexRunner:
 
         # Archive closed state
         try:
-            from modules.archiver import StateArchiver
+            from engines.learning.archiver import StateArchiver
             archiver = StateArchiver(archive_dir=f"{self.data_dir}/archive")
             archiver.archive_slot_snapshot(slot_snapshot, slot_snapshot.get("slot_id", 0))
             archiver.archive_guard_state(f"{self.data_dir}/guard", f"apex-slot-{slot_snapshot.get('slot_id', 0)}")

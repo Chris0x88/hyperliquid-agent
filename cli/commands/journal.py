@@ -21,7 +21,7 @@ def journal_view(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.journal_guard import JournalGuard
+    from engines.learning.journal_guard import JournalGuard
 
     guard = JournalGuard(data_dir=data_dir)
     entries = guard.read_entries(date=date, limit=limit)
@@ -50,7 +50,7 @@ def journal_entry(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.journal_guard import JournalGuard
+    from engines.learning.journal_guard import JournalGuard
 
     guard = JournalGuard(data_dir=data_dir)
     e = guard.get_entry(entry_id)

@@ -18,7 +18,7 @@ from typing import Any
 import requests
 
 from cli.daemon.context import Alert, TickContext
-from modules.heatmap import (
+from engines.data.heatmap import (
     append_cascade,
     append_zones,
     cluster_l2_book,

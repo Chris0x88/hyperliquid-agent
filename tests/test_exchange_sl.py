@@ -7,9 +7,9 @@ from __future__ import annotations
 import pytest
 
 from cli.hl_adapter import DirectMockProxy
-from modules.guard_bridge import GuardBridge
-from modules.guard_config import GuardConfig, Tier
-from modules.guard_state import GuardState, GuardStateStore
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.guard_config import GuardConfig, Tier
+from engines.protection.guard_state import GuardState, GuardStateStore
 
 
 # ---------------------------------------------------------------------------

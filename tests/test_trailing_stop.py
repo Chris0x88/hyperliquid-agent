@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from modules.guard_config import GuardConfig, Tier, PRESETS
-from modules.guard_state import GuardState
-from modules.trailing_stop import GuardAction, TrailingStopEngine
+from engines.protection.guard_config import GuardConfig, Tier, PRESETS
+from engines.protection.guard_state import GuardState
+from engines.protection.trailing_stop import GuardAction, TrailingStopEngine
 
 
 # ---------------------------------------------------------------------------

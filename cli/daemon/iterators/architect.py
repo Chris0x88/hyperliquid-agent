@@ -30,7 +30,7 @@ class ArchitectIterator:
 
     def on_start(self, ctx: TickContext) -> None:
         try:
-            from modules.architect_engine import ArchitectEngine
+            from engines.learning.architect_engine import ArchitectEngine
             self._engine = ArchitectEngine()
             if self._engine.enabled:
                 self._interval_s = self._engine.interval_hours * 3600

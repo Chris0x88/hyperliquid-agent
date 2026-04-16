@@ -8,7 +8,7 @@ _root = str(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from modules.reflect_engine import ReflectEngine, ReflectMetrics, RoundTrip, TradeRecord
+from engines.learning.reflect_engine import ReflectEngine, ReflectMetrics, RoundTrip, TradeRecord
 
 
 def _trade(side="buy", price=100.0, qty=1.0, ts=1000, fee=0.5,
@@ -306,7 +306,7 @@ class TestRecommendations:
 
 class TestReflectReporter:
     def test_generate_report(self):
-        from modules.reflect_reporter import ReflectReporter
+        from engines.learning.reflect_reporter import ReflectReporter
 
         trades = [
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0.5),
@@ -322,7 +322,7 @@ class TestReflectReporter:
         assert "Recommendations" in report
 
     def test_distill_summary(self):
-        from modules.reflect_reporter import ReflectReporter
+        from engines.learning.reflect_reporter import ReflectReporter
 
         trades = [
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0.5),
@@ -336,7 +336,7 @@ class TestReflectReporter:
         assert "100%" in summary  # win rate
 
     def test_generate_empty(self):
-        from modules.reflect_reporter import ReflectReporter
+        from engines.learning.reflect_reporter import ReflectReporter
 
         m = ReflectMetrics()
         reporter = ReflectReporter()

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from modules.reflect_engine import ReflectMetrics
-from modules.reflect_adapter import (
+from engines.learning.reflect_engine import ReflectMetrics
+from engines.learning.reflect_adapter import (
     Adjustment,
     adapt,
     apply_adjustments,

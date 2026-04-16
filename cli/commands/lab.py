@@ -19,7 +19,7 @@ app = typer.Typer(help="Strategy development lab")
 @app.command()
 def status():
     """Show all experiments grouped by status."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if not lab.enabled:
@@ -41,7 +41,7 @@ def status():
 @app.command()
 def discover(market: str):
     """Profile a market and create candidate experiments."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if not lab.enabled:
@@ -62,7 +62,7 @@ def discover(market: str):
 @app.command()
 def create(market: str, strategy: str):
     """Create a specific experiment."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if not lab.enabled:
@@ -79,7 +79,7 @@ def create(market: str, strategy: str):
 @app.command()
 def backtest(exp_id: str):
     """Run backtest for an experiment."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if not lab.enabled:
@@ -102,7 +102,7 @@ def backtest(exp_id: str):
 @app.command()
 def promote(exp_id: str):
     """Promote a graduated experiment to production."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if lab.promote_to_production(exp_id):
@@ -114,7 +114,7 @@ def promote(exp_id: str):
 @app.command()
 def retire(exp_id: str):
     """Retire an experiment."""
-    from modules.lab_engine import LabEngine
+    from engines.learning.lab_engine import LabEngine
     lab = LabEngine()
 
     if lab.retire_experiment(exp_id):
@@ -126,7 +126,7 @@ def retire(exp_id: str):
 @app.command()
 def archetypes():
     """List available strategy archetypes."""
-    from modules.lab_engine import STRATEGY_ARCHETYPES
+    from engines.learning.lab_engine import STRATEGY_ARCHETYPES
     typer.echo("Available strategy archetypes:\n")
     for name, arch in STRATEGY_ARCHETYPES.items():
         typer.echo(f"  {name}")

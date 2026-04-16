@@ -18,7 +18,7 @@ def _load_trades(data_dir: str, since: Optional[str] = None):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.reflect_engine import TradeRecord
+    from engines.learning.reflect_engine import TradeRecord
 
     trades_path = Path(data_dir) / "trades.jsonl"
     if not trades_path.exists():
@@ -63,8 +63,8 @@ def reflect_run(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.reflect_engine import ReflectEngine
-    from modules.reflect_reporter import ReflectReporter
+    from engines.learning.reflect_engine import ReflectEngine
+    from engines.learning.reflect_reporter import ReflectReporter
 
     trades = _load_trades(data_dir, since)
 

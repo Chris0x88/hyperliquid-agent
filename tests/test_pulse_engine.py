@@ -1,9 +1,9 @@
 """Tests for modules/pulse_engine.py — signal detection with synthetic data."""
 import pytest
 
-from modules.pulse_config import PulseConfig
-from modules.pulse_engine import PulseEngine
-from modules.pulse_state import AssetSnapshot, PulseResult
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_engine import PulseEngine
+from engines.analysis.pulse_state import AssetSnapshot, PulseResult
 
 
 def _make_markets(assets_data):
@@ -252,7 +252,7 @@ class TestFullPipeline:
         assert result.stats["total_assets"] == 0
 
     def test_config_presets(self):
-        from modules.pulse_config import PULSE_PRESETS
+        from engines.analysis.pulse_config import PULSE_PRESETS
         assert "default" in PULSE_PRESETS
         assert "sensitive" in PULSE_PRESETS
         assert PULSE_PRESETS["sensitive"].oi_delta_breakout_pct < PULSE_PRESETS["default"].oi_delta_breakout_pct

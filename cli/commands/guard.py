@@ -65,9 +65,9 @@ def guard_start(
         datefmt="%H:%M:%S",
     )
 
-    from modules.guard_config import GuardConfig, PRESETS
-    from modules.guard_bridge import GuardBridge
-    from modules.guard_state import GuardState, GuardStateStore
+    from engines.protection.guard_config import GuardConfig, PRESETS
+    from engines.protection.guard_bridge import GuardBridge
+    from engines.protection.guard_state import GuardState, GuardStateStore
 
     # Build config
     if config:
@@ -151,7 +151,7 @@ def guard_status(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.guard_state import GuardStateStore
+    from engines.protection.guard_state import GuardStateStore
 
     store = GuardStateStore(data_dir=data_dir)
     active = store.list_active()
@@ -184,7 +184,7 @@ def guard_presets():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.guard_config import PRESETS
+    from engines.protection.guard_config import PRESETS
 
     for name, cfg in PRESETS.items():
         typer.echo(f"\n{name.upper()}")

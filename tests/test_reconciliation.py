@@ -1,6 +1,6 @@
 """Tests for clearinghouse reconciliation engine."""
 import pytest
-from modules.reconciliation import ReconciliationEngine, Discrepancy
+from engines.protection.reconciliation import ReconciliationEngine, Discrepancy
 
 
 @pytest.fixture

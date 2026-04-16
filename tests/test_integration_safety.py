@@ -14,12 +14,12 @@ from typing import Any, Dict
 
 import pytest
 
-from modules.reconciliation import ReconciliationEngine, Discrepancy
-from modules.guard_bridge import GuardBridge
-from modules.guard_config import GuardConfig, Tier
-from modules.guard_state import GuardState, GuardStateStore
-from modules.archiver import StateArchiver
-from modules.apex_state import ApexSlot, ApexState
+from engines.protection.reconciliation import ReconciliationEngine, Discrepancy
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.guard_config import GuardConfig, Tier
+from engines.protection.guard_state import GuardState, GuardStateStore
+from engines.learning.archiver import StateArchiver
+from engines.analysis.apex_state import ApexSlot, ApexState
 from cli.hl_adapter import DirectMockProxy
 
 

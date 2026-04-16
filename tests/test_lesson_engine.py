@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from modules.lesson_engine import (
+from engines.learning.lesson_engine import (
     LESSON_TYPES,
     Lesson,
     LessonAuthorRequest,

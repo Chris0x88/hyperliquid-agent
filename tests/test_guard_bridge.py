@@ -3,10 +3,10 @@ import tempfile
 import pytest
 from unittest.mock import MagicMock
 
-from modules.guard_bridge import GuardBridge
-from modules.guard_config import GuardConfig
-from modules.guard_state import GuardState, GuardStateStore
-from modules.trailing_stop import GuardAction
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.guard_config import GuardConfig
+from engines.protection.guard_state import GuardState, GuardStateStore
+from engines.protection.trailing_stop import GuardAction
 
 
 def _make_bridge(entry=2500.0, direction="long", tmp_dir=None):

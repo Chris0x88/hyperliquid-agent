@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from cli.daemon.iterators.heatmap import HeatmapIterator
-from modules.heatmap import read_cascades, read_zones
+from engines.data.heatmap import read_cascades, read_zones
 
 
 def _write_config(d, enabled=True, **overrides):

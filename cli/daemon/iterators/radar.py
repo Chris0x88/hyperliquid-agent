@@ -30,7 +30,7 @@ class RadarIterator:
     def on_start(self, ctx: TickContext) -> None:
         Path(SIGNALS_JSONL).parent.mkdir(parents=True, exist_ok=True)
         try:
-            from modules.radar_engine import OpportunityRadarEngine
+            from engines.analysis.radar_engine import OpportunityRadarEngine
             self._engine = OpportunityRadarEngine()
             log.info("RadarIterator started (scan every %ds)", self._scan_interval)
         except Exception as e:

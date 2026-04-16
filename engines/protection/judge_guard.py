@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from modules.judge_engine import JudgeEngine, JudgeReport
+from engines.protection.judge_engine import JudgeEngine, JudgeReport
 from exchange.store import JSONLStore
 
 
@@ -54,7 +54,7 @@ class JudgeGuard:
 
     def apply_to_memory(self, report: JudgeReport, memory_guard) -> None:
         """Write judge findings to memory as events and update playbook."""
-        from modules.memory_engine import MemoryEngine
+        from engines.learning.memory_engine import MemoryEngine
 
         engine = MemoryEngine()
 
@@ -70,7 +70,7 @@ class JudgeGuard:
         # Update playbook with per-instrument stats
         playbook = memory_guard.load_playbook()
         for key, stats in report.playbook_stats.items():
-            from modules.memory_engine import PlaybookEntry, Playbook
+            from engines.learning.memory_engine import PlaybookEntry, Playbook
             existing = playbook.entries.get(key)
             if not existing:
                 existing = PlaybookEntry(

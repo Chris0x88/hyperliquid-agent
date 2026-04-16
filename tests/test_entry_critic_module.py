@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.entry_critic import (
+from engines.protection.entry_critic import (
     CATALYST_LATE,
     CATALYST_LEAD,
     CATALYST_NEUTRAL,

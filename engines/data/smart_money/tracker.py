@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from modules.smart_money.config import SmartMoneyConfig
+from engines.data.smart_money.config import SmartMoneyConfig
 
 log = logging.getLogger("smart_money")
 

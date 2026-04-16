@@ -9,9 +9,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional
 
-from modules.pulse_config import PulseConfig
-from modules.pulse_guard import PulseGuard
-from modules.pulse_state import PulseResult
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_guard import PulseGuard
+from engines.analysis.pulse_state import PulseResult
 
 log = logging.getLogger("pulse_runner")
 
@@ -70,7 +70,7 @@ class PulseRunner:
         all_markets = self.hl.get_all_markets()
 
         # Pre-screen to find assets worth fetching candles for
-        from modules.pulse_engine import PulseEngine
+        from engines.analysis.pulse_engine import PulseEngine
         engine = PulseEngine(self.config)
         snapshots = engine._parse_markets(all_markets, int(time.time() * 1000))
         qualifying = [s for s in snapshots if s.volume_24h >= self.config.volume_min_24h]

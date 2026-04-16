@@ -1,9 +1,9 @@
 """Tests for modules/apex_engine.py — decision engine with synthetic data."""
 import pytest
 
-from modules.apex_config import ApexConfig, APEX_PRESETS
-from modules.apex_engine import ApexAction, ApexEngine
-from modules.apex_state import ApexSlot, ApexState
+from engines.analysis.apex_config import ApexConfig, APEX_PRESETS
+from engines.analysis.apex_engine import ApexAction, ApexEngine
+from engines.analysis.apex_state import ApexSlot, ApexState
 
 
 def _make_state(max_slots=3, slots=None):

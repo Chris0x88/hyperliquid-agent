@@ -665,7 +665,7 @@ def _tool_market_brief(args: dict) -> str:
         # Fetch snapshot
         snapshot_text = None
         try:
-            from modules.candle_cache import CandleCache
+            from engines.data.candle_cache import CandleCache
             from common.market_snapshot import build_snapshot, render_snapshot
             price_key = market
             mids = _hl_post({"type": "allMids"})
@@ -755,7 +755,7 @@ def _tool_analyze_market(args: dict) -> str:
     """Deep technical analysis using market snapshot + signal interpretation."""
     coin = args.get("coin", "BTC")
     try:
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
 
         mids = _hl_post({"type": "allMids"})
@@ -1705,7 +1705,7 @@ def _tool_get_technicals(args: dict) -> str:
     market = args.get("market", "BTC")
 
     try:
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         from common.market_snapshot import build_snapshot, render_snapshot
         import requests as req
 

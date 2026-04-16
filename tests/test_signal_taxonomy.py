@@ -1,8 +1,8 @@
 """Tests for 5-tier signal taxonomy (Phase 3a)."""
 import pytest
-from modules.pulse_config import PulseConfig
-from modules.pulse_engine import PulseEngine
-from modules.pulse_state import AssetSnapshot, PulseSignal
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_engine import PulseEngine
+from engines.analysis.pulse_state import AssetSnapshot, PulseSignal
 
 
 def _make_snap(asset="BTC", oi=1_000_000, volume=500_000, funding=0.0001, price=50000.0):

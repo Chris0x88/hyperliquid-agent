@@ -1,11 +1,11 @@
 """Tests for smart money tracker and APEX engine integration."""
 import pytest
 
-from modules.smart_money.config import SmartMoneyConfig
-from modules.smart_money.tracker import SmartMoneyTracker, WalletSnapshot
-from modules.apex_config import ApexConfig
-from modules.apex_engine import ApexEngine
-from modules.apex_state import ApexState
+from engines.data.smart_money.config import SmartMoneyConfig
+from engines.data.smart_money.tracker import SmartMoneyTracker, WalletSnapshot
+from engines.analysis.apex_config import ApexConfig
+from engines.analysis.apex_engine import ApexEngine
+from engines.analysis.apex_state import ApexState
 
 
 # ---------------------------------------------------------------------------

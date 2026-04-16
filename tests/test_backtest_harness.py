@@ -10,9 +10,9 @@ _root = str(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from modules.apex_config import ApexConfig
-from modules.reflect_adapter import suggest_research_directions
-from modules.reflect_engine import ReflectEngine, ReflectMetrics, TradeRecord
+from engines.analysis.apex_config import ApexConfig
+from engines.learning.reflect_adapter import suggest_research_directions
+from engines.learning.reflect_engine import ReflectEngine, ReflectMetrics, TradeRecord
 from scripts.backtest_apex import load_trades, main, replay_with_config
 
 

@@ -18,10 +18,10 @@ from typing import Any, Dict, Optional
 
 from cli.daemon.context import Alert, OrderIntent, TickContext
 from common.authority import is_agent_managed
-from modules.guard_bridge import GuardBridge
-from modules.guard_config import GuardConfig, PRESETS
-from modules.guard_state import GuardState, GuardStateStore
-from modules.trailing_stop import GuardAction
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.guard_config import GuardConfig, PRESETS
+from engines.protection.guard_state import GuardState, GuardStateStore
+from engines.protection.trailing_stop import GuardAction
 
 log = logging.getLogger("daemon.guard")
 

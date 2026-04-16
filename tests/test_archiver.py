@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 
 import pytest
-from modules.archiver import StateArchiver
+from engines.learning.archiver import StateArchiver
 
 
 class TestArchiveGuardState:

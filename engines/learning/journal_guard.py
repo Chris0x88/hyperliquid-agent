@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from modules.journal_engine import JournalEntry
+from engines.learning.journal_engine import JournalEntry
 from exchange.store import JSONLStore
 
 

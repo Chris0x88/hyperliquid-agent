@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from cli.daemon.iterators.bot_classifier import BotPatternIterator
-from modules.bot_classifier import read_patterns
+from engines.data.bot_classifier import read_patterns
 
 
 def _now():

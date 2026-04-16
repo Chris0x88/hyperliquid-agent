@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from modules import feedback_store as fs
+from engines.learning import feedback_store as fs
 
 
 # ---------------------------------------------------------------------------

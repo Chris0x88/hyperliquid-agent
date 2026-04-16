@@ -251,7 +251,7 @@ def run_cmd(
 
     # Attach Guard if configured
     if cfg.guard and cfg.guard.get("enabled"):
-        from modules.guard_config import GuardConfig, PRESETS
+        from engines.protection.guard_config import GuardConfig, PRESETS
 
         preset_name = cfg.guard.get("preset")
         if preset_name and preset_name in PRESETS:

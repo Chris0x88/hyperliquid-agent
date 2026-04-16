@@ -11,8 +11,8 @@ import logging
 import signal
 import time
 
-from modules.guard_bridge import GuardBridge
-from modules.trailing_stop import GuardAction
+from engines.protection.guard_bridge import GuardBridge
+from engines.protection.trailing_stop import GuardAction
 
 log = logging.getLogger("guard_runner")
 

@@ -9,9 +9,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from modules.radar_config import RadarConfig
-from modules.radar_state import DisqualifiedAsset, Opportunity, RadarResult
-from modules.radar_technicals import (
+from engines.analysis.radar_config import RadarConfig
+from engines.analysis.radar_state import DisqualifiedAsset, Opportunity, RadarResult
+from engines.analysis.radar_technicals import (
     analyze_4h_trend,
     calc_ema,
     calc_rsi,

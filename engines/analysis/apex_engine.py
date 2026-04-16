@@ -8,8 +8,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from modules.apex_config import ApexConfig
-from modules.apex_state import ApexSlot, ApexState
+from engines.analysis.apex_config import ApexConfig
+from engines.analysis.apex_state import ApexSlot, ApexState
 
 
 @dataclass

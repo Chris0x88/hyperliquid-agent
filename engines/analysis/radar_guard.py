@@ -4,9 +4,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from modules.radar_config import RadarConfig
-from modules.radar_engine import OpportunityRadarEngine
-from modules.radar_state import RadarHistoryStore, RadarResult
+from engines.analysis.radar_config import RadarConfig
+from engines.analysis.radar_engine import OpportunityRadarEngine
+from engines.analysis.radar_state import RadarHistoryStore, RadarResult
 
 log = logging.getLogger("radar_guard")
 

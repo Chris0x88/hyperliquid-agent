@@ -9,9 +9,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
-from modules.radar_config import RadarConfig
-from modules.radar_guard import RadarGuard
-from modules.radar_state import RadarResult
+from engines.analysis.radar_config import RadarConfig
+from engines.analysis.radar_guard import RadarGuard
+from engines.analysis.radar_state import RadarResult
 
 log = logging.getLogger("radar_runner")
 
@@ -87,7 +87,7 @@ class RadarRunner:
         all_markets = self.hl.get_all_markets()
 
         # 2. Pre-screen to find which assets need candle data
-        from modules.radar_engine import OpportunityRadarEngine
+        from engines.analysis.radar_engine import OpportunityRadarEngine
         temp_engine = OpportunityRadarEngine(self.config)
         assets = temp_engine._bulk_screen(all_markets)
         top_assets = temp_engine._select_top(assets)

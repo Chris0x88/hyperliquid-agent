@@ -106,7 +106,7 @@ def live_price(market: str = "all") -> dict:
 def analyze_market(coin: str) -> dict:
     """Technicals: trend, S/R, ATR, BBands, volume, signals."""
     try:
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
 
         mids = _hl_post({"type": "allMids"})
@@ -140,7 +140,7 @@ def market_brief(market: str) -> dict:
 
         snapshot_text = None
         try:
-            from modules.candle_cache import CandleCache
+            from engines.data.candle_cache import CandleCache
             from common.market_snapshot import build_snapshot, render_snapshot
             mids = _hl_post({"type": "allMids"})
             mids_xyz = _hl_post({"type": "allMids", "dex": "xyz"})

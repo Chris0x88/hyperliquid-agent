@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cli.daemon.context import Alert, TickContext
-from modules.bot_classifier import (
+from engines.data.bot_classifier import (
     append_pattern,
     classify_pattern,
 )
@@ -326,7 +326,7 @@ class BotPatternIterator:
         # Fallback: check the cache (will usually be empty until a
         # future wedge extends market_structure_iter to cache 1m).
         try:
-            from modules.candle_cache import CandleCache
+            from engines.data.candle_cache import CandleCache
             cache = CandleCache()
             rows = cache.get_candles(coin, "1m", start_ms, now_ms)
             cache.close()

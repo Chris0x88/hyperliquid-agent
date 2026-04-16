@@ -66,8 +66,8 @@ class ApexAdvisorIterator:
 
     def on_start(self, ctx: TickContext) -> None:
         try:
-            from modules.apex_config import ApexConfig
-            from modules.apex_engine import ApexEngine
+            from engines.analysis.apex_config import ApexConfig
+            from engines.analysis.apex_engine import ApexEngine
         except Exception as e:
             log.warning("ApexAdvisor: failed to import APEX modules: %s", e)
             return
@@ -113,7 +113,7 @@ class ApexAdvisorIterator:
     # ── Internals ───────────────────────────────────────────────────
 
     def _advise(self, ctx: TickContext) -> None:
-        from modules.apex_state import ApexState, ApexSlot
+        from engines.analysis.apex_state import ApexState, ApexSlot
 
         pulse_signals: List[Dict] = list(ctx.pulse_signals or [])
         radar_opps: List[Dict] = list(ctx.radar_opportunities or [])

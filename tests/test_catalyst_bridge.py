@@ -3,8 +3,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from modules.news_engine import Catalyst
-from modules.catalyst_bridge import catalyst_to_events, persist
+from engines.learning.news_engine import Catalyst
+from engines.data.catalyst_bridge import catalyst_to_events, persist
 
 
 def test_catalyst_with_two_instruments_fans_out():

@@ -1,5 +1,5 @@
 """Tests for trade journal engine."""
-from modules.journal_engine import JournalEngine, JournalEntry
+from engines.learning.journal_engine import JournalEngine, JournalEntry
 
 
 class TestJournalEntry:

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterable
 
 from cli.daemon.iterators.catalyst_deleverage import CatalystEvent
-from modules.news_engine import Catalyst
+from engines.learning.news_engine import Catalyst
 
 log = logging.getLogger("catalyst_bridge")
 

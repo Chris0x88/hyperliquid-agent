@@ -474,7 +474,7 @@ class AutoresearchIterator:
             return
 
         try:
-            from modules.reflect_engine import ReflectEngine, TradeRecord
+            from engines.learning.reflect_engine import ReflectEngine, TradeRecord
 
             # Load journal entries from the last 7 days
             cutoff_ms = (time.time() - 7 * 86400) * 1000

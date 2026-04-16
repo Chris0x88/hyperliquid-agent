@@ -30,7 +30,7 @@ class PulseIterator:
     def on_start(self, ctx: TickContext) -> None:
         Path(SIGNALS_JSONL).parent.mkdir(parents=True, exist_ok=True)
         try:
-            from modules.pulse_engine import PulseEngine
+            from engines.analysis.pulse_engine import PulseEngine
             self._engine = PulseEngine()
             log.info("PulseIterator started (scan every %ds)", self._scan_interval)
         except Exception as e:

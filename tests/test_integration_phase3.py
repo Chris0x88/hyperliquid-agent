@@ -17,9 +17,9 @@ import pytest
 # Phase 3a — Signal Taxonomy
 # ---------------------------------------------------------------------------
 
-from modules.pulse_config import PulseConfig
-from modules.pulse_engine import PulseEngine
-from modules.pulse_state import PulseResult
+from engines.analysis.pulse_config import PulseConfig
+from engines.analysis.pulse_engine import PulseEngine
+from engines.analysis.pulse_state import PulseResult
 
 
 def _build_all_markets(assets: list[dict]) -> list:
@@ -190,9 +190,9 @@ class TestSignalTaxonomy:
 # Phase 3b — Phase 1 Auto-Cut
 # ---------------------------------------------------------------------------
 
-from modules.guard_config import GuardConfig, Tier
-from modules.guard_state import GuardState
-from modules.trailing_stop import GuardAction, TrailingStopEngine
+from engines.protection.guard_config import GuardConfig, Tier
+from engines.protection.guard_state import GuardState
+from engines.protection.trailing_stop import GuardAction, TrailingStopEngine
 
 
 class TestPhase1AutoCut:
@@ -362,9 +362,9 @@ class TestAloFeeOpt:
 # Phase 3d — Rotation Cooldown
 # ---------------------------------------------------------------------------
 
-from modules.apex_config import ApexConfig
-from modules.apex_engine import ApexEngine
-from modules.apex_state import ApexSlot, ApexState
+from engines.analysis.apex_config import ApexConfig
+from engines.analysis.apex_engine import ApexEngine
+from engines.analysis.apex_state import ApexSlot, ApexState
 
 
 class TestRotationCooldown:

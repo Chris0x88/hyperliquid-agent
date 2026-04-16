@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.reflect_convergence import ConvergenceTracker, DirectionalHysteresis
+from engines.learning.reflect_convergence import ConvergenceTracker, DirectionalHysteresis
 
 
 class TestConvergenceTracker:

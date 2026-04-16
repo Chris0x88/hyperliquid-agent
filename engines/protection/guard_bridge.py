@@ -10,9 +10,9 @@ import logging
 import time
 from typing import Optional
 
-from modules.guard_config import GuardConfig
-from modules.guard_state import GuardState, GuardStateStore
-from modules.trailing_stop import GuardResult, TrailingStopEngine
+from engines.protection.guard_config import GuardConfig
+from engines.protection.guard_state import GuardState, GuardStateStore
+from engines.protection.trailing_stop import GuardResult, TrailingStopEngine
 
 log = logging.getLogger("guard_bridge")
 

@@ -322,7 +322,7 @@ class TradingEngine:
 
         # 11. Guard check (composable mode)
         if self.guard_bridge is not None and self.guard_bridge.is_active:
-            from modules.trailing_stop import GuardAction
+            from engines.protection.trailing_stop import GuardAction
             result = self.guard_bridge.check(snapshot.mid_price)
             _CLOSE_ACTIONS = {GuardAction.CLOSE, GuardAction.PHASE1_TIMEOUT, GuardAction.WEAK_PEAK_CUT}
             if result.action in _CLOSE_ACTIONS:
@@ -392,9 +392,9 @@ class TradingEngine:
 
     def _init_guard_bridge(self, pos) -> None:
         """Initialize Guard from guard_config after first position is established."""
-        from modules.guard_config import GuardConfig
-        from modules.guard_bridge import GuardBridge
-        from modules.guard_state import GuardState
+        from engines.protection.guard_config import GuardConfig
+        from engines.protection.guard_bridge import GuardBridge
+        from engines.protection.guard_state import GuardState
 
         direction = "long" if pos.net_qty > ZERO else "short"
         self.guard_config.direction = direction

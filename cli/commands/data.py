@@ -33,8 +33,8 @@ def data_fetch(
     """
     _ensure_path()
 
-    from modules.candle_cache import CandleCache
-    from modules.data_fetcher import DataFetcher
+    from engines.data.candle_cache import CandleCache
+    from engines.data.data_fetcher import DataFetcher
 
     db_path = f"{data_dir}/candles/candles.db"
     cache = CandleCache(db_path=db_path)
@@ -75,7 +75,7 @@ def data_stats(
     """Show cache statistics — what data is stored locally."""
     _ensure_path()
 
-    from modules.candle_cache import CandleCache
+    from engines.data.candle_cache import CandleCache
     from datetime import datetime
 
     db_path = f"{data_dir}/candles/candles.db"
@@ -110,7 +110,7 @@ def data_export(
     """Export cached candles to CSV for external tools."""
     _ensure_path()
 
-    from modules.candle_cache import CandleCache
+    from engines.data.candle_cache import CandleCache
 
     db_path = f"{data_dir}/candles/candles.db"
     cache = CandleCache(db_path=db_path)

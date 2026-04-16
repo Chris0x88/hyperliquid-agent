@@ -1005,7 +1005,7 @@ def _author_pending_lessons(
     """
     from pathlib import Path as _P
     from common import memory as common_memory
-    from modules.lesson_engine import (
+    from engines.learning.lesson_engine import (
         LessonAuthorRequest,
         LessonEngine,
     )
@@ -1325,7 +1325,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
 
     # Try rich snapshots first (candle-based technicals)
     try:
-        from modules.candle_cache import CandleCache
+        from engines.data.candle_cache import CandleCache
         from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
         cache = CandleCache()
 
@@ -1417,7 +1417,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
     try:
         from common.market_structure import cross_market_correlation, OHLCV
         if "market_snapshots" not in _CACHE:  # only if we have fresh cache with candle access
-            from modules.candle_cache import CandleCache
+            from engines.data.candle_cache import CandleCache
             cache = CandleCache()
             now_ms = int(time.time() * 1000)
             start_ms = now_ms - (7 * 86_400_000)  # 7 days

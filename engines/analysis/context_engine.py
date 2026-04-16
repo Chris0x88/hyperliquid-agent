@@ -11,7 +11,7 @@ This module is pure computation + file reads. No API calls, no AI calls.
 It reads from local cached data that the daemon already maintains.
 
 Usage:
-    from modules.context_engine import classify_intent, assemble_context
+    from engines.analysis.context_engine import classify_intent, assemble_context
     intent = classify_intent(user_text)
     context_str = assemble_context(intent, account_state, market_snapshots)
 """

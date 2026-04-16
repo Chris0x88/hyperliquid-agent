@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from modules.news_engine import (
+from engines.learning.news_engine import (
     Headline,
     Catalyst,
     Rule,
@@ -261,7 +261,7 @@ END:VCALENDAR
 
 
 def test_parse_ical_source():
-    from modules.news_engine import parse_ical_source
+    from engines.learning.news_engine import parse_ical_source
     catalysts = parse_ical_source(
         SAMPLE_ICAL,
         source="eia_weekly_petroleum",

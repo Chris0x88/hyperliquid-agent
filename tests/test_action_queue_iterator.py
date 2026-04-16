@@ -23,7 +23,7 @@ import pytest
 
 from cli.daemon.context import TickContext
 from cli.daemon.iterators.action_queue import ActionQueueIterator
-from modules.action_queue import ActionQueue
+from engines.learning.action_queue import ActionQueue
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────

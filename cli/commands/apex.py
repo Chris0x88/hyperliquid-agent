@@ -56,7 +56,7 @@ def apex_status(data_dir: str = typer.Option("data/apex", "--data-dir")):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.apex_state import ApexStateStore
+    from engines.analysis.apex_state import ApexStateStore
     import time as _time
 
     store = ApexStateStore(path=f"{data_dir}/state.json")
@@ -96,8 +96,8 @@ def apex_reconcile(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.apex_state import ApexStateStore
-    from modules.reconciliation import ReconciliationEngine
+    from engines.analysis.apex_state import ApexStateStore
+    from engines.protection.reconciliation import ReconciliationEngine
 
     store = ApexStateStore(path=f"{data_dir}/state.json")
     state = store.load()
@@ -150,7 +150,7 @@ def apex_archive(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.archiver import StateArchiver
+    from engines.learning.archiver import StateArchiver
     archiver = StateArchiver(archive_dir=f"{data_dir}/archive")
     counts = archiver.archive_old(guard_dir=f"{data_dir}/guard", days_old=days, dry_run=dry_run)
 
@@ -166,7 +166,7 @@ def apex_presets():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.apex_config import APEX_PRESETS
+    from engines.analysis.apex_config import APEX_PRESETS
 
     for name, cfg in APEX_PRESETS.items():
         typer.echo(f"\n{name}:")
@@ -184,7 +184,7 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.apex_config import ApexConfig, APEX_PRESETS
+    from engines.analysis.apex_config import ApexConfig, APEX_PRESETS
 
     if config:
         cfg = ApexConfig.from_yaml(str(config))
@@ -239,7 +239,7 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     # Multi-wallet mode: if wallet_config is non-empty, use MultiWalletEngine
     if cfg.wallet_config and not single:
         from cli.multi_wallet_engine import MultiWalletEngine
-        from modules.wallet_manager import WalletConfig, WalletManager
+        from engines.data.wallet_manager import WalletConfig, WalletManager
 
         wm = WalletManager.from_yaml_section(cfg.wallet_config)
         typer.echo(f"Multi-wallet mode: {len(wm.wallet_ids)} wallets")

@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from modules.memory_engine import MemoryEvent, Playbook
+from engines.learning.memory_engine import MemoryEvent, Playbook
 from exchange.store import JSONLStore
 
 

@@ -22,9 +22,9 @@ _ROOT = str(Path(__file__).resolve().parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from modules.apex_config import ApexConfig
-from modules.reflect_adapter import suggest_research_directions
-from modules.reflect_engine import ReflectEngine, ReflectMetrics, TradeRecord
+from engines.analysis.apex_config import ApexConfig
+from engines.learning.reflect_adapter import suggest_research_directions
+from engines.learning.reflect_engine import ReflectEngine, ReflectMetrics, TradeRecord
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from modules.candle_cache import CandleCache, INTERVAL_MS
+from engines.data.candle_cache import CandleCache, INTERVAL_MS
 
 log = logging.getLogger("data_fetcher")
 

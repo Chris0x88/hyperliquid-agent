@@ -5,7 +5,7 @@ so the model gets compact, pre-computed data instead of raw arrays.
 
 Usage:
     from common.market_snapshot import build_snapshot, render_snapshot
-    from modules.candle_cache import CandleCache
+    from engines.data.candle_cache import CandleCache
 
     cache = CandleCache()
     snap = build_snapshot("BTC", cache, current_price=84500.0)

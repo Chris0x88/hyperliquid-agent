@@ -16,7 +16,7 @@ _project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from modules.candle_cache import CandleCache, INTERVAL_MS
+from engines.data.candle_cache import CandleCache, INTERVAL_MS
 from web.api.dependencies import DATA_DIR
 
 log = logging.getLogger("charts")

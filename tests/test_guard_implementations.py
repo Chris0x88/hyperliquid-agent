@@ -4,14 +4,14 @@ import time
 import pytest
 from unittest.mock import MagicMock
 
-from modules.journal_engine import JournalEntry
-from modules.journal_guard import JournalGuard
-from modules.judge_guard import JudgeGuard
-from modules.memory_engine import MemoryEvent
-from modules.memory_guard import MemoryGuard
-from modules.pulse_guard import PulseGuard
-from modules.radar_guard import RadarGuard
-from modules.strategy_guard import StrategyGuard
+from engines.learning.journal_engine import JournalEntry
+from engines.learning.journal_guard import JournalGuard
+from engines.protection.judge_guard import JudgeGuard
+from engines.learning.memory_engine import MemoryEvent
+from engines.learning.memory_guard import MemoryGuard
+from engines.analysis.pulse_guard import PulseGuard
+from engines.analysis.radar_guard import RadarGuard
+from engines.protection.strategy_guard import StrategyGuard
 
 
 class TestJournalGuard:
@@ -75,7 +75,7 @@ class TestJudgeGuard:
     def test_save_report(self):
         tmp = tempfile.mkdtemp()
         guard = JudgeGuard(data_dir=tmp)
-        from modules.judge_engine import JudgeReport
+        from engines.protection.judge_engine import JudgeReport
         report = JudgeReport(
             timestamp_ms=int(time.time() * 1000),
             round_trips_evaluated=10,
