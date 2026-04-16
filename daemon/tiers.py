@@ -32,6 +32,7 @@ TIER_ITERATORS = {
         # `from daemon.iterators.liquidity import LiquidityIterator;
         #  LiquidityIterator.get_regime_multipliers()` for display callers.
         "risk",
+        "portfolio_risk_monitor",  # cumulative (entry-SL)*size cap; alert-only, kill switch OFF
         "price_move_alert",    # big price move alerts (5m / 1h / 24h windows)
         "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "autoresearch",        # learning loop

@@ -160,6 +160,7 @@ def daemon_start(
     from daemon.iterators.autoresearch import AutoresearchIterator
     from daemon.iterators.market_structure_iter import MarketStructureIterator
     from daemon.iterators.price_move_alert import PriceMoveAlertIterator
+    from daemon.iterators.portfolio_risk_monitor import PortfolioRiskMonitorIterator
     try:
         from daemon.iterators.funding_tracker import FundingTrackerIterator
         _has_funding = True
@@ -185,6 +186,12 @@ def daemon_start(
     # readers. Static helper LiquidityIterator.get_regime_multipliers() still
     # available for display callers in cli/daily_report.py & telegram/bot.py.
     clock.register(RiskIterator(mainnet=mainnet))
+    # P2 #10 (2026-04-17) — cumulative open-risk cap (alert-only).
+    # Sums (entry-SL)*size across all open positions vs total equity, warns
+    # at 8%, throttles new entries at 10% (sets COOLDOWN gate). Never closes
+    # existing positions. Kill switch OFF by default — turn on via
+    # data/config/portfolio_risk_monitor.json once Chris is comfortable.
+    clock.register(PortfolioRiskMonitorIterator(adapter=adapter))
     clock.register(GuardIterator())
     clock.register(RebalancerIterator())
     clock.register(RadarIterator())

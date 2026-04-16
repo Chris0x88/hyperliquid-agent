@@ -1,0 +1,7 @@
+{
+  "_doc": "Kill switch + thresholds for portfolio_risk_monitor iterator. Alert-only cumulative open-risk cap. Sums (entry-SL)*size across all open positions, compares to total equity. Turn 'enabled' to true once the numbers look right. See daemon/iterators/portfolio_risk_monitor.py for behavior.",
+  "enabled": false,
+  "cap_pct": 0.10,
+  "warn_pct": 0.08,
+  "tick_interval_s": 30
+}
