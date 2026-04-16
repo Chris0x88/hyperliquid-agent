@@ -15,13 +15,13 @@ from zoneinfo import ZoneInfo
 
 import requests as _req
 
-from common.consolidation import Candle, ConsolidationDetector, calculate_ladder_orders
-from common.heartbeat_config import (
+from trading.consolidation import Candle, ConsolidationDetector, calculate_ladder_orders
+from trading.heartbeat_config import (
     HeartbeatConfig,
     ProfitRules,
     SpikeConfig,
 )
-from common.heartbeat_state import (
+from trading.heartbeat_state import (
     WorkingState,
     load_working_state,
     save_working_state,
@@ -541,9 +541,9 @@ def run_heartbeat(
     from common.memory import _conn
     from common.memory_telegram import send_telegram, format_position_summary
     import requests as _req
-    from common.heartbeat_state import compute_atr
+    from trading.heartbeat_state import compute_atr
     from common.thesis import ThesisState
-    from common.conviction_engine import (
+    from trading.conviction_engine import (
         conviction_to_target_pct,
         modulate_dip_add_pct,
         modulate_spike_take_pct,

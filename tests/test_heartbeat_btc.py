@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from common.heartbeat import (
+from trading.heartbeat import (
     btc_liq_gate,
     detect_btc_trade,
     should_send_status_summary,

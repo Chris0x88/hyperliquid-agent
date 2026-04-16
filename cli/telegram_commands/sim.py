@@ -22,7 +22,7 @@ def cmd_sim(token: str, chat_id: str, args: str) -> None:
     import json
     from pathlib import Path
 
-    from modules.oil_botpattern_paper import (
+    from trading.oil.paper import (
         balance_from_dict,
         new_balance,
         position_from_dict,

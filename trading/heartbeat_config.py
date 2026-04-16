@@ -130,7 +130,7 @@ def _default_profit_rules() -> dict[str, ProfitRules]:
 
 # ── Main config ──────────────────────────────────────────────────────────────
 
-from common.consolidation import ConsolidationConfig
+from trading.consolidation import ConsolidationConfig
 
 @dataclass
 class HeartbeatConfig:

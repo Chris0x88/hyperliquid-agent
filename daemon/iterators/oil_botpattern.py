@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.context import Alert, OrderIntent, TickContext
-from modules.oil_botpattern import (
+from trading.oil.engine import (
     Decision,
     GateResult,
     StrategyState,
@@ -55,7 +55,7 @@ from modules.oil_botpattern import (
     sizing_to_dict,
     write_state_atomic,
 )
-from modules.oil_botpattern_paper import (
+from trading.oil.paper import (
     ShadowBalance,
     ShadowPosition,
     balance_from_dict,
@@ -70,7 +70,7 @@ from modules.oil_botpattern_paper import (
     unrealized_pnl,
     update_balance_on_close,
 )
-from modules.oil_botpattern_adaptive import (
+from trading.oil.adaptive import (
     AdaptiveAction,
     AdaptiveConfig,
     MarketSnapshot,

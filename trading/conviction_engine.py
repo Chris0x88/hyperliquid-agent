@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from common.heartbeat_config import ConvictionBands
+    from trading.heartbeat_config import ConvictionBands
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ def conviction_to_target_pct(conviction: float, bands: ConvictionBands) -> float
     Returns 0.0 for conviction below the defensive threshold.
     Linearly interpolates within each band.
 
-    >>> from common.heartbeat_config import ConvictionBands
+    >>> from trading.heartbeat_config import ConvictionBands
     >>> bands = ConvictionBands()
     >>> conviction_to_target_pct(0.2, bands)
     0.0

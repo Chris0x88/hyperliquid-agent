@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.context import Alert, TickContext
-from modules.oil_botpattern_patternlib import (
+from trading.oil.patternlib import (
     candidate_to_dict,
     detect_novel_signatures,
     extract_candidate_keys,

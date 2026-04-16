@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from modules.oil_botpattern_reflect import (
+from trading.oil.reflect import (
     PROPOSAL_TYPES,
     ProposedAction,
     StructuralProposal,

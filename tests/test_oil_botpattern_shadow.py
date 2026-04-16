@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from modules.oil_botpattern_shadow import (
+from trading.oil.shadow import (
     ShadowEval,
     counterfactual_edge_threshold_replay,
     counterfactual_severity_floor_replay,

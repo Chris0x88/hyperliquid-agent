@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from modules.oil_botpattern import (
+from trading.oil.engine import (
     Decision,
     GateResult,
     SizingDecision,

@@ -214,7 +214,7 @@ def test_open_gate_allows_normal_entry(tmp_path):
     # OrderIntent should fire (gate open, other gates should pass on this
     # synthetic pattern). At minimum: we expect at least one entry attempt
     # in the decision journal.
-    from modules.oil_botpattern import read_decisions
+    from trading.oil.engine import read_decisions
     decisions = read_decisions(f"{tmp_path}/decisions.jsonl")
     assert len(decisions) == 1
     # Could be open or skip depending on other gates, but the gate check
@@ -245,7 +245,7 @@ def test_existing_position_management_unaffected_by_cooldown(tmp_path):
     cfg = _write_config(str(tmp_path))
     it = BotPatternStrategyIterator(config_path=str(cfg))
     # Seed state with an open position
-    from modules.oil_botpattern import StrategyState, write_state_atomic
+    from trading.oil.engine import StrategyState, write_state_atomic
     s = StrategyState()
     s.open_positions["BRENTOIL"] = {
         "side": "long",

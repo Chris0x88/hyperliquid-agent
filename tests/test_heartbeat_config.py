@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from common.heartbeat_config import (
+from trading.heartbeat_config import (
     EscalationConfig,
     HeartbeatConfig,
     MarketMapping,

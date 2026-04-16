@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from modules.oil_botpattern_adaptive import (
+from trading.oil.adaptive import (
     AdaptiveAction,
     AdaptiveConfig,
     AdaptiveDecision,
@@ -542,7 +542,7 @@ def test_decision_to_dict_serializable():
 def test_hypothesis_to_features_flattens():
     h = _long_hypo()
     feats = None
-    from modules.oil_botpattern_adaptive import hypothesis_to_features
+    from trading.oil.adaptive import hypothesis_to_features
     feats = hypothesis_to_features(h)
     assert feats["instrument"] == "BRENTOIL"
     assert feats["side"] == "long"
@@ -552,7 +552,7 @@ def test_hypothesis_to_features_flattens():
 
 
 def test_snapshot_to_features_with_pattern():
-    from modules.oil_botpattern_adaptive import snapshot_to_features
+    from trading.oil.adaptive import snapshot_to_features
     snap = _snapshot(latest_pattern={
         "classification": "bot_driven_overextension",
         "direction": "up",
@@ -567,7 +567,7 @@ def test_snapshot_to_features_with_pattern():
 
 
 def test_snapshot_to_features_catalyst_adverse_filter():
-    from modules.oil_botpattern_adaptive import snapshot_to_features
+    from trading.oil.adaptive import snapshot_to_features
     snap = _snapshot(recent_catalysts=[
         {"severity": 5, "direction": "down"},     # adverse for long
         {"severity": 3, "direction": "up"},        # supportive for long
@@ -584,7 +584,7 @@ def test_snapshot_to_features_catalyst_adverse_filter():
 
 
 def test_snapshot_to_features_supply_state():
-    from modules.oil_botpattern_adaptive import snapshot_to_features
+    from trading.oil.adaptive import snapshot_to_features
     snap = _snapshot(supply_state={
         "active_disruption_count": 4,
         "computed_at": (_now() - timedelta(hours=6)).isoformat(),
@@ -595,14 +595,14 @@ def test_snapshot_to_features_supply_state():
 
 
 def test_snapshot_to_features_missing_supply_state():
-    from modules.oil_botpattern_adaptive import snapshot_to_features
+    from trading.oil.adaptive import snapshot_to_features
     feats = snapshot_to_features(_snapshot(supply_state=None))
     assert feats["supply_active_disruption_count"] is None
     assert feats["supply_age_hours"] is None
 
 
 def test_build_log_entry_full_row():
-    from modules.oil_botpattern_adaptive import build_log_entry
+    from trading.oil.adaptive import build_log_entry
     h = _long_hypo()
     snap = _snapshot(current_price=68.675, latest_pattern={
         "classification": "bot_driven_overextension",
@@ -624,7 +624,7 @@ def test_build_log_entry_full_row():
 
 
 def test_should_log_non_hold_always():
-    from modules.oil_botpattern_adaptive import should_log
+    from trading.oil.adaptive import should_log
     d = AdaptiveDecision(
         action=AdaptiveAction.EXIT, reason="x",
         hours_held=1.0, price_progress=0.5, time_progress=0.5, velocity_ratio=1.0,
@@ -633,7 +633,7 @@ def test_should_log_non_hold_always():
 
 
 def test_should_log_hold_first_time():
-    from modules.oil_botpattern_adaptive import should_log
+    from trading.oil.adaptive import should_log
     d = AdaptiveDecision(
         action=AdaptiveAction.HOLD, reason="x",
         hours_held=1.0, price_progress=0.1, time_progress=0.1, velocity_ratio=1.0,
@@ -642,7 +642,7 @@ def test_should_log_hold_first_time():
 
 
 def test_should_log_hold_throttled():
-    from modules.oil_botpattern_adaptive import should_log
+    from trading.oil.adaptive import should_log
     d = AdaptiveDecision(
         action=AdaptiveAction.HOLD, reason="x",
         hours_held=1.0, price_progress=0.1, time_progress=0.1, velocity_ratio=1.0,
@@ -657,7 +657,7 @@ def test_should_log_hold_throttled():
 
 
 def test_should_log_hold_past_interval():
-    from modules.oil_botpattern_adaptive import should_log
+    from trading.oil.adaptive import should_log
     d = AdaptiveDecision(
         action=AdaptiveAction.HOLD, reason="x",
         hours_held=1.0, price_progress=0.1, time_progress=0.1, velocity_ratio=1.0,

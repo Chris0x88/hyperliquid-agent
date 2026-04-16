@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.context import Alert, TickContext
-from modules.oil_botpattern_reflect import (
+from trading.oil.reflect import (
     compute_weekly_proposals,
     proposal_from_dict,
     proposal_to_dict,

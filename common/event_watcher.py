@@ -13,7 +13,7 @@ from typing import Callable, Dict, Optional, Any
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 
-from common.consolidation import Candle, ConsolidationDetector
+from trading.consolidation import Candle, ConsolidationDetector
 
 log = logging.getLogger("event_watcher")
 

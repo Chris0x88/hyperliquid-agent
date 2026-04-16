@@ -144,7 +144,7 @@ def test_emits_candidate_on_enough_occurrences(tmp_path):
 def test_skips_existing_candidate_key(tmp_path):
     cfg_path = _write_config(tmp_path, "cfg.json", _cfg(tmp_path))
     # Pre-seed candidates with the same signature
-    from modules.oil_botpattern_patternlib import compute_signature
+    from trading.oil.patternlib import compute_signature
     sig = compute_signature(_pattern_row(), precision=0.1)
     pre = [{
         "id": 1, "status": "pending", "signature_key": sig.as_key(),
@@ -176,7 +176,7 @@ def test_skips_existing_candidate_key(tmp_path):
 
 def test_skips_catalog_entries(tmp_path):
     cfg_path = _write_config(tmp_path, "cfg.json", _cfg(tmp_path))
-    from modules.oil_botpattern_patternlib import compute_signature
+    from trading.oil.patternlib import compute_signature
     sig = compute_signature(_pattern_row(), precision=0.1)
     (tmp_path / "bot_pattern_catalog.json").write_text(
         json.dumps({sig.as_key(): {"classification": "x"}})

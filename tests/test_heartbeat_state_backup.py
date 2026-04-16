@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from common.heartbeat_state import (
+from trading.heartbeat_state import (
     WorkingState,
     load_working_state,
     save_working_state,
@@ -102,7 +102,7 @@ class TestWorkingStateBackupWrite:
         state = _make_state()
 
         # Patch os.replace to fail only when target ends with .bak
-        from common import heartbeat_state as hb_mod
+        from trading import heartbeat_state as hb_mod
         original_replace = hb_mod.os.replace
 
         def flaky_replace(src, dst, *args, **kwargs):

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.thesis_updater import (
+from trading.thesis.updater import (
     HaikuClassification,
     ThesisUpdaterEngine,
     apply_guardrails,
@@ -310,7 +310,7 @@ class TestThesisUpdaterEngine:
 
         return tmp_path, config_path
 
-    @patch("modules.thesis_updater.is_weekend", return_value=False)
+    @patch("trading.thesis.updater.is_weekend", return_value=False)
     def test_process_catalyst_critical_defensive(self, _mock_wknd, tmp_dir):
         """CRITICAL bearish news on a long position triggers defensive mode."""
         tmp_path, config_path = tmp_dir
@@ -349,7 +349,7 @@ class TestThesisUpdaterEngine:
         assert thesis["recommended_leverage"] == 5.0  # halved from 10
         assert thesis["weekend_leverage_cap"] == 2.5  # halved from 5
 
-    @patch("modules.thesis_updater.is_weekend", return_value=True)
+    @patch("trading.thesis.updater.is_weekend", return_value=True)
     def test_process_catalyst_critical_defensive_weekend(self, _mock_wknd, tmp_dir):
         """CRITICAL bearish news on weekend applies 0.5x dampening."""
         tmp_path, config_path = tmp_dir

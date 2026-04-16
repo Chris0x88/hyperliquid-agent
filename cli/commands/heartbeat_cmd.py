@@ -15,8 +15,8 @@ def heartbeat_run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Compute only — no trades or Telegram"),
 ) -> None:
     """Run one heartbeat cycle."""
-    from common.heartbeat_config import load_config
-    from common.heartbeat import run_heartbeat
+    from trading.heartbeat_config import load_config
+    from trading.heartbeat import run_heartbeat
 
     config = load_config()
     result = run_heartbeat(config, dry_run=dry_run)
@@ -41,7 +41,7 @@ def heartbeat_run(
 @heartbeat_app.command("status")
 def heartbeat_status() -> None:
     """Show current working state JSON."""
-    from common.heartbeat_state import load_working_state, DEFAULT_STATE_PATH
+    from trading.heartbeat_state import load_working_state, DEFAULT_STATE_PATH
 
     state = load_working_state()
     from dataclasses import asdict
@@ -51,7 +51,7 @@ def heartbeat_status() -> None:
 @heartbeat_app.command("health")
 def heartbeat_health() -> None:
     """Show health: GREEN / YELLOW / RED based on state freshness and escalation."""
-    from common.heartbeat_state import load_working_state
+    from trading.heartbeat_state import load_working_state
 
     state = load_working_state()
     now_ms = int(time.time() * 1000)

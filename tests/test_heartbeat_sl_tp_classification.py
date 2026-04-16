@@ -16,15 +16,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from common.heartbeat_config import HeartbeatConfig, EscalationConfig
-from common.heartbeat import run_heartbeat
+from trading.heartbeat_config import HeartbeatConfig, EscalationConfig
+from trading.heartbeat import run_heartbeat
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _minimal_config() -> HeartbeatConfig:
     """HeartbeatConfig with conviction disabled so no thesis files are needed."""
-    from common.heartbeat_config import ConvictionBands
+    from trading.heartbeat_config import ConvictionBands
     cfg = HeartbeatConfig(
         escalation=EscalationConfig(),
         conviction_bands=ConvictionBands(enabled=False),
@@ -112,10 +112,10 @@ def _run_dry(account_state: dict) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         with (
             # Core: bypass the real HL API fetch
-            patch("common.heartbeat._fetch_account_state", return_value=account_state),
+            patch("trading.heartbeat._fetch_account_state", return_value=account_state),
             # Working state (disk)
-            patch("common.heartbeat.load_working_state", return_value=ws),
-            patch("common.heartbeat.save_working_state"),
+            patch("trading.heartbeat.load_working_state", return_value=ws),
+            patch("trading.heartbeat.save_working_state"),
             # Lazy-imported inside run_heartbeat — patch at source module
             patch("common.thesis.ThesisState.load_all", return_value={}),
             patch("common.memory_telegram.send_telegram"),

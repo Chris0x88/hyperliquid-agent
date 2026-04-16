@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
-from modules.oil_botpattern import read_decisions, read_state
+from trading.oil.engine import read_decisions, read_state
 
 
 def _now():

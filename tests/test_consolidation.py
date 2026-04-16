@@ -1,6 +1,6 @@
 """Tests for common.consolidation — consolidation detection and ladder orders."""
 import pytest
-from common.consolidation import (
+from trading.consolidation import (
     Candle,
     ConsolidationConfig,
     ConsolidationDetector,

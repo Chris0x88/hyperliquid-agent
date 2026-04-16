@@ -4,8 +4,8 @@ from decimal import Decimal
 
 from daemon.context import TickContext
 from daemon.iterators.account_collector import AccountCollectorIterator
-from common.heartbeat import _fetch_account_state
-from common.heartbeat_config import HeartbeatConfig
+from trading.heartbeat import _fetch_account_state
+from trading.heartbeat_config import HeartbeatConfig
 from common.account_state import fetch_registered_account_state
 
 
@@ -101,10 +101,10 @@ def test_account_collector_snapshot_total_equity_does_not_double_count_spot():
 
 
 def test_heartbeat_fetch_account_state_uses_shared_equity_totals(monkeypatch):
-    monkeypatch.setattr("common.heartbeat._get_main_account", lambda: "0xmain")
-    monkeypatch.setattr("common.heartbeat._get_vault_address", lambda: "0xvault")
-    monkeypatch.setattr("common.heartbeat._fetch_open_trigger_orders", lambda *args, **kwargs: [])
-    monkeypatch.setattr("common.heartbeat._fetch_funding_rates", lambda *args, **kwargs: {})
+    monkeypatch.setattr("trading.heartbeat._get_main_account", lambda: "0xmain")
+    monkeypatch.setattr("trading.heartbeat._get_vault_address", lambda: "0xvault")
+    monkeypatch.setattr("trading.heartbeat._fetch_open_trigger_orders", lambda *args, **kwargs: [])
+    monkeypatch.setattr("trading.heartbeat._fetch_funding_rates", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         "common.account_state.fetch_registered_account_state",
         lambda: {
@@ -152,11 +152,11 @@ def test_heartbeat_fetch_account_state_uses_shared_equity_totals(monkeypatch):
 
 
 def test_heartbeat_fetch_account_state_includes_sub_wallet_positions(monkeypatch):
-    monkeypatch.setattr("common.heartbeat._get_main_account", lambda: "0xmain")
-    monkeypatch.setattr("common.heartbeat._get_vault_address", lambda: "")
-    monkeypatch.setattr("common.heartbeat._get_sub_accounts", lambda: ["0xsub1"])
-    monkeypatch.setattr("common.heartbeat._fetch_open_trigger_orders", lambda *args, **kwargs: [])
-    monkeypatch.setattr("common.heartbeat._fetch_funding_rates", lambda *args, **kwargs: {})
+    monkeypatch.setattr("trading.heartbeat._get_main_account", lambda: "0xmain")
+    monkeypatch.setattr("trading.heartbeat._get_vault_address", lambda: "")
+    monkeypatch.setattr("trading.heartbeat._get_sub_accounts", lambda: ["0xsub1"])
+    monkeypatch.setattr("trading.heartbeat._fetch_open_trigger_orders", lambda *args, **kwargs: [])
+    monkeypatch.setattr("trading.heartbeat._fetch_funding_rates", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         "common.account_state.fetch_registered_account_state",
         lambda: {

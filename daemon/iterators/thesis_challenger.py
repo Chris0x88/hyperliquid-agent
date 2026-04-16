@@ -15,7 +15,7 @@ import logging
 import time
 
 from daemon.context import Alert, TickContext
-from modules.thesis_challenger import ThesisChallengerEngine
+from trading.thesis.challenger import ThesisChallengerEngine
 
 log = logging.getLogger("daemon.thesis_challenger")
 

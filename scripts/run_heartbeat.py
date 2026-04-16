@@ -133,8 +133,8 @@ def main() -> None:
         log = logging.getLogger("heartbeat.runner")
         log.info("Heartbeat runner starting (PID %d)", os.getpid())
 
-        from common.heartbeat_config import load_config
-        from common.heartbeat import run_heartbeat
+        from trading.heartbeat_config import load_config
+        from trading.heartbeat import run_heartbeat
         from common.trajectory import TrajectoryLogger
         from common.telemetry import TelemetryRecorder
 

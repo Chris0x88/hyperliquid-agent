@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime, timezone
 
-from common.conviction_engine import (
+from trading.conviction_engine import (
     conviction_to_target_pct,
     compute_target_notional,
     modulate_dip_add_pct,
@@ -11,7 +11,7 @@ from common.conviction_engine import (
     check_oil_direction_guard,
     can_execute_add,
 )
-from common.heartbeat_config import ConvictionBands
+from trading.heartbeat_config import ConvictionBands
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
-from modules.oil_botpattern_paper import balance_from_dict, position_from_dict
+from trading.oil.paper import balance_from_dict, position_from_dict
 
 
 def _now():
@@ -321,7 +321,7 @@ def test_decision_journal_written_in_shadow_mode(tmp_path):
     it.on_start(ctx)
     it.tick(ctx)
 
-    from modules.oil_botpattern import read_decisions
+    from trading.oil.engine import read_decisions
     decisions = read_decisions(f"{tmp_path}/decisions.jsonl")
     assert len(decisions) == 1
     assert decisions[0].action == "open"

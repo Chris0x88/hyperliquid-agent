@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from common.heartbeat_state import (
+from trading.heartbeat_state import (
     WorkingState,
     compute_atr,
     load_working_state,

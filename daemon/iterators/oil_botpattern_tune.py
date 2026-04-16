@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.context import Alert, TickContext
-from modules.oil_botpattern_tune import (
+from trading.oil.tune import (
     TuneAuditRecord,
     apply_proposals,
     audit_to_dict,

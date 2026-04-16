@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from daemon.context import Alert, TickContext
-from modules.thesis_updater import ThesisUpdaterEngine, HaikuClassification
+from trading.thesis.updater import ThesisUpdaterEngine, HaikuClassification
 
 log = logging.getLogger("daemon.thesis_updater")
 

@@ -343,7 +343,7 @@ def test_live_mode_without_hypothesis_skips_adaptive(tmp_path):
     it.on_start(_ctx())
 
     # Hand-write a state file with a position that has NO hypothesis fields
-    from modules.oil_botpattern import StrategyState, write_state_atomic
+    from trading.oil.engine import StrategyState, write_state_atomic
     s = StrategyState()
     s.open_positions["BRENTOIL"] = {
         "side": "long",

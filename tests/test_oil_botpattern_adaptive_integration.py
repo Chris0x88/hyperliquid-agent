@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from daemon.iterators.oil_botpattern import BotPatternStrategyIterator
-from modules.oil_botpattern_paper import position_from_dict
+from trading.oil.paper import position_from_dict
 
 
 UTC = timezone.utc

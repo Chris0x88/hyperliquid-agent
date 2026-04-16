@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.context import Alert, TickContext
-from modules.oil_botpattern_shadow import (
+from trading.oil.shadow import (
     ShadowEval,
     evaluate_proposal,
     shadow_eval_to_dict,

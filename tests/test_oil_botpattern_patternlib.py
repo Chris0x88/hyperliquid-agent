@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from modules.oil_botpattern_patternlib import (
+from trading.oil.patternlib import (
     PatternCandidate,
     PatternSignature,
     candidate_from_dict,

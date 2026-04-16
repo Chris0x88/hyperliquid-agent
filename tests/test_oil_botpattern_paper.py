@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from modules.oil_botpattern_paper import (
+from trading.oil.paper import (
     ShadowBalance,
     ShadowPosition,
     ShadowTrade,

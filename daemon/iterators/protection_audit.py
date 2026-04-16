@@ -149,7 +149,7 @@ class ProtectionAuditIterator:
         """
         try:
             from common.account_resolver import resolve_main_wallet
-            from common.heartbeat import _fetch_open_trigger_orders
+            from trading.heartbeat import _fetch_open_trigger_orders
         except Exception as e:
             log.debug("ProtectionAudit imports unavailable: %s", e)
             return None

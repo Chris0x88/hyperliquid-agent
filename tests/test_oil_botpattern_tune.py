@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from modules.oil_botpattern_tune import (
+from trading.oil.tune import (
     INTEGER_PARAMS,
     TUNABLE_PARAMS,
     OutcomeStats,
@@ -510,7 +510,7 @@ def test_build_audit_index_picks_latest():
 
 
 def test_audit_to_dict_serializable():
-    from modules.oil_botpattern_tune import TuneAuditRecord
+    from trading.oil.tune import TuneAuditRecord
     rec = TuneAuditRecord(
         applied_at="2026-04-09T10:00:00+00:00",
         param="long_min_edge", old_value=0.50, new_value=0.475,
