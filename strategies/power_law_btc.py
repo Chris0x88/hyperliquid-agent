@@ -130,7 +130,7 @@ class PowerLawBTCStrategy(BaseStrategy):
             import os
             from common.account_resolver import resolve_private_key, resolve_vault_wallet
             from exchange.hl_proxy import HLProxy
-            from cli.hl_adapter import DirectHLProxy, DirectMockProxy
+            from exchange.hl_adapter import DirectHLProxy, DirectMockProxy
 
             if os.environ.get("HL_MOCK", "false").lower() == "true":
                 log.info("[PowerLawBTC] Using mock proxy")

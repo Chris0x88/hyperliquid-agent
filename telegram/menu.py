@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from telegram.api import (
     tg_send, tg_send_grid, tg_edit_grid, tg_answer_callback,
 )
-from common.exchange_helpers import (
+from exchange.helpers import (
     _get_all_orders, _get_current_price, _get_account_values,
     _coin_matches, resolve_coin,
 )

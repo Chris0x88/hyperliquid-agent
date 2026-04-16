@@ -11,7 +11,7 @@ from exchange.twap import TWAPExecutor, ChildSlice
 from exchange.hl_proxy import HLFill
 
 if TYPE_CHECKING:
-    from cli.hl_adapter import DirectHLProxy, DirectMockProxy
+    from exchange.hl_adapter import DirectHLProxy, DirectMockProxy
     from common.venue_adapter import VenueAdapter
 
 log = logging.getLogger("order_manager")

@@ -309,7 +309,7 @@ class TestPhase1AutoCut:
 # Phase 3c — ALO Fee Opt
 # ---------------------------------------------------------------------------
 
-from cli.hl_adapter import DirectMockProxy
+from exchange.hl_adapter import DirectMockProxy
 
 
 class TestAloFeeOpt:

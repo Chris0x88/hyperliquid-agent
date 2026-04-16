@@ -539,10 +539,10 @@ def run_heartbeat(
     """
     # Lazy imports — only this function touches I/O modules
     from common.memory import _conn
-    from common.memory_telegram import send_telegram, format_position_summary
+    from telegram.memory import send_telegram, format_position_summary
     import requests as _req
     from trading.heartbeat_state import compute_atr
-    from common.thesis import ThesisState
+    from trading.thesis.state import ThesisState
     from trading.conviction_engine import (
         conviction_to_target_pct,
         modulate_dip_add_pct,
@@ -571,7 +571,7 @@ def run_heartbeat(
         fail_count = state.heartbeat_consecutive_failures
         if fail_count in (10, 30, 90) or (fail_count > 90 and fail_count % 90 == 0):
             try:
-                from common.memory_telegram import send_telegram
+                from telegram.memory import send_telegram
                 send_telegram(
                     f"[CRITICAL] Heartbeat blind for {fail_count * 2} minutes "
                     f"({fail_count} consecutive failures). "
@@ -937,7 +937,7 @@ def run_heartbeat(
             if take_size >= 0.001 and not dry_run:
                 try:
                     from exchange.hl_proxy import HLProxy
-                    from cli.hl_adapter import DirectHLProxy
+                    from exchange.hl_adapter import DirectHLProxy
                     if account_label == "vault":
                         hl = HLProxy(testnet=False, vault_address=_get_vault_address())
                     else:
@@ -1507,7 +1507,7 @@ def _fetch_funding_rates(dex: str = None) -> dict[str, float]:
 def _build_proxy_for_position(account_label: str, wallet_address: str = ""):
     """Build an exchange proxy for the wallet that owns a position."""
     from exchange.hl_proxy import HLProxy
-    from cli.hl_adapter import DirectHLProxy
+    from exchange.hl_adapter import DirectHLProxy
 
     if account_label == "vault":
         hl = HLProxy(testnet=False, vault_address=_get_vault_address())

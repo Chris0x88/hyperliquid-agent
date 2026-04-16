@@ -114,7 +114,7 @@ def create_mcp_server():
             # Market snapshot (technicals)
             snapshot_text = ""
             try:
-                from common.market_snapshot import build_snapshot, render_snapshot
+                from engines.analysis.market_snapshot import build_snapshot, render_snapshot
                 from engines.data.candle_cache import CandleCache
                 cache = CandleCache()
                 price = 0
@@ -132,7 +132,7 @@ def create_mcp_server():
             # Thesis
             thesis = None
             try:
-                from common.thesis import ThesisState
+                from trading.thesis.state import ThesisState
                 states = ThesisState.load_all("data/thesis")
                 thesis_key = market.replace("xyz:", "").replace("-PERP", "").lower()
                 for k, v in states.items():
@@ -600,7 +600,7 @@ def create_mcp_server():
         """
         start = time.monotonic()
         try:
-            from common.thesis import ThesisState
+            from trading.thesis.state import ThesisState
             from pathlib import Path
 
             # Validate inputs

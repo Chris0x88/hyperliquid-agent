@@ -15,9 +15,14 @@ from typing import Dict, List, Optional
 
 from exchange.hl_proxy import HLFill, HLProxy, MockHLProxy
 
-from cli.strategy_registry import YEX_MARKETS
-
 log = logging.getLogger("hl_adapter")
+
+# YEX market definitions — inlined from cli/strategy_registry to avoid cli/ -> exchange/ dep cycle
+YEX_MARKETS: Dict[str, Dict[str, str]] = {
+    "VXX-USDYP": {"hl_coin": "yex:VXX", "description": "Volatility index yield perpetual"},
+    "US3M-USDYP": {"hl_coin": "yex:US3M", "description": "US 3-month Treasury rate yield perpetual"},
+    "BTCSWP-USDYP": {"hl_coin": "yex:BTCSWP", "description": "BTC interest rate swap yield perpetual"},
+}
 
 # --- Constants ---
 SLIPPAGE_FACTOR = 1.005       # IOC slippage multiplier to cross the spread

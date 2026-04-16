@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from common.memory_telegram import send_telegram, format_position_summary
+from telegram.memory import send_telegram, format_position_summary
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ from common.memory_telegram import send_telegram, format_position_summary
 class TestSendTelegramSuccess:
     """Posts correct JSON and returns True on 200."""
 
-    @patch("common.memory_telegram.requests.post")
+    @patch("telegram.memory.requests.post")
     def test_send_telegram_success(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -36,7 +36,7 @@ class TestSendTelegramSuccess:
 class TestSendTelegramFailure:
     """Exception during post returns False, never raises."""
 
-    @patch("common.memory_telegram.requests.post", side_effect=Exception("network down"))
+    @patch("telegram.memory.requests.post", side_effect=Exception("network down"))
     def test_send_telegram_failure_returns_false(self, mock_post):
         result = send_telegram("boom", bot_token="TOKEN123")
         assert result is False
@@ -45,7 +45,7 @@ class TestSendTelegramFailure:
 class TestSendTelegramLongMessageSplits:
     """A 5000-char message must be split into 2 sends."""
 
-    @patch("common.memory_telegram.requests.post")
+    @patch("telegram.memory.requests.post")
     def test_send_telegram_long_message_splits(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -71,7 +71,7 @@ class TestSendTelegramNoToken:
     """No token set returns False with no HTTP call."""
 
     @patch.dict(os.environ, {}, clear=True)
-    @patch("common.memory_telegram.requests.post")
+    @patch("telegram.memory.requests.post")
     def test_send_telegram_no_token(self, mock_post):
         # Ensure TELEGRAM_BOT_TOKEN is not in env
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)

@@ -298,7 +298,7 @@ def daemon_health() -> dict:
 def place_trade(coin: str, side: str, size: float) -> dict:
     """Place a market order. Only called after user approval."""
     try:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
         is_buy = side.lower() in ("buy", "long", "b")
         result = proxy.market_order(coin=coin, is_buy=is_buy, sz=float(size))

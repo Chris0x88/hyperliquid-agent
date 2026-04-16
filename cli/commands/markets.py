@@ -19,7 +19,7 @@ def _get_proxy(mainnet: bool):
 
     mock = os.environ.get("HL_MOCK", "false").lower() == "true"
     if mock:
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
         return DirectMockProxy()
 
     from cli.config import TradingConfig
@@ -33,7 +33,7 @@ def _get_proxy(mainnet: bool):
 
     testnet = not mainnet and os.environ.get("HL_TESTNET", "true").lower() == "true"
     hl = HLProxy(private_key=key, testnet=testnet)
-    from cli.hl_adapter import DirectHLProxy
+    from exchange.hl_adapter import DirectHLProxy
     return DirectHLProxy(hl)
 
 

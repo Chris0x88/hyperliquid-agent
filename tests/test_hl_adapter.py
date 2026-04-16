@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 from exchange.hl_proxy import HLFill, MockHLProxy
 from common.models import MarketSnapshot
-from cli.hl_adapter import (
+from exchange.hl_adapter import (
     DirectHLProxy,
     DirectMockProxy,
     APICircuitBreakerOpen,

@@ -9,7 +9,6 @@ Typer-based CLI entry point and utility files. After domain refactor, this is th
 | `main.py` | Typer CLI entry point |
 | `config.py` | TradingConfig |
 | `engine.py` | TradingEngine |
-| `hl_adapter.py` | DirectHLProxy — exchange adapter with market_order, trigger orders |
 | `mcp_server.py` | MCP server for OpenClaw agent |
 | `commands/` | 26 Typer subcommand files (daemon, wallet, keys, markets, etc.) |
 

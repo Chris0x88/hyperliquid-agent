@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from daemon.context import Alert, OrderIntent, TickContext
 from common.authority import is_agent_managed
-from common.thesis import ThesisState
+from trading.thesis.state import ThesisState
 
 log = logging.getLogger("daemon.execution_engine")
 

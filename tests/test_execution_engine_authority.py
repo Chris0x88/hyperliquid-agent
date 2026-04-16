@@ -17,7 +17,7 @@ import pytest
 
 from daemon.context import TickContext
 from daemon.iterators.execution_engine import ExecutionEngineIterator
-from common.thesis import ThesisState
+from trading.thesis.state import ThesisState
 from exchange.position_tracker import Position
 
 

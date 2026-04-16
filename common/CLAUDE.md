@@ -6,13 +6,11 @@ Foundational utilities used by every other package. The `models` module is the m
 
 | File | Purpose |
 |------|---------|
-| `models.py` | Data structures (MarketSnapshot, StrategyContext, etc.) |
+| `models.py` | Data structures (MarketSnapshot Pydantic model, StrategyContext, etc.) |
 | `config_schema.py` | Pydantic config schema — typed validation for all YAML/JSON configs |
-| `market_snapshot.py` | `build_snapshot()` + `render_signal_summary()` — full signal engine |
 | `renderer.py` | UI portability — Renderer ABC + TelegramRenderer + BufferRenderer |
 | `telemetry.py` | TelemetryRecorder + HealthWindow (error budget) |
 | `watchlist.py` | Centralized watchlist — single source for tracked markets |
-| `thesis.py` | ThesisState dataclass — shared contract between AI and execution |
 | `credentials.py` | Pluggable key backends: OWS -> Keychain -> Encrypted -> Env -> File |
 | `authority.py` | Per-asset delegation: agent vs manual vs off |
 | `markets.py` | `MarketRegistry` — reads `data/config/markets.yaml`, normalizes coin names (handles `xyz:` prefix), enforces per-instrument direction rules |
@@ -20,7 +18,6 @@ Foundational utilities used by every other package. The `models` module is the m
 | `memory_consolidator.py` | Event compression + trim_learnings_file for agent memory rolling trim |
 | `venue_adapter.py` | Venue abstraction layer for exchange connectivity |
 | `account_state.py` | Account state resolution and caching |
-| `exchange_helpers.py` | Generic exchange data helpers — funding, OI, price change (interface-agnostic) |
 
 ## Moved Out During Domain Refactor
 
@@ -34,6 +31,11 @@ These were in `common/` but are now in their proper packages:
 | `tool_renderers.py` | `agent/tool_renderers.py` |
 | `conviction_engine.py` | `trading/conviction_engine.py` |
 | `heartbeat.py` | `trading/heartbeat.py` |
+| `market_structure.py` | `engines/analysis/market_structure.py` |
+| `market_snapshot.py` | `engines/analysis/market_snapshot.py` (class renamed `MarketAnalysis`) |
+| `memory_telegram.py` | `telegram/memory.py` |
+| `exchange_helpers.py` | `exchange/helpers.py` |
+| `thesis.py` | `trading/thesis/state.py` |
 
 **Deep dive:** [docs/wiki/architecture.md](../docs/wiki/architecture.md) | [docs/wiki/components/](../docs/wiki/components/)
 

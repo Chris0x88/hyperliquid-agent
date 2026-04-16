@@ -62,7 +62,7 @@ def _build_bot():
     """Build the PowerLawBot wired to the vault."""
     from common.credentials import resolve_private_key
     from exchange.hl_proxy import HLProxy
-    from cli.hl_adapter import DirectHLProxy
+    from exchange.hl_adapter import DirectHLProxy
     from plugins.power_law.bot import PowerLawBot
     from plugins.power_law.config import PowerLawConfig
 

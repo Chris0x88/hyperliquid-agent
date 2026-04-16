@@ -20,7 +20,7 @@ from engines.protection.guard_config import GuardConfig, Tier
 from engines.protection.guard_state import GuardState, GuardStateStore
 from engines.learning.archiver import StateArchiver
 from engines.analysis.apex_state import ApexSlot, ApexState
-from cli.hl_adapter import DirectMockProxy
+from exchange.hl_adapter import DirectMockProxy
 
 
 # ===========================================================================

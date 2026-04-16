@@ -170,7 +170,7 @@ def main():
 
     # --- 5. Existing thesis state ---
     try:
-        from common.thesis import ThesisState
+        from trading.thesis.state import ThesisState
         states = ThesisState.load_all("data/thesis")
         for market, s in states.items():
             key_name = market.replace(":", "_").replace("-", "_").lower()
@@ -291,7 +291,7 @@ def main():
         # instead of flat-dumping everything.
         try:
             from agent.context_harness import build_thesis_context, build_multi_market_context
-            from common.market_snapshot import build_snapshot, render_snapshot
+            from engines.analysis.market_snapshot import build_snapshot, render_snapshot
             from engines.data.candle_cache import CandleCache
 
             # Build market snapshots if candle data is available

@@ -29,7 +29,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from common.market_structure import (
+from engines.analysis.market_structure import (
     OHLCV,
     BollingerBands,
     KeyLevel,
@@ -67,7 +67,7 @@ class TimeframeData:
 
 
 @dataclass
-class MarketSnapshot:
+class MarketAnalysis:
     """Complete pre-digested market structure for one instrument.
 
     This is the contract between code (producer) and AI (consumer).
@@ -103,7 +103,7 @@ def build_snapshot(
     current_price: float,
     intervals: Optional[List[str]] = None,
     lookback_days: int = 30,
-) -> MarketSnapshot:
+) -> MarketAnalysis:
     """Build a complete MarketSnapshot from cached candle data.
 
     Args:
@@ -122,7 +122,7 @@ def build_snapshot(
     now_ms = int(time.time() * 1000)
     start_ms = now_ms - (lookback_days * 86_400_000)
 
-    snap = MarketSnapshot(
+    snap = MarketAnalysis(
         market=market,
         current_price=current_price,
         timestamp=now_ms,
@@ -207,7 +207,7 @@ def build_snapshot_from_candles(
     market: str,
     candle_sets: Dict[str, List[Dict]],
     current_price: float,
-) -> MarketSnapshot:
+) -> MarketAnalysis:
     """Build snapshot from pre-fetched candle dicts (no cache needed).
 
     Useful when candles are already in TickContext.candles.
@@ -217,7 +217,7 @@ def build_snapshot_from_candles(
         candle_sets: {"1h": [candle_dicts], "4h": [...], ...}
         current_price: Live price
     """
-    snap = MarketSnapshot(
+    snap = MarketAnalysis(
         market=market,
         current_price=current_price,
         timestamp=int(time.time() * 1000),
@@ -289,7 +289,7 @@ def build_snapshot_from_candles(
 # Text renderer — the token-efficient output the AI actually reads
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
+def render_snapshot(snap: MarketAnalysis, detail: str = "standard") -> str:
     """Render MarketSnapshot as compact text for AI prompt injection.
 
     Detail levels (inspired by Claude Code's tiered context):
@@ -394,7 +394,7 @@ def render_snapshot(snap: MarketSnapshot, detail: str = "standard") -> str:
     return "\n".join(lines)
 
 
-def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None) -> str:
+def render_signal_summary(snap: MarketAnalysis, position: Optional[Dict] = None) -> str:
     """Pre-computed plain-English signal assessment.
 
     This is THE key function for making dumb models useful. Instead of
@@ -406,7 +406,7 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
     may give a bounce" when exhaustion means the rally drops).
 
     Args:
-        snap: MarketSnapshot with pre-computed indicators
+        snap: MarketAnalysis with pre-computed indicators
         position: Optional dict with 'direction' ('long'/'short') and 'size'
                   to add position-specific guidance
 
@@ -627,7 +627,7 @@ def render_signal_summary(snap: MarketSnapshot, position: Optional[Dict] = None)
     return "\n".join(lines)
 
 
-def snapshot_to_dict(snap: MarketSnapshot) -> Dict:
+def snapshot_to_dict(snap: MarketAnalysis) -> Dict:
     """Serialize snapshot to JSON-safe dict for storage/API."""
     return {
         "market": snap.market,
@@ -680,7 +680,7 @@ def snapshot_to_dict(snap: MarketSnapshot) -> Dict:
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _generate_flags(snap: MarketSnapshot, tf: TimeframeData, price: float) -> None:
+def _generate_flags(snap: MarketAnalysis, tf: TimeframeData, price: float) -> None:
     """Add quick-scan flags based on indicator thresholds."""
     sfx = f"_{tf.interval}"
 
@@ -724,7 +724,7 @@ def _generate_flags(snap: MarketSnapshot, tf: TimeframeData, price: float) -> No
                 break  # only flag once
 
 
-def _compute_suggested_levels(snap: MarketSnapshot) -> None:
+def _compute_suggested_levels(snap: MarketAnalysis) -> None:
     """Compute mechanical entry/stop/TP from indicators for BOTH directions.
 
     Long: stop below, TP above. Short: stop above, TP below.

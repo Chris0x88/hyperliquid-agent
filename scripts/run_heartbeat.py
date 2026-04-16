@@ -169,7 +169,7 @@ def main() -> None:
     except Exception as exc:
         # Try to send Telegram crash alert
         try:
-            from common.memory_telegram import send_telegram
+            from telegram.memory import send_telegram
             send_telegram(f"HEARTBEAT CRASH: {exc}")
         except Exception:
             pass

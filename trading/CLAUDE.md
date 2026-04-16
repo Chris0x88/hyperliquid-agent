@@ -17,7 +17,7 @@ Market-specific trading systems and shared position management. Each market gets
 | Package | Purpose |
 |---------|---------|
 | `oil/` | Oil bot-pattern strategy — engine, tune, reflect, shadow, patternlib, paper, adaptive |
-| `thesis/` | Thesis management — challenger (mechanical), updater (Haiku-powered) |
+| `thesis/` | Thesis management — `state.py` (ThesisState dataclass, moved from common/), challenger (mechanical), updater (Haiku-powered) |
 
 ## Adding a New Market
 

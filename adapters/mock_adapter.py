@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-from cli.hl_adapter import DirectMockProxy
+from exchange.hl_adapter import DirectMockProxy
 from common.models import MarketSnapshot
 from common.venue_adapter import Fill, VenueAdapter, VenueCapabilities
 from exchange.hl_proxy import HLFill

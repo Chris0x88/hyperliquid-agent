@@ -51,7 +51,7 @@ def _build_adapter(mock: bool, mainnet: bool):
         sys.path.insert(0, project_root)
 
     from exchange.hl_proxy import HLProxy
-    from cli.hl_adapter import DirectHLProxy
+    from exchange.hl_adapter import DirectHLProxy
 
     testnet = not mainnet
     try:

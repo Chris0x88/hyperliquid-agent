@@ -16,7 +16,7 @@ import os
 
 from cli.config import TradingConfig
 from exchange.hl_proxy import HLProxy
-from cli.hl_adapter import DirectHLProxy
+from exchange.hl_adapter import DirectHLProxy
 from cli.strategy_registry import YEX_MARKETS
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")

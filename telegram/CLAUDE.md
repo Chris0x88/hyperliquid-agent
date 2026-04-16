@@ -9,6 +9,7 @@ Telegram-specific UI layer. Commands, menus, approval flows, message dispatch.
 | `bot.py` | Command handlers (`cmd_*`), HANDLERS dict, polling loop |
 | `agent.py` | Telegram adapter for AI agent — routes to `agent/runtime.py`, handles streaming |
 | `api.py` | Low-level Telegram Bot API wrapper (send, edit, delete, callbacks) |
+| `memory.py` | `send_telegram()`, `format_position_summary()` — direct Telegram API dispatch helpers |
 | `menu.py` | Interactive inline keyboard menus (`mn:` callback prefix) |
 | `approval.py` | Write-command approval flow (inline keyboard confirm/cancel) |
 | `handler.py` | Two-way polling, command queue |
@@ -19,7 +20,7 @@ Telegram-specific UI layer. Commands, menus, approval flows, message dispatch.
 4 commands already use the `Renderer` ABC pattern (status, price, orders, health) — these are interface-agnostic. The remaining ~70 still use `(token, chat_id)`.
 
 - `common/renderer.py` — Renderer ABC (TelegramRenderer + BufferRenderer)
-- `common/exchange_helpers.py` — Generic exchange data helpers (NOT in this package)
+- `exchange/helpers.py` — Generic exchange data helpers (NOT in this package)
 
 When adding a second interface (Discord, web chat), create another top-level dir and implement the Renderer ABC.
 

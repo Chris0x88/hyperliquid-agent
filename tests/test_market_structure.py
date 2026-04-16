@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import pytest
 
-from common.market_structure import (
+from engines.analysis.market_structure import (
     OHLCV,
     BollingerBands,
     atr,
@@ -29,8 +29,8 @@ from common.market_structure import (
     volume_profile,
     vwap,
 )
-from common.market_snapshot import (
-    MarketSnapshot,
+from engines.analysis.market_snapshot import (
+    MarketAnalysis,
     build_snapshot_from_candles,
     render_snapshot,
     snapshot_to_dict,
@@ -305,7 +305,7 @@ class TestFindKeyLevels:
 # Integration tests — MarketSnapshot
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestMarketSnapshot:
+class TestMarketAnalysis:
     def test_build_from_candles(self):
         candles_1h = _make_candles(100, volatility=0.03)
         candles_4h = _make_candles(50, volatility=0.04, interval_ms=14_400_000)
@@ -342,7 +342,7 @@ class TestMarketSnapshot:
 
 
 class TestRenderSnapshot:
-    def _make_snap(self) -> MarketSnapshot:
+    def _make_snap(self) -> MarketAnalysis:
         candles_1h = _make_candles(100, start_price=84000, volatility=0.02)
         candles_4h = _make_candles(50, start_price=83000, volatility=0.03, interval_ms=14_400_000)
         return build_snapshot_from_candles(

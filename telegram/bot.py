@@ -28,8 +28,8 @@ import requests
 
 from common.renderer import Renderer, TelegramRenderer
 
-import common.exchange_helpers as telegram_hl
-from common.exchange_helpers import (
+import exchange.helpers as telegram_hl
+from exchange.helpers import (
     HL_API,
     _hl_post, _get_all_positions, _get_all_orders, _get_account_values,
     _get_market_oi, _get_current_price, _get_all_market_ctx,
@@ -1143,7 +1143,7 @@ def cmd_rebalance(token: str, chat_id: str, _args: str) -> None:
 
         from common.credentials import resolve_private_key
         from exchange.hl_proxy import HLProxy
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         from plugins.power_law.bot import PowerLawBot
         from plugins.power_law.config import PowerLawConfig
 
@@ -1198,7 +1198,7 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
 
     # Technicals — full signal engine
     try:
-        from common.market_snapshot import build_snapshot, render_signal_summary
+        from engines.analysis.market_snapshot import build_snapshot, render_signal_summary
         from engines.data.candle_cache import CandleCache
         cache = CandleCache()
 
@@ -3432,7 +3432,7 @@ def cmd_diag(token: str, chat_id: str, _args: str) -> None:
 
 def cmd_thesis(token: str, chat_id: str, _args: str) -> None:
     """Show all thesis states with age and conviction. Usage: /thesis"""
-    from common.thesis import ThesisState, DEFAULT_THESIS_DIR
+    from trading.thesis.state import ThesisState, DEFAULT_THESIS_DIR
 
     states = ThesisState.load_all(DEFAULT_THESIS_DIR)
     if not states:

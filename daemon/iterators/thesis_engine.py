@@ -17,7 +17,7 @@ import time
 from typing import Any
 
 from daemon.context import Alert, TickContext
-from common.thesis import ThesisState, DEFAULT_THESIS_DIR
+from trading.thesis.state import ThesisState, DEFAULT_THESIS_DIR
 
 log = logging.getLogger("daemon.thesis_engine")
 

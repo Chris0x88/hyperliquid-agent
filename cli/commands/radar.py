@@ -175,11 +175,11 @@ def _run_radar(
 
     # Build HL adapter
     if mock:
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
         hl = DirectMockProxy()
         typer.echo("Mode: MOCK")
     else:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         from cli.config import TradingConfig
         from exchange.hl_proxy import HLProxy
 

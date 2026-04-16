@@ -106,10 +106,10 @@ def apex_reconcile(
         raise typer.Exit()
 
     if mock:
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
         hl = DirectMockProxy()
     else:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         from cli.config import TradingConfig
         from exchange.hl_proxy import HLProxy
         try:
@@ -216,11 +216,11 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     cfg.obsidian_vault_path = resolve_obsidian_path(cfg.obsidian_vault_path)
 
     if mock:
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
         hl = DirectMockProxy()
         typer.echo("Mode: MOCK")
     else:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         from cli.config import TradingConfig
         from exchange.hl_proxy import HLProxy
 

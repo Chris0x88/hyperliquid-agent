@@ -666,7 +666,7 @@ def _tool_market_brief(args: dict) -> str:
         snapshot_text = None
         try:
             from engines.data.candle_cache import CandleCache
-            from common.market_snapshot import build_snapshot, render_snapshot
+            from engines.analysis.market_snapshot import build_snapshot, render_snapshot
             price_key = market
             mids = _hl_post({"type": "allMids"})
             mids_xyz = _hl_post({"type": "allMids", "dex": "xyz"})
@@ -756,7 +756,7 @@ def _tool_analyze_market(args: dict) -> str:
     coin = args.get("coin", "BTC")
     try:
         from engines.data.candle_cache import CandleCache
-        from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
+        from engines.analysis.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
 
         mids = _hl_post({"type": "allMids"})
         mids_xyz = _hl_post({"type": "allMids", "dex": "xyz"})
@@ -1001,7 +1001,7 @@ def _tool_place_trade(args: dict) -> str:
     size = args.get("size", 0)
 
     try:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
 
         # Normalise side: agent may say "long"/"buy"/"b" or "short"/"sell"/"s"
@@ -1096,7 +1096,7 @@ def _tool_close_position(args: dict) -> str:
     side = args.get("side", "")
     size = args.get("size", 0)
     try:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
         # The 'side' arg here is the closing side (opposite of position direction)
         norm_side = "buy" if side.lower() in ("buy", "long", "b") else "sell"
@@ -1126,7 +1126,7 @@ def _tool_set_sl(args: dict) -> str:
     size = args.get("size", 0)
     trigger_price = args.get("trigger_price", 0)
     try:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
         oid = proxy.place_trigger_order(coin, side, float(size), float(trigger_price))
         if oid:
@@ -1143,7 +1143,7 @@ def _tool_set_tp(args: dict) -> str:
     size = args.get("size", 0)
     trigger_price = args.get("trigger_price", 0)
     try:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         proxy = DirectHLProxy()
         oid = proxy.place_tp_trigger_order(coin, side, float(size), float(trigger_price))
         if oid:
@@ -1706,7 +1706,7 @@ def _tool_get_technicals(args: dict) -> str:
 
     try:
         from engines.data.candle_cache import CandleCache
-        from common.market_snapshot import build_snapshot, render_snapshot
+        from engines.analysis.market_snapshot import build_snapshot, render_snapshot
         import requests as req
 
         cache = CandleCache()

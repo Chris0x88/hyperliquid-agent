@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from common.thesis import ThesisState, _backup_dir_for
+from trading.thesis.state import ThesisState, _backup_dir_for
 
 
 def _make_thesis(market: str = "BTC", conviction: float = 0.85) -> ThesisState:

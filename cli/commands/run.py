@@ -212,11 +212,11 @@ def run_cmd(
 
     # Build HL adapter
     if mock or dry_run:
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
         hl = DirectMockProxy()
         typer.echo(f"Mode: {'DRY RUN' if dry_run else 'MOCK'}")
     else:
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
         from exchange.hl_proxy import HLProxy
 
         private_key = cfg.get_private_key()

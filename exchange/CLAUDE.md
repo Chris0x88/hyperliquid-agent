@@ -7,6 +7,8 @@ All HyperLiquid communication flows through `hl_proxy.py`. Risk management via c
 | File | Purpose |
 |------|---------|
 | `hl_proxy.py` | HyperLiquid SDK wrapper — market data, orders, account state |
+| `hl_adapter.py` | `DirectHLProxy` / `DirectMockProxy` — exchange adapter used by bot commands and the agent |
+| `helpers.py` | Generic exchange data helpers — funding, OI, price change, coin normalization |
 | `risk_manager.py` | Composable protection chain + risk gate machine |
 | `position_tracker.py` | Track open positions across ticks |
 | `store.py` | Persistent state for trades and fills |
@@ -31,5 +33,5 @@ All HyperLiquid communication flows through `hl_proxy.py`. Risk management via c
 ## Gotchas
 
 - Risk gate states: OPEN -> COOLDOWN -> CLOSED (worst gate wins)
-- `DirectHLProxy` in `cli/hl_adapter.py` is the adapter used by bot commands
+- `DirectHLProxy` in `exchange/hl_adapter.py` is the adapter used by bot commands
 - xyz perps need `dex='xyz'` in ALL API calls

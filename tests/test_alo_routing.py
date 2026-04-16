@@ -88,7 +88,7 @@ class TestConfigRoundtrip:
 class TestAloFallback:
     def test_alo_fallback_to_gtc_on_rejection(self):
         """When ALO order is rejected (returns None), place_order retries with Gtc."""
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
 
         # Build a mock HLProxy with the required internals
         mock_hl = MagicMock()
@@ -132,7 +132,7 @@ class TestAloFallback:
 
     def test_alo_no_fallback_on_success(self):
         """When ALO order fills, no Gtc fallback is attempted."""
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
 
         mock_hl = MagicMock()
         mock_hl._info = MagicMock()
@@ -164,7 +164,7 @@ class TestAloFallback:
 
     def test_ioc_no_fallback(self):
         """IOC orders that fail do NOT trigger Gtc fallback."""
-        from cli.hl_adapter import DirectHLProxy
+        from exchange.hl_adapter import DirectHLProxy
 
         mock_hl = MagicMock()
         mock_hl._info = MagicMock()
@@ -195,7 +195,7 @@ class TestAloFallback:
 class TestMockProxyTif:
     def test_mock_proxy_records_tif(self):
         """DirectMockProxy exposes _last_tif for testing."""
-        from cli.hl_adapter import DirectMockProxy
+        from exchange.hl_adapter import DirectMockProxy
 
         mock = DirectMockProxy()
         mock.place_order("ETH-PERP", "buy", 1.0, 2000.0, tif="Alo")

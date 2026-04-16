@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from daemon.context import TickContext
-from common.market_snapshot import MarketSnapshot, build_snapshot_from_candles, render_snapshot
+from engines.analysis.market_snapshot import MarketAnalysis, build_snapshot_from_candles, render_snapshot
 from engines.data.candle_cache import CandleCache
 
 log = logging.getLogger("daemon.market_structure")
@@ -49,7 +49,7 @@ class MarketStructureIterator:
         self._intervals = intervals or ["1h", "4h", "1d"]
         self._recompute_s = recompute_s
         self._last_compute: float = 0.0
-        self._snapshots: Dict[str, MarketSnapshot] = {}
+        self._snapshots: Dict[str, MarketAnalysis] = {}
 
     def on_start(self, ctx: TickContext) -> None:
         """Initialize cache if not provided, then compute first snapshots."""

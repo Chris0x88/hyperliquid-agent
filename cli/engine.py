@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from cli.hl_adapter import APICircuitBreakerOpen
+from exchange.hl_adapter import APICircuitBreakerOpen
 from common.models import MarketSnapshot
 from common.venue_adapter import VenueAdapter
 from exchange.position_tracker import Position, PositionTracker

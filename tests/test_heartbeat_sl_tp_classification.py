@@ -117,9 +117,9 @@ def _run_dry(account_state: dict) -> dict:
             patch("trading.heartbeat.load_working_state", return_value=ws),
             patch("trading.heartbeat.save_working_state"),
             # Lazy-imported inside run_heartbeat — patch at source module
-            patch("common.thesis.ThesisState.load_all", return_value={}),
-            patch("common.memory_telegram.send_telegram"),
-            patch("common.memory_telegram.format_position_summary", return_value=""),
+            patch("trading.thesis.state.ThesisState.load_all", return_value={}),
+            patch("telegram.memory.send_telegram"),
+            patch("telegram.memory.format_position_summary", return_value=""),
             patch("common.memory._conn") as mock_conn,
             patch("common.authority.is_watched", return_value=True),
             patch("common.authority.get_authority", return_value="agent"),

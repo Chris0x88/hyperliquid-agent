@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
-    from cli.hl_adapter import APICircuitBreakerOpen
+    from exchange.hl_adapter import APICircuitBreakerOpen
 except ImportError:
     class APICircuitBreakerOpen(Exception):  # type: ignore[no-redef]
         pass
