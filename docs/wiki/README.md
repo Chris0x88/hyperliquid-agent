@@ -36,9 +36,11 @@ This wiki is maintained by Claude Code. See MAINTAINING.md for the maintenance p
 | Package | Location | Covers |
 |---------|----------|--------|
 | Root | `CLAUDE.md` | Core rules, trading safety, OpenClaw boundary |
-| cli/ | `cli/CLAUDE.md` | Telegram bot, AI agent, menu system, tools, signal engine |
-| common/ | `common/CLAUDE.md` | Models, snapshots, context harness, renderer, health |
-| parent/ | `parent/CLAUDE.md` | Exchange proxy, risk manager, protection chain |
-| daemon/ | `cli/daemon/CLAUDE.md` | Clock, iterators, tiers, daemon lifecycle |
-| modules/ | `modules/CLAUDE.md` | REFLECT, GUARD, RADAR, PULSE, JOURNAL, MEMORY, APEX |
-| agent/ | `agent/AGENT.md` + `SOUL.md` | Agent system prompt, trading rules, response protocol |
+| cli/ | `cli/CLAUDE.md` | CLI entry point, commands, engine, exchange adapter |
+| common/ | `common/CLAUDE.md` | Models, snapshots, renderer ABC, credentials, memory |
+| exchange/ | `exchange/CLAUDE.md` | HyperLiquid proxy, risk manager, position tracking, order execution |
+| daemon/ | `daemon/CLAUDE.md` | Clock, iterators, tiers, daemon lifecycle |
+| engines/ | `engines/CLAUDE.md` | Analysis (radar, pulse, apex), protection (guard, trailing stop), learning (reflect, journal), data (candle cache, heatmap) |
+| trading/ | `trading/CLAUDE.md` | Heartbeat, conviction engine, oil bot-pattern, thesis system |
+| agent/ | `agent/CLAUDE.md` | AI runtime, tools, context pipeline, prompts |
+| telegram/ | `telegram/CLAUDE.md` | Telegram bot UI, commands, menus, approval flow |

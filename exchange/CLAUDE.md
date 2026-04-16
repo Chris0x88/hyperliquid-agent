@@ -1,4 +1,4 @@
-# parent/ — Exchange Layer + Risk Management
+# exchange/ — Exchange Layer + Risk Management
 
 All HyperLiquid communication flows through `hl_proxy.py`. Risk management via composable protection chain in `risk_manager.py`.
 
@@ -12,6 +12,14 @@ All HyperLiquid communication flows through `hl_proxy.py`. Risk management via c
 | `store.py` | Persistent state for trades and fills |
 | `house_risk.py` | Portfolio-level risk aggregation |
 | `sdk_patches.py` | Monkey-patches for HyperLiquid SDK quirks |
+| `order_book.py` | Order book tracking |
+| `order_types.py` | Order type definitions |
+| `parent_order.py` | Parent order lifecycle |
+| `portfolio_risk.py` | Portfolio-level risk calculations |
+| `routing.py` | Order routing logic |
+| `twap.py` | TWAP execution engine |
+
+> Merged from `parent/` + `execution/` in Phase 1 domain refactor.
 
 **Deep dive:** [docs/wiki/components/risk-manager.md](../docs/wiki/components/risk-manager.md)
 

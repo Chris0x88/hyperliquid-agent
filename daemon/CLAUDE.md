@@ -1,4 +1,4 @@
-# cli/daemon/ — Daemon Architecture (Running in Production)
+# daemon/ — Daemon Architecture (Running in Production)
 
 Hummingbot-style tick engine with tiered iterator execution. Running on mainnet in WATCH tier via launchd.
 

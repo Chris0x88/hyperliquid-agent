@@ -53,11 +53,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent  # agent-cli/
 VAULT = PROJECT_ROOT / "docs" / "vault"
 
-ITERATORS_SRC = PROJECT_ROOT / "cli" / "daemon" / "iterators"
-TELEGRAM_BOT = PROJECT_ROOT / "cli" / "telegram_bot.py"
-TELEGRAM_COMMANDS_SRC = PROJECT_ROOT / "cli" / "telegram_commands"
-AGENT_TOOLS_SRC = PROJECT_ROOT / "cli" / "agent_tools.py"
-TIERS_SRC = PROJECT_ROOT / "cli" / "daemon" / "tiers.py"
+ITERATORS_SRC = PROJECT_ROOT / "daemon" / "iterators"
+TELEGRAM_BOT = PROJECT_ROOT / "telegram" / "bot.py"
+TELEGRAM_COMMANDS_SRC = PROJECT_ROOT / "telegram" / "commands"
+AGENT_TOOLS_SRC = PROJECT_ROOT / "agent" / "tools.py"
+TIERS_SRC = PROJECT_ROOT / "daemon" / "tiers.py"
 DAEMON_START_SRC = PROJECT_ROOT / "cli" / "commands" / "daemon.py"
 CONFIG_SRC = PROJECT_ROOT / "data" / "config"
 PLANS_SRC = PROJECT_ROOT / "docs" / "plans"
