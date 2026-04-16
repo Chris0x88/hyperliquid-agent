@@ -4082,6 +4082,12 @@ def run() -> None:
                     # already logs them via _diag.log_chat (line above).
                     # Do NOT cross-log into agent's chat_history.jsonl;
                     # that file is the AI conversation only.
+                    #
+                    # FUTURE: if we want the AI to be aware of recent slash
+                    # command results (e.g. "user just ran /status and saw X"),
+                    # expose the tool call + answer as a compact summary package
+                    # injected into live_context, NOT raw-logged into chat history.
+                    # Keeps routing clean while giving the model situational awareness.
                 except Exception as e:
                     log.error("Command %s failed: %s", cmd_key, e, exc_info=True)
                     if _diag:
