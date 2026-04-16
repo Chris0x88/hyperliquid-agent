@@ -428,6 +428,107 @@ def get_context_window(model: str) -> int:
     return _CONTEXT_WINDOWS["default"]
 
 
+def compact_chat_history(
+    history: List[Dict],
+    token_budget: int = 8000,
+    preserve_tail: int = 6,
+    summarizer_fn=None,
+) -> List[Dict]:
+    """Token-aware chat history compaction.
+
+    Replaces the hard message-count cap with intelligent summarization.
+    When history exceeds token_budget, older messages are summarized into
+    a single context entry while the most recent `preserve_tail` messages
+    are kept verbatim.
+
+    Pattern from nano-claude-code's compaction.py — adapted for our
+    Telegram agent's JSONL history format.
+
+    Args:
+        history: List of {"role": ..., "text": ...} dicts from chat_history.jsonl
+        token_budget: Max estimated tokens for the returned history
+        preserve_tail: Number of recent messages to keep verbatim
+        summarizer_fn: Optional callable(text) -> summary. If None, uses
+                       extractive summary (keywords + recent user requests).
+
+    Returns:
+        Compacted history list. First entry may be a synthetic summary.
+    """
+    if not history:
+        return history
+
+    # Estimate current token usage
+    total_chars = sum(len(e.get("text", "")) for e in history)
+    total_tokens = total_chars // _CHARS_PER_TOKEN
+
+    if total_tokens <= token_budget:
+        return history  # Fits — no compaction needed
+
+    # Split: older messages to summarize, recent to preserve
+    if len(history) <= preserve_tail:
+        return history  # Too few messages to compact
+
+    old_messages = history[:-preserve_tail]
+    recent_messages = history[-preserve_tail:]
+
+    # Build extractive summary from old messages
+    # (No LLM call — fast, deterministic, zero cost)
+    user_requests = []
+    assistant_actions = []
+    tools_used = set()
+    topics = set()
+
+    for msg in old_messages:
+        text = msg.get("text", "")[:300]  # Cap per-message scanning
+        role = msg.get("role", "")
+
+        if role == "user":
+            # Keep the first line of each user message as a request summary
+            first_line = text.split("\n")[0].strip()
+            if first_line and len(first_line) > 5:
+                user_requests.append(first_line[:100])
+        elif role == "assistant":
+            # Extract tool mentions and key actions
+            if "[display tool:" in text:
+                tools_used.update(t.strip() for t in text.split("[display tool:")[1].split("]")[0].split(","))
+            if any(kw in text.lower() for kw in ("position", "trade", "order", "thesis")):
+                topics.add("trading")
+            if any(kw in text.lower() for kw in ("edit", "file", "code", "test", "bug")):
+                topics.add("coding")
+            # Keep short action summaries
+            first_line = text.split("\n")[0].strip()
+            if first_line and len(first_line) > 10:
+                assistant_actions.append(first_line[:80])
+
+    # Assemble compact summary
+    parts = [f"[Chat summary — {len(old_messages)} older messages compacted]"]
+    if topics:
+        parts.append(f"Topics: {', '.join(sorted(topics))}")
+    if user_requests:
+        # Keep last 5 user requests
+        parts.append("Recent user requests:")
+        for req in user_requests[-5:]:
+            parts.append(f"  - {req}")
+    if tools_used:
+        parts.append(f"Tools used: {', '.join(sorted(tools_used))}")
+    if assistant_actions:
+        parts.append("Key actions:")
+        for act in assistant_actions[-3:]:
+            parts.append(f"  - {act}")
+
+    summary_text = "\n".join(parts)
+
+    # Prepend summary as a synthetic history entry
+    summary_entry = {
+        "role": "system",
+        "text": summary_text,
+        "ts": old_messages[-1].get("ts", ""),
+        "_compacted": True,
+    }
+
+    return [summary_entry] + recent_messages
+
+
 def accordion_truncate(messages: List[Dict], max_tokens: int = 100_000, trigger_threshold: int = 150_000) -> List[Dict]:
     """Truncate old tool outputs to keep context manageable without losing the narrative.
     

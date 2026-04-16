@@ -1326,7 +1326,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
     # Try rich snapshots first (candle-based technicals)
     try:
         from engines.data.candle_cache import CandleCache
-        from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
+        from engines.analysis.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
         cache = CandleCache()
 
         watchlist = {c: c for c in get_watchlist_coins()}
@@ -1415,7 +1415,7 @@ def _fetch_market_snapshots(positions: Optional[list] = None) -> dict:
 
     # Cross-market correlation (BTC vs Oil)
     try:
-        from common.market_structure import cross_market_correlation, OHLCV
+        from engines.analysis.market_structure import cross_market_correlation, OHLCV
         if "market_snapshots" not in _CACHE:  # only if we have fresh cache with candle access
             from engines.data.candle_cache import CandleCache
             cache = CandleCache()
@@ -1538,12 +1538,13 @@ def _sanitize_assistant_history(text: str) -> str:
     return '\n'.join(clean).strip()
 
 
-def _load_chat_history(limit: int = 20) -> List[Dict]:
-    """Load recent chat history from JSONL, respecting token budget.
+def _load_chat_history(limit: int = 40) -> List[Dict]:
+    """Load recent chat history from JSONL with token-aware compaction.
 
-    Takes the most recent messages that fit within _MAX_HISTORY_CHARS total.
-    Assistant messages are sanitized to remove stale data snapshots that
-    would poison the AI's understanding of current state.
+    Loads up to `limit` raw messages, sanitizes assistant responses, then
+    applies compact_chat_history() to intelligently summarize older messages
+    instead of hard-dropping them. This gives the model longer effective
+    memory while staying within token budget.
 
     Per NORTH_STAR P10 / Critical Rule 11: streaming tail-read via
     ``collections.deque(maxlen=limit*5)`` so the agent's per-turn I/O
@@ -1560,8 +1561,6 @@ def _load_chat_history(limit: int = 20) -> List[Dict]:
     entries = []
     try:
         # Slurp the last `limit*5` non-empty lines via deque tail.
-        # `limit*5` gives headroom: after sanitization + char-budget
-        # trimming, we still want at least `limit` rows surviving.
         tail = deque(maxlen=max(50, limit * 5))
         with _HISTORY_FILE.open("r") as fh:
             for line in fh:
@@ -1583,11 +1582,22 @@ def _load_chat_history(limit: int = 20) -> List[Dict]:
         if entry.get("role") == "assistant":
             entry["text"] = _sanitize_assistant_history(entry["text"])
 
-    # Trim from the front if total chars exceed budget
-    total_chars = sum(len(e.get("text", "")) for e in recent)
-    while recent and total_chars > _MAX_HISTORY_CHARS:
-        removed = recent.pop(0)
-        total_chars -= len(removed.get("text", ""))
+    # Token-aware compaction: summarize older messages instead of dropping.
+    # Budget: ~3000 tokens for history (~12000 chars), preserve last 6 messages.
+    try:
+        from agent.runtime import compact_chat_history
+        recent = compact_chat_history(
+            recent,
+            token_budget=3000,
+            preserve_tail=6,
+        )
+    except Exception as e:
+        log.debug("Compaction failed, falling back to char trim: %s", e)
+        # Fallback: trim from front if total chars exceed budget
+        total_chars = sum(len(e.get("text", "")) for e in recent)
+        while recent and total_chars > _MAX_HISTORY_CHARS:
+            removed = recent.pop(0)
+            total_chars -= len(removed.get("text", ""))
 
     return recent
 

@@ -9,8 +9,10 @@ Every function returns a dict. No formatting, no Telegram, no AI concerns.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -107,7 +109,7 @@ def analyze_market(coin: str) -> dict:
     """Technicals: trend, S/R, ATR, BBands, volume, signals."""
     try:
         from engines.data.candle_cache import CandleCache
-        from common.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
+        from engines.analysis.market_snapshot import build_snapshot, render_snapshot, render_signal_summary
 
         mids = _hl_post({"type": "allMids"})
         mids_xyz = _hl_post({"type": "allMids", "dex": "xyz"})
@@ -141,7 +143,7 @@ def market_brief(market: str) -> dict:
         snapshot_text = None
         try:
             from engines.data.candle_cache import CandleCache
-            from common.market_snapshot import build_snapshot, render_snapshot
+            from engines.analysis.market_snapshot import build_snapshot, render_snapshot
             mids = _hl_post({"type": "allMids"})
             mids_xyz = _hl_post({"type": "allMids", "dex": "xyz"})
             mids.update(mids_xyz)
@@ -346,6 +348,59 @@ def update_thesis(market: str, direction: str, conviction: float, summary: str =
 _MEMORY_DIR = _PROJECT_ROOT / "data" / "agent_memory"
 _BLOCKED_COMMANDS = {"rm -rf", "rm -r /", "mkfs", "dd if=", "> /dev/", "shutdown", "reboot", "halt"}
 
+# ── Harness helpers ──────────────────────────────────────────────────
+
+_MAX_DIFF_LINES = 80  # Cap diff output to keep tool results reasonable
+
+
+def _compute_diff(path: str, old_content: str, new_content: str) -> str:
+    """Compute a unified diff between old and new content, capped at _MAX_DIFF_LINES."""
+    diff_lines = list(difflib.unified_diff(
+        old_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+    ))
+    if not diff_lines:
+        return "(no changes)"
+    if len(diff_lines) > _MAX_DIFF_LINES:
+        diff_lines = diff_lines[:_MAX_DIFF_LINES]
+        diff_lines.append(f"\n... truncated ({len(diff_lines)} lines shown)\n")
+    return "".join(diff_lines)
+
+
+def _auto_test(changed_path: str) -> Optional[dict]:
+    """Run pytest if a .py file was changed. Returns test summary or None.
+
+    Harness pattern from Codex/nano-claude-code: feed test results back to
+    the model so it can self-correct without a human pointing out failures.
+    """
+    if not changed_path.endswith(".py"):
+        return None
+    try:
+        result = subprocess.run(
+            [str(_PROJECT_ROOT / ".venv" / "bin" / "python"), "-m", "pytest",
+             "tests/", "-x", "-q", "--tb=short", "--no-header"],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(_PROJECT_ROOT),
+        )
+        # Cap output
+        stdout = result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout
+        stderr = result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr
+        return {
+            "passed": result.returncode == 0,
+            "returncode": result.returncode,
+            "output": stdout.strip(),
+            "errors": stderr.strip() if result.returncode != 0 else "",
+        }
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "output": "pytest timed out (60s)", "errors": ""}
+    except FileNotFoundError:
+        return None  # No venv/pytest — skip silently
+    except Exception as e:
+        log.debug("Auto-test skipped: %s", e)
+        return None
+
 
 def read_file(path: str) -> dict:
     """Read a file from the project. Path relative to project root."""
@@ -488,7 +543,12 @@ def memory_write(topic: str, content: str) -> dict:
 
 
 def edit_file(path: str, old_str: str, new_str: str) -> dict:
-    """Edit a file by replacing old_str with new_str. Claude Code pattern."""
+    """Edit a file by replacing old_str with new_str. Claude Code pattern.
+
+    Harness improvements:
+    - Returns unified diff so the model sees exactly what changed
+    - Auto-runs pytest if a .py file was edited, feeding results back
+    """
     try:
         target = (_PROJECT_ROOT / path).resolve()
         if not str(target).startswith(str(_PROJECT_ROOT)):
@@ -506,14 +566,36 @@ def edit_file(path: str, old_str: str, new_str: str) -> dict:
         backup_path = target.with_suffix(target.suffix + ".bak")
         backup_path.write_text(content)
         target.write_text(new_content)
-        return {"path": path, "status": "edited", "replacements": 1, "backup": str(backup_path.relative_to(_PROJECT_ROOT))}
+
+        # Compute diff for model awareness
+        diff = _compute_diff(path, content, new_content)
+
+        result = {
+            "path": path,
+            "status": "edited",
+            "replacements": 1,
+            "backup": str(backup_path.relative_to(_PROJECT_ROOT)),
+            "diff": diff,
+        }
+
+        # Auto-test: run pytest if .py file changed
+        test_result = _auto_test(path)
+        if test_result is not None:
+            result["auto_test"] = test_result
+            if not test_result["passed"]:
+                result["status"] = "edited_tests_failing"
+
+        return result
     except Exception as e:
         return {"error": f"edit_file failed: {e}"}
 
 
 def run_bash(command: str) -> dict:
-    """Run a shell command in the project directory. 30s timeout."""
-    import subprocess
+    """Run a shell command in the project directory. 30s timeout.
+
+    Harness: auto-runs pytest when the command appears to modify .py files
+    (sed, tee, write operations). Feeds test results back to the model.
+    """
     try:
         for blocked in _BLOCKED_COMMANDS:
             if blocked in command:
@@ -524,12 +606,21 @@ def run_bash(command: str) -> dict:
         )
         output = result.stdout[-5000:] if len(result.stdout) > 5000 else result.stdout
         stderr = result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr
-        return {
+        resp = {
             "command": command,
             "returncode": result.returncode,
             "stdout": output,
             "stderr": stderr,
         }
+
+        # Auto-test if the command likely modifies Python files
+        _PY_MODIFY_HINTS = (".py", "sed ", "tee ", ">>", "> ", "mv ", "cp ")
+        if any(hint in command for hint in _PY_MODIFY_HINTS):
+            test_result = _auto_test("dummy.py")  # force trigger
+            if test_result is not None:
+                resp["auto_test"] = test_result
+
+        return resp
     except subprocess.TimeoutExpired:
         return {"error": f"Command timed out (30s): {command}"}
     except Exception as e:
