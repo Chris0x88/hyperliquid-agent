@@ -88,6 +88,18 @@ def fetch_wallet_state(address: str, role: str, label: Optional[str] = None) -> 
                 }
             )
 
+    # EQUITY FORMULA — unified account
+    # On a HyperLiquid unified account the perp clearinghouses (native + xyz)
+    # share collateral with spot USDC. Naively summing native_equity +
+    # xyz_equity + spot_usdc TRIPLE-COUNTS: the same USDC backs all three
+    # surfaces.  The correct formula is `spot_usdc + Σ(uPnL across all open
+    # positions)` — spot_usdc already embeds the cross-collateral, uPnL adds
+    # the unsettled position gains/losses.  See web/api/routers/account.py for
+    # the canonical reference.  Pre-2026-04-17 the buggy sum was used here
+    # and rippled into every command + daemon iterator that consumed
+    # total_equity. Fix: compute it once, here, the right way.
+    total_upnl = sum(p["upnl"] for p in positions)
+    total_equity = spot_usdc + total_upnl
     return {
         "role": role,
         "label": label or role.title(),
@@ -96,7 +108,11 @@ def fetch_wallet_state(address: str, role: str, label: Optional[str] = None) -> 
         "xyz_equity": xyz_equity,
         "spot_usdc": spot_usdc,
         "spot_balances": spot_balances,
-        "total_equity": native_equity + xyz_equity + spot_usdc,
+        "total_equity": total_equity,
+        # Legacy raw sum kept under a separate key for any caller that
+        # genuinely needs the per-clearinghouse totals (e.g. attribution
+        # display). Prefer total_equity for risk math.
+        "total_equity_raw_sum": native_equity + xyz_equity + spot_usdc,
         "positions": positions,
     }
 

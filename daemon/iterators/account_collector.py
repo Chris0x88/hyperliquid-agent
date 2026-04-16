@@ -32,8 +32,11 @@ class AccountCollectorIterator:
 
     name = "account_collector"
 
-    # Only re-alert when drawdown worsens by this many percentage points
-    _DRAWDOWN_REPEAT_DELTA = 5.0
+    # Only re-alert when drawdown worsens by this many percentage points.
+    # Bumped 5.0 → 10.0 on 2026-04-17 — slow bleeds were generating ~200
+    # avoidable alerts per week; the 5pp delta tripped repeatedly during
+    # normal mark-price oscillation around the threshold.
+    _DRAWDOWN_REPEAT_DELTA = 10.0
 
     def __init__(self, adapter: Any = None, snapshot_dir: str = SNAPSHOT_DIR):
         self._adapter = adapter

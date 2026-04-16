@@ -180,7 +180,10 @@ def daemon_start(
     clock.register(ThesisEngineIterator())
     clock.register(ExecutionEngineIterator(adapter=adapter))
     clock.register(ExchangeProtectionIterator(adapter=adapter))
-    clock.register(LiquidityIterator())
+    # LiquidityIterator removed from registration 2026-04-17 — produced 73% of
+    # all Telegram alert noise (8.8k/7d) and ctx.liquidity_regime had zero
+    # readers. Static helper LiquidityIterator.get_regime_multipliers() still
+    # available for display callers in cli/daily_report.py & telegram/bot.py.
     clock.register(RiskIterator(mainnet=mainnet))
     clock.register(GuardIterator())
     clock.register(RebalancerIterator())

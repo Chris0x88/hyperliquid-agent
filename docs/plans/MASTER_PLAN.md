@@ -29,10 +29,10 @@ contract, the authority model, and the historical-oracles vision.**
 | **Authority model** | Per-asset via `common/authority.py` (`agent` / `manual` / `off`); default `manual`; persisted in `data/authority.json` |
 | **Tradeable thesis markets** | BTC, BRENTOIL, GOLD, SILVER. **Active edge: oil + BTC.** GOLD + SILVER theses stale since early April — conviction engine auto-clamps (safe). WTI (CL) + SP500 added to `markets.yaml` but no thesis files yet. |
 | **Multi-market config** | `data/config/markets.yaml` + `common/markets.py` `MarketRegistry` |
-| **Agent runtime** | Embedded Claude Code port, session-token auth, no API keys. Agent tools extracted to `cli/agent_tools.py` (READ auto-exec, WRITE with approval, DISPLAY bypass LLM). Continuous typing indicator. |
+| **Agent runtime** | Embedded Claude Code port, session-token auth, no API keys. Agent tools in `agent/tools.py` + `agent/tool_functions.py` (READ auto-exec, WRITE with approval, DISPLAY bypass LLM). Continuous typing indicator. |
 | **Test suite** | Green. Run: `cd agent-cli && .venv/bin/python -m pytest tests/ -q` |
-| **Daemon iterators** | See `cli/daemon/iterators/` and `cli/daemon/tiers.py` |
-| **Telegram commands** | See `def cmd_*` in `cli/telegram_bot.py` and `cli/telegram_commands/*.py` |
+| **Daemon iterators** | See `daemon/iterators/` and `daemon/tiers.py` |
+| **Telegram commands** | See `def cmd_*` in `telegram/bot.py` and `telegram/commands/*.py` |
 | **Memory.db backups** | Hourly atomic snapshots in `data/memory/backups/` (24h/7d/4w retention) |
 | **Lesson corpus** | Wired end-to-end; awaiting first real closed trade |
 | **Oil Bot Pattern System** | Sub-systems 1-5 SHIPPED, sub-system 6 L1+L2 SHIPPED — kill switches OFF on the trading paths |
@@ -75,8 +75,8 @@ disabled, manually enabled per `f622708`),
   entries), total_equity instead of native-only
 - **Market structure** — 1m candle cache for oil classifier
 - **Plain-English daemon alerts** — all Telegram messages rewritten
-- **Agent harness rewrite** — tool definitions extracted to `cli/agent_tools.py`,
-  trade evaluator to `cli/trade_evaluator.py`, continuous typing indicator,
+- **Agent harness rewrite** — tool definitions in `agent/tools.py` + `agent/tool_functions.py`,
+  trade evaluator in `agent/trade_evaluator.py`, continuous typing indicator,
   DISPLAY_TOOLS (calendar/research/technicals) bypass LLM commentary,
   calendar alerts auto-injected into agent context
 - **Live chart candles** — 3s tick endpoint (`/charts/candles/{coin}/tick`),
@@ -100,12 +100,12 @@ Full article deep-fetch (pass 2) rate limited to 5/hour.
 
 ### 3. Self-Improvement Engines (shipped 2026-04-10)
 
-- **Context Engine** (`modules/context_engine.py`) — classifies Telegram
+- **Context Engine** (`engines/analysis/context_engine.py`) — classifies Telegram
   message intent, pre-fetches relevant data before LLM sees the question.
   **Not yet wired to Telegram agent.**
-- **Lab Engine** (`modules/lab_engine.py`) — strategy development pipeline.
+- **Lab Engine** (`engines/learning/lab_engine.py`) — strategy development pipeline.
   **Needs backtest harness integration.**
-- **Architect Engine** (`modules/architect_engine.py`) — reads autoresearch
+- **Architect Engine** (`engines/learning/architect_engine.py`) — reads autoresearch
   evaluations, detects patterns, proposes config changes. **Needs Telegram
   approval flow (`/architect approve <id>`).**
 
@@ -184,8 +184,8 @@ markdown checklist fails to fix.
   (get_calendar, get_research, get_technicals) now in agent context.
   Full intent-classification pre-fetch loop not yet active.
 - **Dream consolidation marks complete but doesn't call agent tools.**
-- **`telegram_bot.py` is large.** Incremental extraction to
-  `cli/telegram_commands/` submodules continues.
+- **`telegram/bot.py` command handler extraction.** Incremental extraction to
+  `telegram/commands/` submodules continues.
 - **No real closed trade has flowed through the lesson layer yet.**
 - **`data/snapshots/` grows unbounded.** No rotation strategy.
 - **`chat_history.jsonl.bak` root cause not identified.** Workaround
@@ -201,17 +201,26 @@ markdown checklist fails to fix.
 
 ## Package Map
 
+> Last reality-aligned: 2026-04-17 (post domain-refactor d7ed275–3d322db)
+
 | Package | CLAUDE.md | Wiki |
 |---------|-----------|------|
 | `common/` | `common/CLAUDE.md` | [wiki/architecture/current.md](../wiki/architecture/current.md) |
 | `cli/` | `cli/CLAUDE.md` | [wiki/components/telegram-bot.md](../wiki/components/telegram-bot.md) |
-| `cli/daemon/` | `cli/daemon/CLAUDE.md` | [wiki/components/daemon.md](../wiki/components/daemon.md) |
-| `cli/telegram_commands/` | (per-submodule docstring) | (refactor in progress) |
-| `modules/` | `modules/CLAUDE.md` | [wiki/components/conviction-engine.md](../wiki/components/conviction-engine.md) |
-| `parent/` | `parent/CLAUDE.md` | [wiki/components/risk-manager.md](../wiki/components/risk-manager.md) |
-| `agent/` | `agent/AGENT.md` + `SOUL.md` | [wiki/components/ai-agent.md](../wiki/components/ai-agent.md) |
+| `daemon/` | `daemon/CLAUDE.md` | [wiki/components/daemon.md](../wiki/components/daemon.md) |
+| `daemon/iterators/` | (see `daemon/CLAUDE.md` Known Iterators section) | [wiki/components/daemon.md](../wiki/components/daemon.md) |
+| `telegram/` | `telegram/CLAUDE.md` | [wiki/components/telegram-bot.md](../wiki/components/telegram-bot.md) |
+| `telegram/commands/` | (per-submodule docstring) | — |
+| `engines/` | `engines/CLAUDE.md` | [wiki/components/conviction-engine.md](../wiki/components/conviction-engine.md) |
+| `engines/analysis/` | (see `engines/CLAUDE.md`) | — |
+| `engines/learning/` | (see `engines/CLAUDE.md`) | — |
+| `engines/protection/` | (see `engines/CLAUDE.md`) | — |
+| `trading/` | `trading/CLAUDE.md` | [wiki/components/conviction-engine.md](../wiki/components/conviction-engine.md) |
+| `exchange/` | `exchange/CLAUDE.md` | [wiki/components/risk-manager.md](../wiki/components/risk-manager.md) |
+| `agent/` | `agent/CLAUDE.md` (prompts: `agent/prompts/`) | [wiki/components/ai-agent.md](../wiki/components/ai-agent.md) |
+| `adapters/` | — | — |
 | `guardian/` | (uses `guide.md`) | [wiki/components/guardian.md](../wiki/components/guardian.md) |
-| `web/` | `web/CLAUDE.md` | (new — wiki page needed) |
+| `web/` | `web/CLAUDE.md` | — |
 
 ---
 

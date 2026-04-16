@@ -26,7 +26,11 @@ TIER_ITERATORS = {
         "oil_botpattern_reflect", # sub-system 6 L2: weekly reflect proposals (kill switch OFF at ship)
         "oil_botpattern_shadow",  # sub-system 6 L4: counterfactual shadow eval (kill switch OFF at ship)
         "pulse",               # capital inflow detector (read-only intelligence)
-        "liquidity",
+        # "liquidity" removed 2026-04-17: regime alerts produced 73% of all
+        # Telegram noise (8.8k alerts/7d) and ctx.liquidity_regime was never
+        # read by another iterator. Static helper still importable via
+        # `from daemon.iterators.liquidity import LiquidityIterator;
+        #  LiquidityIterator.get_regime_multipliers()` for display callers.
         "risk",
         "price_move_alert",    # big price move alerts (5m / 1h / 24h windows)
         "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
@@ -54,7 +58,7 @@ TIER_ITERATORS = {
         "thesis_engine",
         "execution_engine",    # conviction-based sizing
         "exchange_protection", # ruin prevention only (SL near liq)
-        "liquidity",
+        # "liquidity" removed 2026-04-17 — see watch tier comment
         "risk",
         "guard",
         "rebalancer",
@@ -95,7 +99,7 @@ TIER_ITERATORS = {
         "thesis_engine",
         "execution_engine",
         "exchange_protection",
-        "liquidity",
+        # "liquidity" removed 2026-04-17 — see watch tier comment
         "risk",
         "guard",
         "rebalancer",
