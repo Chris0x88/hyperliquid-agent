@@ -31,6 +31,14 @@ This wiki is maintained by Claude Code. See MAINTAINING.md for the maintenance p
 |------|---------|
 | [build-log.md](build-log.md) | Chronological timeline of versions, incidents, and milestones |
 
+### Docs Structure
+
+| Directory | Contains |
+|-----------|---------|
+| `docs/plans/` | **Living docs only** — MASTER_PLAN, NORTH_STAR, CONSTITUTION, OIL_BOT_PATTERN specs, active expansion plans. These are always current. |
+| `docs/plans/archive/` | Superseded versions of living docs (old MASTER_PLANs, etc.) |
+| `docs/reports/` | **Historical records** — point-in-time reviews, assessments, completed phase plans. Named `YYYYMMDD - NAME.md` so they sort chronologically. Never superseded — just accumulate. |
+
 ### Reference (in package CLAUDE.md files)
 
 | Package | Location | Covers |
