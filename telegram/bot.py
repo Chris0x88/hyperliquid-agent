@@ -4078,12 +4078,10 @@ def run() -> None:
                         handler(TelegramRenderer(token, reply_chat_id), args)
                     else:
                         handler(token, reply_chat_id, args)
-                    # Log to chat history so AI knows what commands were used
-                    try:
-                        from telegram.agent import _log_chat
-                        _log_chat("user", f"[command] {cmd_key} {args}".strip())
-                    except Exception:
-                        pass
+                    # Slash commands stay in bot.py's lane — diagnostics
+                    # already logs them via _diag.log_chat (line above).
+                    # Do NOT cross-log into agent's chat_history.jsonl;
+                    # that file is the AI conversation only.
                 except Exception as e:
                     log.error("Command %s failed: %s", cmd_key, e, exc_info=True)
                     if _diag:

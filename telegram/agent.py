@@ -1574,15 +1574,6 @@ def _load_chat_history(limit: int = 40) -> List[Dict]:
     except Exception:
         return []
 
-    # Filter OUT slash-command log entries — these are bot commands, not AI
-    # conversations. They were logged for diagnostics but must never enter
-    # the AI's chat context (the model tries to "answer" them as user requests).
-    entries = [
-        e for e in entries
-        if not (e.get("role") == "user" and isinstance(e.get("text", ""), str)
-                and e["text"].startswith("[command]"))
-    ]
-
     # Take last N entries
     recent = entries[-limit:]
 
