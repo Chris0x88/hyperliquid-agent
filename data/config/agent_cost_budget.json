@@ -1,0 +1,6 @@
+{
+  "_doc": "Per-session token budget for the embedded agent. Hard cap aborts the agent run. Soft warn logs but continues. All values are in tokens. See agent/control/cost_gate.py for behaviour.",
+  "session_hard_cap": 200000,
+  "session_warn_threshold": 150000,
+  "per_turn_hard_cap": 50000
+}
