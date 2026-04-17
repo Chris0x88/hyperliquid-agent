@@ -197,6 +197,62 @@ class TestParseHaikuResponse:
         result = parse_haiku_response("not json at all")
         assert result is None
 
+    def test_empty_string(self):
+        """Empty Haiku response (whitespace-only block) returns None gracefully."""
+        assert parse_haiku_response("") is None
+        assert parse_haiku_response("   ") is None
+
+    def test_trailing_prose_after_json(self):
+        """Haiku often appends an explanation after the JSON object.
+
+        This was the primary failure mode seen 2026-04-17: json.loads raises
+        'Extra data' because it sees characters after the closing '}'.
+        The fix: extract the first {...} block before calling json.loads.
+        """
+        raw = (
+            '{"impact_score": 7, "affected_markets": ["xyz:BRENTOIL"], '
+            '"direction_hint": "bearish", "summary": "Iran ceasefire reduces supply risk", '
+            '"need_full_article": false}'
+            "\n\nNote: This news is significant because of ongoing US-Iran tensions."
+        )
+        result = parse_haiku_response(raw)
+        assert result is not None, "Expected successful parse but got None"
+        assert result.impact_score == 7
+        assert result.direction_hint == "bearish"
+        assert "BRENTOIL" in result.affected_markets[0]
+
+    def test_code_fence_with_trailing_text_after_closing_fence(self):
+        """Haiku sometimes adds prose after the closing ``` fence.
+
+        The old regex re.sub(r'\\s*```$', '', ...) only matched ``` at the very
+        end of the string. If trailing prose was present, the closing fence was
+        not at the end, so the regex left it in place — causing json.loads to
+        fail on the remaining ``` and prose.
+        """
+        raw = (
+            "```json\n"
+            '{"impact_score": 5, "affected_markets": [], "direction_hint": "unclear",'
+            ' "summary": "test", "need_full_article": false}\n'
+            "```\n"
+            "This is my additional analysis of the current geopolitical situation."
+        )
+        result = parse_haiku_response(raw)
+        assert result is not None, "Expected successful parse but got None"
+        assert result.impact_score == 5
+
+    def test_preamble_text_before_json(self):
+        """Haiku occasionally emits a preamble sentence before the JSON block."""
+        raw = (
+            "Here is my assessment of the news:\n"
+            '{"impact_score": 6, "affected_markets": ["xyz:GOLD"], '
+            '"direction_hint": "bullish", "summary": "Gold demand rises", '
+            '"need_full_article": false}'
+        )
+        result = parse_haiku_response(raw)
+        assert result is not None, "Expected successful parse but got None"
+        assert result.impact_score == 6
+        assert result.direction_hint == "bullish"
+
     def test_score_clamped(self):
         text = json.dumps({
             "impact_score": 15,
@@ -456,6 +512,63 @@ class TestThesisUpdaterEngine:
         changes = engine.process_catalyst(catalyst, headline, classification)
 
         assert len(changes) == 0
+
+    def test_consecutive_parse_failures_logged(self, tmp_dir, caplog):
+        """Engine warns when >= 3 consecutive Haiku parse failures occur."""
+        import logging
+        _, config_path = tmp_dir
+
+        # Haiku returns unparseable garbage every time
+        def bad_haiku(messages):
+            return "This is not JSON and never will be."
+
+        engine = ThesisUpdaterEngine(config_path=str(config_path), call_haiku_fn=bad_haiku)
+        engine.reload_config()
+
+        catalyst = {"id": "cx", "headline_id": "h1", "category": "test", "severity": 3}
+        headline = {"id": "h1", "title": "Test", "body_excerpt": "...", "url": ""}
+
+        with caplog.at_level(logging.WARNING, logger="thesis_updater"):
+            for _ in range(3):
+                engine.classify_catalyst(catalyst, headline)
+
+        # Should have emitted the consecutive-failure warning by the 3rd failure
+        warning_msgs = [r.message for r in caplog.records if "consecutive Haiku parse failure" in r.message]
+        assert len(warning_msgs) >= 1, (
+            "Expected consecutive parse failure warning but none was logged"
+        )
+
+    def test_consecutive_failures_reset_on_success(self, tmp_dir):
+        """Consecutive failure counter resets when parse succeeds."""
+        import json as _json
+        _, config_path = tmp_dir
+
+        call_count = [0]
+
+        def sometimes_bad_haiku(messages):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return "not json"
+            return _json.dumps({
+                "impact_score": 4,
+                "affected_markets": ["xyz:BRENTOIL"],
+                "direction_hint": "bearish",
+                "summary": "ok",
+                "need_full_article": False,
+            })
+
+        engine = ThesisUpdaterEngine(config_path=str(config_path), call_haiku_fn=sometimes_bad_haiku)
+        engine.reload_config()
+
+        catalyst = {"id": "cy", "headline_id": "h1", "category": "test", "severity": 3}
+        headline = {"id": "h1", "title": "Test", "body_excerpt": "...", "url": ""}
+
+        engine.classify_catalyst(catalyst, headline)  # fail 1
+        engine.classify_catalyst(catalyst, headline)  # fail 2
+        assert engine._consecutive_parse_failures == 2
+
+        engine.classify_catalyst(catalyst, headline)  # success
+        assert engine._consecutive_parse_failures == 0
 
     def test_audit_trail_written(self, tmp_dir):
         """Audit trail is written for conviction changes."""

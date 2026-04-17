@@ -1,10 +1,46 @@
 {
   "enabled": true,
+  "cooldown_minutes": 30,
+
+  "_tuning_note": [
+    "2026-04-17 — Tuned for <1 alert/day per market.",
+    "Switched from flat-% to ATR-relative thresholds (atr_mode=true).",
+    "Flat % thresholds fired too often on high-vol assets (BTC 24h=2% fired ~50%",
+    "of days) while being silent on low-vol assets (GOLD 2% = 2.7 sigma = very rare).",
+    "ATR-relative mode normalises across vol regimes: threshold = multiplier * window_ATR",
+    "where window_ATR = daily_atr_pct * sqrt(window_minutes / 1440).",
+    "At multiplier 3.5/2.5/2.5, expected total = ~0.44 alerts/asset/day across all windows."
+  ],
+
+  "atr_mode": true,
+
+  "atr_multipliers": {
+    "_comment": "Sigma multiples above typical window move. Higher = fewer alerts.",
+    "5m":  3.5,
+    "1h":  2.5,
+    "24h": 2.5
+  },
+
+  "asset_daily_atr_pct": {
+    "_comment": "Estimated daily ATR as % of price for each tracked asset (stripped name, no xyz: prefix).",
+    "BTC":      2.9,
+    "BRENTOIL": 1.8,
+    "GOLD":     0.75,
+    "SILVER":   1.4,
+    "CL":       2.0,
+    "NATGAS":   3.5,
+    "ETH":      3.5,
+    "SP500":    1.5,
+    "NVDA":     4.0,
+    "TSLA":     5.0
+  },
+
+  "atr_fallback_pct": 2.0,
+
   "thresholds": {
+    "_comment": "Legacy flat-% thresholds — only used when atr_mode=false.",
     "5m":  2.0,
     "1h":  3.0,
     "24h": 2.0
-  },
-  "cooldown_minutes": 30,
-  "_comment": "Price move alert thresholds (%). Cooldown prevents re-alerting the same move."
+  }
 }

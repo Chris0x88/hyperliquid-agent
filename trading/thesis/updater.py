@@ -139,13 +139,36 @@ def build_haiku_prompt(
 
 
 def parse_haiku_response(text: str) -> HaikuClassification | None:
-    """Parse Haiku's JSON response into a classification."""
+    """Parse Haiku's JSON response into a classification.
+
+    Robust to common Haiku output patterns:
+    - Bare JSON
+    - ```json ... ``` code fences (with or without trailing prose)
+    - JSON preceded by preamble text
+    - Trailing prose after the JSON object
+    """
+    if not text or not text.strip():
+        log.warning("Failed to parse Haiku response: empty response — raw: %r", text[:200])
+        return None
+
     try:
-        # Strip markdown code fences if present
+        # Strategy 1: strip code fences if present (handles both clean fences
+        # and fences with trailing prose after the closing ```)
         cleaned = text.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-            cleaned = re.sub(r"\s*```$", "", cleaned)
+        if "```" in cleaned:
+            # Extract content between opening and closing fence
+            fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", cleaned)
+            if fence_match:
+                cleaned = fence_match.group(1).strip()
+            else:
+                # Opening fence but no closing — strip the opening and use rest
+                cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned).strip()
+
+        # Strategy 2: extract the first {...} object (tolerates leading preamble
+        # and trailing prose after the JSON object)
+        obj_match = re.search(r"\{[\s\S]*\}", cleaned)
+        if obj_match:
+            cleaned = obj_match.group(0)
 
         data = json.loads(cleaned)
         return HaikuClassification(
@@ -157,7 +180,11 @@ def parse_haiku_response(text: str) -> HaikuClassification | None:
             raw_response=text,
         )
     except (json.JSONDecodeError, TypeError, ValueError) as e:
-        log.warning("Failed to parse Haiku response: %s — %s", e, text[:200])
+        log.warning(
+            "Failed to parse Haiku response: %s — raw response: %r",
+            e,
+            text[:500],
+        )
         return None
 
 
@@ -347,6 +374,8 @@ class ThesisUpdaterEngine:
         self._deep_fetch_count_hour: int = 0
         self._deep_fetch_hour_start: float = 0.0
         self._last_archive_check: float = 0.0
+        self._consecutive_parse_failures: int = 0
+        self._parse_failure_alert_threshold: int = 3
 
     def reload_config(self) -> dict:
         if self._config_path.exists():
@@ -507,6 +536,18 @@ class ThesisUpdaterEngine:
         try:
             response_text = self._call_haiku(messages)
             classification = parse_haiku_response(response_text)
+
+            if classification is None:
+                self._consecutive_parse_failures += 1
+                if self._consecutive_parse_failures >= self._parse_failure_alert_threshold:
+                    log.warning(
+                        "ALERT: %d consecutive Haiku parse failures — "
+                        "model output may have regressed. Last raw response: %r",
+                        self._consecutive_parse_failures,
+                        response_text[:500] if response_text else "",
+                    )
+            else:
+                self._consecutive_parse_failures = 0
 
             # Pass 2: fetch full article if requested
             if classification and classification.need_full_article and headline:
