@@ -22,6 +22,7 @@ from daemon.context import Alert, TickContext
 log = logging.getLogger("daemon.account_collector")
 
 SNAPSHOT_INTERVAL_S = 300       # 5 minutes
+ROTATE_INTERVAL_S = 86400       # 24 hours — don't run expiry every tick
 HWM_FILE = "data/snapshots/hwm.json"
 SNAPSHOT_DIR = "data/snapshots"
 ZERO = Decimal("0")
@@ -42,6 +43,7 @@ class AccountCollectorIterator:
         self._adapter = adapter
         self._snapshot_dir = snapshot_dir
         self._last_snapshot: float = 0.0
+        self._last_rotate: float = 0.0   # throttle — run expiry at most once/day
         self._high_water_mark: float = 0.0
         self._last_alerted_drawdown: float = 0.0  # drawdown % at last alert
 
@@ -198,8 +200,11 @@ class AccountCollectorIterator:
             # Drawdown recovered below threshold — reset so next breach alerts fresh
             self._last_alerted_drawdown = 0.0
 
-        # Cleanup old snapshots (keep 7 days full, 1/day for 30 days)
-        self._expire_old_snapshots()
+        # Cleanup old snapshots — throttled to once per day so we don't
+        # hammer the filesystem on every 5-minute tick.
+        if time.monotonic() - self._last_rotate >= ROTATE_INTERVAL_S:
+            self._expire_old_snapshots()
+            self._last_rotate = time.monotonic()
 
     def _build_snapshot(self, ctx: TickContext) -> Optional[Dict]:
         """Build a comprehensive account snapshot including xyz dex positions."""
@@ -300,16 +305,27 @@ class AccountCollectorIterator:
             log.warning("Failed to save HWM: %s", e)
 
     def _expire_old_snapshots(self) -> None:
-        """Delete snapshots older than 30 days; keep only 1/day after 7 days."""
+        """Delete snapshots older than 30 days; keep only 1/day after 7 days.
+
+        Only timestamp-named files (``YYYYMMDD_HHMMSS.json``) are touched.
+        ``hwm.json`` and any other non-timestamp files are always preserved.
+        Logs the count and total bytes freed.
+        """
         try:
             p = Path(self._snapshot_dir)
             now = time.time()
             files = sorted(p.glob("????????_??????.json"))
 
+            deleted_count = 0
+            deleted_bytes = 0
+
             for fp in files:
-                age_days = (now - fp.stat().st_mtime) / 86400
+                stat = fp.stat()
+                age_days = (now - stat.st_mtime) / 86400
                 if age_days > 30:
+                    deleted_bytes += stat.st_size
                     fp.unlink()
+                    deleted_count += 1
                     continue
                 if age_days > 7:
                     # Keep only one snapshot per day: the most recent one
@@ -317,9 +333,20 @@ class AccountCollectorIterator:
                     day_prefix = fp.name[:8]
                     same_day = sorted(p.glob(f"{day_prefix}_??????.json"))
                     if len(same_day) > 1 and fp != same_day[-1]:
+                        deleted_bytes += stat.st_size
                         fp.unlink()
+                        deleted_count += 1
+
+            if deleted_count:
+                log.info(
+                    "Snapshot rotation: deleted %d file(s), freed %.1f KB",
+                    deleted_count,
+                    deleted_bytes / 1024,
+                )
+            else:
+                log.debug("Snapshot rotation: nothing to delete")
         except Exception as e:
-            log.debug("Snapshot expiry error: %s", e)
+            log.warning("Snapshot expiry error: %s", e)
 
     @staticmethod
     def get_latest(snapshot_dir: str = SNAPSHOT_DIR) -> Optional[Dict]:

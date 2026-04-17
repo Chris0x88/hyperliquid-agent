@@ -238,3 +238,129 @@ class TestSnapshotPricesEnrichment:
         loaded = json.loads(serialized)
         assert loaded["prices"]["BTC"] == "94250.50"
         assert loaded["prices"]["GOLD"] == "2105.75"
+
+
+# ---------------------------------------------------------------------------
+# Snapshot rotation: 30-day expiry + daily throttle
+# ---------------------------------------------------------------------------
+
+import time as _time
+from pathlib import Path as _Path
+
+
+def _make_snapshot(directory: _Path, name: str, age_days: float) -> _Path:
+    """Write a minimal JSON snapshot file with an mtime set to ``age_days`` ago."""
+    fp = directory / name
+    fp.write_text('{"test": true}')
+    # Back-date mtime to simulate the file being ``age_days`` old.
+    ts = _time.time() - age_days * 86400
+    import os
+    os.utime(fp, (ts, ts))
+    return fp
+
+
+class TestSnapshotRotation:
+    """Tests for _expire_old_snapshots — 30d deletion, 7d thinning, hwm.json preservation."""
+
+    def test_files_older_than_30_days_are_deleted(self, tmp_path):
+        """Any snapshot over 30 days old must be removed."""
+        old = _make_snapshot(tmp_path, "20250101_120000.json", age_days=35)
+        recent = _make_snapshot(tmp_path, "20260101_120000.json", age_days=2)
+
+        it = AccountCollectorIterator(adapter=None, snapshot_dir=str(tmp_path))
+        it._expire_old_snapshots()
+
+        assert not old.exists(), "35-day-old snapshot should be deleted"
+        assert recent.exists(), "2-day-old snapshot should be kept"
+
+    def test_hwm_json_is_never_deleted(self, tmp_path):
+        """hwm.json must survive rotation regardless of its mtime."""
+        # Create hwm.json and back-date it heavily
+        hwm = tmp_path / "hwm.json"
+        hwm.write_text('{"hwm": 1000}')
+        import os
+        ts = _time.time() - 90 * 86400   # 90 days old
+        os.utime(hwm, (ts, ts))
+
+        it = AccountCollectorIterator(adapter=None, snapshot_dir=str(tmp_path))
+        it._expire_old_snapshots()
+
+        assert hwm.exists(), "hwm.json must never be deleted by rotation"
+
+    def test_within_7_days_all_kept(self, tmp_path):
+        """Files ≤7 days old are all kept, even multiple per day."""
+        f1 = _make_snapshot(tmp_path, "20260415_080000.json", age_days=1)
+        f2 = _make_snapshot(tmp_path, "20260415_120000.json", age_days=1)
+        f3 = _make_snapshot(tmp_path, "20260415_160000.json", age_days=1)
+
+        it = AccountCollectorIterator(adapter=None, snapshot_dir=str(tmp_path))
+        it._expire_old_snapshots()
+
+        assert f1.exists() and f2.exists() and f3.exists(), \
+            "All files ≤7 days old should be preserved"
+
+    def test_between_7_and_30_days_only_last_per_day_kept(self, tmp_path):
+        """For files 7–30 days old, only the last (lexicographically latest) per day is kept."""
+        day = "20260301"
+        early = _make_snapshot(tmp_path, f"{day}_080000.json", age_days=20)
+        mid   = _make_snapshot(tmp_path, f"{day}_120000.json", age_days=20)
+        last  = _make_snapshot(tmp_path, f"{day}_200000.json", age_days=20)
+
+        it = AccountCollectorIterator(adapter=None, snapshot_dir=str(tmp_path))
+        it._expire_old_snapshots()
+
+        assert not early.exists(), "Earlier snapshot in 7-30d range should be deleted"
+        assert not mid.exists(),   "Middle snapshot in 7-30d range should be deleted"
+        assert last.exists(),      "Latest snapshot in 7-30d range must be kept"
+
+    def test_daily_throttle_prevents_repeated_runs(self, tmp_path, monkeypatch):
+        """_expire_old_snapshots should only be called when ROTATE_INTERVAL_S has elapsed."""
+        # Plant an old file that rotation would delete
+        old = _make_snapshot(tmp_path, "20250101_000000.json", age_days=40)
+
+        adapter = _FakeAdapter(
+            native_positions=[],
+            perp_value=0.0,
+            spot_usdc=100.0,
+        )
+        it = AccountCollectorIterator(adapter=adapter, snapshot_dir=str(tmp_path))
+
+        # Force _last_rotate to "just now" — rotation should be skipped this tick
+        import daemon.iterators.account_collector as _mod
+        it._last_rotate = _time.monotonic()  # already rotated
+
+        ctx = TickContext()
+        it._collect_and_inject(ctx)
+
+        # Old file should still be present because the throttle prevented rotation
+        assert old.exists(), "Old snapshot should NOT be deleted when throttle is active"
+
+    def test_daily_throttle_fires_when_interval_elapsed(self, tmp_path):
+        """When last rotation was >24h ago (or never), rotation runs and deletes old files."""
+        old = _make_snapshot(tmp_path, "20250101_000000.json", age_days=40)
+
+        adapter = _FakeAdapter(
+            native_positions=[],
+            perp_value=0.0,
+            spot_usdc=100.0,
+        )
+        it = AccountCollectorIterator(adapter=adapter, snapshot_dir=str(tmp_path))
+        # _last_rotate=0 means "never run" → interval elapsed → rotation fires
+        assert it._last_rotate == 0.0
+
+        ctx = TickContext()
+        it._collect_and_inject(ctx)
+
+        assert not old.exists(), "40-day-old snapshot should be deleted after rotation fires"
+
+    def test_rotation_logs_deleted_count_and_bytes(self, tmp_path, caplog):
+        """Rotation must log the count and size of deleted files."""
+        import logging
+        _make_snapshot(tmp_path, "20250101_120000.json", age_days=35)
+
+        it = AccountCollectorIterator(adapter=None, snapshot_dir=str(tmp_path))
+        with caplog.at_level(logging.INFO, logger="daemon.account_collector"):
+            it._expire_old_snapshots()
+
+        assert "deleted" in caplog.text.lower(), "Rotation should log deleted file count"
+        assert "KB" in caplog.text, "Rotation should log bytes freed in KB"
