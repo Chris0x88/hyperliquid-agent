@@ -152,3 +152,33 @@ async def clear_queues():
     state["follow_up_queue"] = []
     _write_state(state)
     return {"ok": True, "steering_queue": [], "follow_up_queue": []}
+
+
+@router.get("/templates")
+async def list_prompt_templates():
+    """Return all available prompt templates from data/agent/prompts/.
+
+    Each entry has:
+      name        — the slash command (without /)
+      description — first non-blank line of the template file
+      variables   — list of {{var}} placeholders found in the body
+      char_count  — length of the expanded body (raw, before substitution)
+
+    No auth required — read-only metadata only.
+    """
+    try:
+        from agent.prompts_lib import list_templates
+        templates = list_templates()
+        return {
+            "templates": [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "variables": t.variables,
+                    "char_count": len(t.body),
+                }
+                for t in templates
+            ]
+        }
+    except Exception as e:
+        return {"templates": [], "error": str(e)}

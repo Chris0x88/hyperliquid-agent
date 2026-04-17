@@ -26,7 +26,9 @@ import {
   abortAgent,
   steerAgent,
   followUpAgent,
+  getPromptTemplates,
   type AgentState,
+  type PromptTemplate,
 } from "@/lib/api";
 import { theme as t } from "@/lib/theme";
 
@@ -242,6 +244,35 @@ export function AgentDrawer() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [jsonExpanded, setJsonExpanded] = useState(false);
+
+  // Template autocomplete state
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [templateMatch, setTemplateMatch] = useState<PromptTemplate | null>(null);
+
+  // Fetch templates once on mount
+  useEffect(() => {
+    getPromptTemplates()
+      .then((r) => setTemplates(r.templates ?? []))
+      .catch(() => {/* templates are optional UI sugar */});
+  }, []);
+
+  // Derive matching template as the active input changes
+  function _matchTemplate(text: string): PromptTemplate | null {
+    if (!text.startsWith("/")) return null;
+    const word = text.split(/\s/)[0].slice(1).toLowerCase();
+    if (!word) return null;
+    return templates.find((t) => t.name === word) ?? null;
+  }
+
+  function handleFollowUpChange(v: string) {
+    setFollowUpText(v);
+    setTemplateMatch(_matchTemplate(v));
+  }
+
+  function handleSteerChange(v: string) {
+    setSteerText(v);
+    setTemplateMatch(_matchTemplate(v));
+  }
 
   async function runAction(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -572,6 +603,31 @@ export function AgentDrawer() {
           </p>
         )}
 
+        {/* Template preview banner — shows when input matches a known template */}
+        {templateMatch && (
+          <div
+            style={{
+              background: t.colors.bg,
+              border: `1px solid ${t.colors.tertiaryBorder}`,
+              borderRadius: "6px",
+              padding: "6px 10px",
+              fontSize: 11,
+              color: t.colors.tertiary,
+              fontFamily: t.fonts.mono,
+            }}
+          >
+            Will expand <strong>/{templateMatch.name}</strong> → {templateMatch.char_count.toLocaleString()} chars
+            {templateMatch.variables.length > 0 && (
+              <span style={{ color: t.colors.textMuted }}>
+                {" "}· vars: {templateMatch.variables.map((v) => `{{${v}}}`).join(", ")}
+              </span>
+            )}
+            <div style={{ color: t.colors.textMuted, marginTop: 2 }}>
+              {templateMatch.description}
+            </div>
+          </div>
+        )}
+
         {/* Input — steer when running, follow-up when idle */}
         {isRunning ? (
           <form
@@ -580,8 +636,8 @@ export function AgentDrawer() {
           >
             <input
               value={steerText}
-              onChange={(e) => setSteerText(e.target.value)}
-              placeholder="Steer agent…"
+              onChange={(e) => handleSteerChange(e.target.value)}
+              placeholder="Steer agent… (or /silvercheck)"
               disabled={busy}
               style={{
                 flex: 1,
@@ -617,43 +673,91 @@ export function AgentDrawer() {
         ) : (
           <form
             onSubmit={handleFollowUp}
-            style={{ display: "flex", gap: 6 }}
+            style={{ display: "flex", flexDirection: "column", gap: 6 }}
           >
-            <input
-              value={followUpText}
-              onChange={(e) => setFollowUpText(e.target.value)}
-              placeholder="Queue follow-up…"
-              disabled={busy}
-              style={{
-                flex: 1,
-                background: t.colors.bg,
-                border: `1px solid ${t.colors.border}`,
-                borderRadius: "6px",
-                padding: "6px 10px",
-                fontSize: 12,
-                color: t.colors.text,
-                fontFamily: t.fonts.mono,
-                outline: "none",
-              }}
-            />
-            <button
-              type="submit"
-              disabled={busy || !followUpText.trim()}
-              style={{
-                background: t.colors.tertiaryLight,
-                border: `1px solid ${t.colors.tertiaryBorder}`,
-                borderRadius: "6px",
-                padding: "6px 14px",
-                fontSize: 12,
-                color: t.colors.tertiary,
-                fontFamily: t.fonts.heading,
-                cursor: busy || !followUpText.trim() ? "not-allowed" : "pointer",
-                opacity: busy ? 0.6 : 1,
-                whiteSpace: "nowrap",
-              }}
-            >
-              Queue
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                value={followUpText}
+                onChange={(e) => handleFollowUpChange(e.target.value)}
+                placeholder="Queue follow-up… (or /silvercheck)"
+                disabled={busy}
+                style={{
+                  flex: 1,
+                  background: t.colors.bg,
+                  border: `1px solid ${t.colors.border}`,
+                  borderRadius: "6px",
+                  padding: "6px 10px",
+                  fontSize: 12,
+                  color: t.colors.text,
+                  fontFamily: t.fonts.mono,
+                  outline: "none",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={busy || !followUpText.trim()}
+                style={{
+                  background: t.colors.tertiaryLight,
+                  border: `1px solid ${t.colors.tertiaryBorder}`,
+                  borderRadius: "6px",
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  color: t.colors.tertiary,
+                  fontFamily: t.fonts.heading,
+                  cursor: busy || !followUpText.trim() ? "not-allowed" : "pointer",
+                  opacity: busy ? 0.6 : 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Queue
+              </button>
+            </div>
+            {/* Template autocomplete dropdown — shown when input starts with / */}
+            {followUpText.startsWith("/") && !templateMatch && templates.length > 0 && (() => {
+              const partial = followUpText.slice(1).toLowerCase();
+              const matches = partial
+                ? templates.filter((tp) => tp.name.startsWith(partial))
+                : templates;
+              if (matches.length === 0) return null;
+              return (
+                <div
+                  style={{
+                    background: t.colors.surface,
+                    border: `1px solid ${t.colors.border}`,
+                    borderRadius: "6px",
+                    overflow: "hidden",
+                    maxHeight: 160,
+                    overflowY: "auto",
+                  }}
+                >
+                  {matches.slice(0, 6).map((tp) => (
+                    <button
+                      key={tp.name}
+                      type="button"
+                      onClick={() => handleFollowUpChange(`/${tp.name} `)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        background: "transparent",
+                        border: "none",
+                        borderBottom: `1px solid ${t.colors.borderLight}`,
+                        padding: "6px 10px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        fontFamily: t.fonts.mono,
+                        fontSize: 11,
+                        color: t.colors.text,
+                      }}
+                    >
+                      <span style={{ color: t.colors.tertiary }}>/{tp.name}</span>
+                      <span style={{ color: t.colors.textMuted, marginLeft: 8 }}>
+                        {tp.description.slice(0, 60)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </form>
         )}
 

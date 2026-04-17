@@ -46,6 +46,7 @@ ALLOWED_PATHS=(
     "^data/research/\.gitkeep$"
     "^data/heatmap/\.gitkeep$"
     "^data/strategy/\.gitkeep$"
+    "^data/agent/prompts/[^/]+\.md$"
 )
 
 CHECK_FILES="$STAGED_FILES"

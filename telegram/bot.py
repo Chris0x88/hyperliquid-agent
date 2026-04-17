@@ -1095,12 +1095,18 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /todo text — add todo (`list|search|done|dismiss|show`)\n"
         "  /feedback text — feedback (`list|search|resolve|dismiss|tag|show`)\n"
         "  /guide — how to use this bot\n"
+        "\n*Prompt Templates*\n"
+        "  /templates — list all saved prompt templates\n"
+        "  /save <name> <body> — capture a message as a reusable template\n"
+        "  /<name> [args] — expand a template and send to AI (e.g. /silvercheck, /btccheck)\n"
+        "  Starter templates: /silvercheck /btccheck /portfoliosweep /exitcheck\n"
         "\n*AI Chat*\n"
         "  Type anything — AI responds with live data\n"
         "\n*Convention*\n"
         "  Slash commands = fixed code, no AI.\n"
         "  Commands ending in `ai` (e.g. /briefai) include AI content.\n"
-        "  Natural-language messages always go to the AI agent.")
+        "  Natural-language messages always go to the AI agent.\n"
+        "  Template commands (e.g. /silvercheck) expand to AI-routed prompts.")
 
 
 # ── Vault rebalancer daemon control ─────────────────────────────────────
@@ -2854,6 +2860,7 @@ from telegram.commands.agent_control import (  # noqa: E402
     cmd_follow,
     cmd_agentstate,
 )
+from telegram.commands.prompt_templates import cmd_templates, cmd_save  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -3011,6 +3018,14 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "All three feed Claude Code next session. Rows are event-sourced — never rewritten in place.\n"
         "\n*Background*: Heartbeat checks every 2 min (stops, alerts, escalation). "
         "Thesis files drive conviction sizing. Claude Code (Opus) writes thesis, this bot reads and discusses.\n"
+        "\n📝 *Prompt Templates*\n"
+        "`/templates` — list all saved prompt templates\n"
+        "`/silvercheck [context]` — Silver position audit (technicals, funding, sweep risk, thesis)\n"
+        "`/btccheck [context]` — BTC position audit (technicals, vault, macro overlay)\n"
+        "`/portfoliosweep [focus]` — full portfolio audit (cross-asset risk, catalysts, overnight threats)\n"
+        "`/exitcheck [symbol]` — per-position exit condition proposals (RSI, funding, cushion)\n"
+        "`/save <name> <body>` — capture a message as a reusable template\n"
+        "Template commands expand the stored text and route it to the AI agent.\n"
         "\n`/help` for full command list")
 
 
@@ -3881,6 +3896,12 @@ HANDLERS = {
     "agentstate": cmd_agentstate,
     "/as": cmd_agentstate,
     "as": cmd_agentstate,
+    # Prompt template built-ins (always win over any template file named
+    # "templates" or "save" — see CRITICAL REGRESSION GUARD in CLAUDE.md)
+    "/templates": cmd_templates,
+    "templates": cmd_templates,
+    "/save": cmd_save,
+    "save": cmd_save,
 }
 
 
@@ -3988,6 +4009,9 @@ def _set_telegram_commands(token: str) -> None:
         # Safety Checklists
         {"command": "evening", "description": "Pre-sleep safety cockpit — SL/TP/sweep risk for all positions"},
         {"command": "morning", "description": "Post-sleep debrief — overnight fills, cascades, decisions pending"},
+        # Prompt Templates
+        {"command": "templates", "description": "List available prompt templates (/silvercheck etc.)"},
+        {"command": "save", "description": "/save <name> <body> — capture a message as a reusable template"},
     ]
     requests.post(
         f"https://api.telegram.org/bot{token}/setMyCommands",
@@ -4188,7 +4212,37 @@ def run() -> None:
                             f"_{e}_\n\n"
                             f"Try again or /help for commands.")
             else:
-                # Not a command — handle with AI agent (direct, no OpenClaw)
+                # HANDLERS had no match.
+                # Template fallback: if the message starts with '/', check
+                # data/agent/prompts/ for a matching .md file and expand it
+                # before routing to the AI.  This runs AFTER all built-in
+                # commands (HANDLERS already had its chance above), so there
+                # is zero risk of shadowing /status, /stop, /steer, etc.
+                if text.startswith("/"):
+                    _tmpl_word = text.split(maxsplit=1)[0].lstrip("/")
+                    # Strip bot @username suffix (e.g. /silvercheck@MyBot_bot)
+                    if "@" in _tmpl_word:
+                        _tmpl_word = _tmpl_word.split("@")[0]
+                    _tmpl_args = text[len(text.split(maxsplit=1)[0]):].strip()
+                    try:
+                        from agent.prompts_lib import expand_template
+                        _expanded = expand_template(_tmpl_word, _tmpl_args)
+                    except Exception as _e:
+                        log.warning("Template expand error for /%s: %s", _tmpl_word, _e)
+                        _expanded = None
+                    if _expanded is not None:
+                        log.info("Expanded template /%s (%d chars)", _tmpl_word, len(_expanded))
+                        text = _expanded
+                        # Fall through to AI routing below with the expanded text.
+                    else:
+                        # Unknown slash command and no matching template.
+                        tg_send(token, reply_chat_id,
+                                f"Unknown command `/{_tmpl_word}`.\n"
+                                "Use /help for commands or /templates to see prompt templates.")
+                        continue
+
+                # Not a command (or was a template and is now expanded text) —
+                # handle with AI agent (direct, no OpenClaw)
                 is_group = msg.get("chat", {}).get("type", "") in ("group", "supergroup")
                 if is_group:
                     log.debug("Ignoring free text in group: %s", text[:50])

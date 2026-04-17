@@ -860,3 +860,19 @@ export const followUpAgent = (message: string) =>
 
 export const clearAgentQueues = () =>
   postJSONAuth<AgentActionResponse>("/agent/clear-queues");
+
+// Prompt templates
+export interface PromptTemplate {
+  name: string;
+  description: string;
+  variables: string[];
+  char_count: number;
+}
+
+export interface TemplatesResponse {
+  templates: PromptTemplate[];
+  error?: string;
+}
+
+export const getPromptTemplates = () =>
+  fetchJSON<TemplatesResponse>("/agent/templates");
