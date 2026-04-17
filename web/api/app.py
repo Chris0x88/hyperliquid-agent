@@ -1,4 +1,4 @@
-"""FastAPI application factory for the Mission Control backend."""
+"""FastAPI application factory for the Dashboard backend."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Factory that returns a configured FastAPI instance."""
     app = FastAPI(
-        title="HyperLiquid Mission Control",
+        title="HyperLiquid Dashboard",
         version="0.1.0",
         lifespan=lifespan,
     )

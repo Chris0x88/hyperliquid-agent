@@ -51,7 +51,7 @@ export function Sidebar() {
               className="text-[15px] font-semibold"
               style={{ color: t.colors.text, fontFamily: t.fonts.heading }}
             >
-              Mission Control
+              Dashboard
             </h1>
             <p className="text-[11px]" style={{ color: t.colors.textMuted }}>
               v0.1.0 &middot; Local

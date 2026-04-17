@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mission Control | HyperLiquid Bot",
+  title: "Dashboard | HyperLiquid Bot",
   description: "Trading system dashboard and control panel",
 };
 

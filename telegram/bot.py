@@ -644,7 +644,7 @@ def cmd_restart(token: str, chat_id: str, _args: str) -> None:
 
 
 def cmd_restartall(token: str, chat_id: str, _args: str) -> None:
-    """Restart ALL services including Mission Control web dashboard."""
+    """Restart ALL services including the Dashboard web app."""
     import subprocess
     import os
 

@@ -38,7 +38,7 @@ contract, the authority model, and the historical-oracles vision.**
 | **Oil Bot Pattern System** | Sub-systems 1-5 SHIPPED, sub-system 6 L1+L2 SHIPPED — kill switches OFF on the trading paths |
 | **News → Thesis Pipeline** | thesis_challenger (mechanical) + thesis_updater (Haiku-powered) — both shipped 2026-04-10, registered all tiers |
 | **Self-improvement engines** | Context Engine, Lab Engine, Architect Engine — shipped 2026-04-10, kill switches OFF |
-| **Mission Control** | FastAPI (:8420) + Next.js 15 (:3000) + Astro Starlight docs (:4321) — local web dashboard, shipped 2026-04-10 |
+| **Dashboard** | FastAPI (:8420) + Next.js 15 (:3000) + Astro Starlight docs (:4321) — local web dashboard, shipped 2026-04-10 (renamed from "Mission Control" 2026-04-17) |
 | **Historical oracles** | `chat_history.jsonl`, `feedback.jsonl`, `journal.jsonl`, lesson corpus, news catalysts, supply ledger, thesis audit trail — all append-only forever per NORTH_STAR P9 |
 
 **What's running on real money right now**: heartbeat dip-add / trim
@@ -109,7 +109,10 @@ Full article deep-fetch (pass 2) rate limited to 5/hour.
   evaluations, detects patterns, proposes config changes. **Needs Telegram
   approval flow (`/architect approve <id>`).**
 
-### 4. Mission Control Web Dashboard (shipped 2026-04-10)
+### 4. Dashboard (Web UI, shipped 2026-04-10)
+
+> Renamed from "Mission Control" → "Dashboard" 2026-04-17 per user
+> request. Don't reintroduce the old name in user-visible surfaces.
 
 Full local web UI for the trading system:
 
@@ -119,7 +122,8 @@ Full local web UI for the trading system:
   Bollinger + SMA/EMA), Control (kill switches, config editor, authority),
   Thesis Editor, Logs (SSE streaming), Strategies, Alerts
 - **Astro Starlight docs** (:4321) — searchable docs site
-- **macOS launcher** — `scripts/Mission Control.app` double-click launcher
+- **macOS launcher** — previously `scripts/Mission Control.app` (no
+  longer on disk; rebuild as `scripts/Dashboard.app` if/when needed)
 
 **Remaining:** Real-time WebSocket push (currently polling). Authentication
 for remote access (currently localhost-only). Mobile-responsive refinement.
@@ -192,7 +196,7 @@ markdown checklist fails to fix.
   (read-union) in place.
 - **Nothing in Oil Bot Pattern sub-systems 1-6 has had a real closed
   trade flow through.** Promotion blocked on live experience.
-- **Mission Control is localhost-only.** No auth for remote access.
+- **Dashboard is localhost-only.** No auth for remote access.
 - **Thesis updater was manually enabled** (`f622708`) but its default
   config is `disabled`. Verify it's running correctly in production before
   relying on it.

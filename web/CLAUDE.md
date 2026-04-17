@@ -1,6 +1,10 @@
-# web/ — Mission Control Platform
+# web/ — Dashboard
 
 Local web dashboard, control panel, and documentation site for the HyperLiquid Bot.
+
+> Renamed from "Mission Control" to "Dashboard" 2026-04-17 — see
+> [project_dashboard_rename memory](file:///Users/cdi/.claude/projects/-Users-cdi-Developer-HyperLiquid-Bot/memory/project_dashboard_rename.md).
+> Don't reintroduce the old name in user-visible surfaces.
 
 ## Packages
 
