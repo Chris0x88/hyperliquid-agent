@@ -6,7 +6,6 @@ import { ThesisPanel } from "@/components/dashboard/ThesisPanel";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
 import { DaemonIteratorStatus } from "@/components/dashboard/DaemonIteratorStatus";
 import { EntryCritiquePanel } from "@/components/dashboard/EntryCritiquePanel";
-import { AgentActivityPanel } from "@/components/dashboard/AgentActivityPanel";
 
 export default function DashboardPage() {
   return (
@@ -26,10 +25,7 @@ export default function DashboardPage() {
         <HealthBanner />
       </div>
 
-      {/* Row 1: Agent Activity — compact control panel above the financial data */}
-      <AgentActivityPanel />
-
-      {/* Row 2: Equity Ledger — now spans full width since Health moved to banner */}
+      {/* Row 1: Equity Ledger — now spans full width since Health moved to banner */}
       <EquityLedger />
 
       {/* Row 2: Equity curve */}
