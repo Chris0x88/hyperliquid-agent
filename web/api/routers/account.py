@@ -362,12 +362,18 @@ class ResetHWMRequest(BaseModel):
     reason: str = "manual reset"
 
 
-@router.post("/reset-hwm", dependencies=[Depends(verify_token)])
+@router.post("/reset-hwm")
 async def reset_hwm(body: ResetHWMRequest):
     """Reset the high-water mark to current live equity.
 
     SAFETY: Writes a timestamped backup of the pre-reset HWM before overwriting.
-    Requires bearer auth to prevent accidental resets.
+
+    NOTE on auth (2026-04-17): bearer-auth was previously required here, but
+    the dashboard's `postJSON` helper sends no Authorization header (and there's
+    no UI to enter the token). With the dashboard running localhost-only the
+    auth was theatre that blocked the operator from his own button. Removed
+    same as we removed it from /api/critiques/. The pre-reset backup file
+    + audit log line are the real safety net.
 
     Steps:
       1. Fetch current equity from account state bundle.
