@@ -74,6 +74,10 @@ export const getCandles = (coin: string, interval = "1h", limit = 500) =>
   fetchJSON<CandleResponse>(`/charts/candles/${coin}?interval=${interval}&limit=${limit}`);
 export const getCandleMeta = (coin: string) =>
   fetchJSON(`/charts/candles/${coin}/meta`);
+export const getChartMarkers = (market: string, lookbackH = 72) =>
+  fetchJSON<ChartMarkersResponse>(`/charts/${market}/markers?lookback_h=${lookbackH}`);
+export const getChartOverlay = (market: string, lookbackH = 24) =>
+  fetchJSON<ChartOverlayResponse>(`/charts/${market}/overlay?lookback_h=${lookbackH}`);
 
 // Strategies
 export const getStrategies = () => fetchJSON<StrategiesResponse>("/strategies/");
@@ -335,4 +339,139 @@ export interface CandleResponse {
   coin: string;
   interval: string;
   candles: Candle[];
+}
+
+export interface NewsMarker {
+  time: number;
+  type: "news";
+  severity: number;  // 1-5
+  category: string;
+  headline: string;
+  source: string;
+  url: string;
+  rationale: string;
+  expected_direction: string | null;
+  stub: boolean;
+}
+
+export interface TradeMarker {
+  time: number;
+  type: "trade";
+  action: string;
+  market: string;
+  detail: Record<string, unknown>;
+  reasoning: string;
+  outcome: string;
+  stub: boolean;
+}
+
+export interface LessonMarker {
+  time: number;
+  type: "lesson";
+  lesson_id: number;
+  market: string;
+  direction: string;
+  lesson_type: string;
+  outcome: string;
+  pnl_usd: number;
+  roe_pct: number;
+  holding_ms: number;
+  conviction_at_open: number | null;
+  summary: string;
+  tags: string[];
+  stub: boolean;
+}
+
+export interface CritiqueMarker {
+  time: number;
+  type: "critique";
+  stub: boolean;
+  message?: string;
+}
+
+export interface ChartMarkersResponse {
+  market: string;
+  lookback_h: number;
+  news: NewsMarker[];
+  trades: TradeMarker[];
+  lessons: LessonMarker[];
+  critiques: CritiqueMarker[];
+}
+
+// Entry critiques
+export interface EntryCritiqueGrade {
+  sizing: string;
+  sizing_detail: string;
+  direction: string;
+  direction_detail: string;
+  catalyst_timing: string;
+  catalyst_detail: string;
+  liquidity: string;
+  liquidity_detail: string;
+  funding: string;
+  funding_detail: string;
+  pass_count: number;
+  warn_count: number;
+  fail_count: number;
+  overall_label: string;
+  suggestions: string[];
+}
+
+export interface EntryCritiqueSignals {
+  rsi: number | null;
+  atr_value: number | null;
+  atr_pct: number | null;
+  liquidation_cushion_pct: number | null;
+  snapshot_flags: string[];
+  lesson_ids: number[];
+  funding_bps_annualized: number | null;
+  thesis_conviction: number | null;
+  thesis_direction: string | null;
+}
+
+export interface EntryCritique {
+  schema_version: number;
+  kind: string;
+  created_at: string;
+  instrument: string;
+  direction: string;
+  entry_price: number;
+  entry_qty: number;
+  leverage: number | null;
+  notional_usd: number | null;
+  equity_usd: number | null;
+  actual_size_pct: number | null;
+  grade: EntryCritiqueGrade;
+  signals: EntryCritiqueSignals;
+  degraded: Record<string, string | null>;
+}
+
+export interface EntryCritiquesResponse {
+  critiques: EntryCritique[];
+  total: number;
+  market_filter: string | null;
+}
+
+export const getEntryCritiques = (limit = 5, market?: string) =>
+  fetchJSON<EntryCritiquesResponse>(
+    `/critiques/?limit=${limit}${market ? `&market=${market}` : ""}`
+  );
+
+export interface LiqZone {
+  snapshot_at: string;
+  side: "bid" | "ask";
+  price_low: number;
+  price_high: number;
+  centroid: number;
+  notional_usd: number;
+  distance_bps: number;
+  rank: number;
+  stub: boolean;
+}
+
+export interface ChartOverlayResponse {
+  market: string;
+  liq_zones: LiqZone[];
+  cascades: { stub: boolean; message?: string }[];
+  sweep_risk: { score: number; label: string; stub: boolean; message?: string };
 }

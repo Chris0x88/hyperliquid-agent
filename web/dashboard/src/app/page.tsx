@@ -5,6 +5,7 @@ import { PositionCards } from "@/components/dashboard/PositionCards";
 import { ThesisPanel } from "@/components/dashboard/ThesisPanel";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
 import { DaemonIteratorStatus } from "@/components/dashboard/DaemonIteratorStatus";
+import { EntryCritiquePanel } from "@/components/dashboard/EntryCritiquePanel";
 
 export default function DashboardPage() {
   return (
@@ -61,6 +62,9 @@ export default function DashboardPage() {
         </div>
         <NewsFeed />
       </div>
+
+      {/* Row 5: Entry Critiques */}
+      <EntryCritiquePanel />
     </div>
   );
 }

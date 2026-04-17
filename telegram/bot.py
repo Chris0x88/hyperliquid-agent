@@ -973,6 +973,9 @@ def cmd_todo(token: str, chat_id: str, args: str) -> None:
 def cmd_help(token: str, chat_id: str, _args: str) -> None:
     tg_send(token, chat_id,
         "*HyperLiquid Bot*\n"
+        "\n*Safety Checklists*\n"
+        "  /evening [MARKET] — pre-sleep cockpit: SL/TP/sweep risk/leverage\n"
+        "  /morning [MARKET] — post-sleep debrief: fills, cascades, decisions\n"
         "\n*Trading*\n"
         "  /status — portfolio overview\n"
         "  /position — positions + risk + authority\n"
@@ -2811,6 +2814,7 @@ from telegram.commands.sim import cmd_sim  # noqa: E402
 from telegram.commands.readiness import cmd_readiness  # noqa: E402
 from telegram.commands.activate import cmd_activate  # noqa: E402
 from telegram.commands.adaptlog import cmd_adaptlog  # noqa: E402
+from telegram.commands.checklist import cmd_evening, cmd_morning  # noqa: E402
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2819,6 +2823,18 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "*How This System Works*\n"
         "\nThis is a portfolio copilot, risk manager, and research agent. "
         "You bring the thesis, it executes with discipline.\n"
+        "\n🌙☀️ *Safety Checklists (Phase 2)*\n"
+        "`/evening` — pre-sleep cockpit. Checks every open position for:\n"
+        "  • SL on exchange (FAIL if missing — overnight unprotected)\n"
+        "  • TP on exchange (WARN if missing)\n"
+        "  • Open risk < 10% of equity (WARN at 8%, FAIL at 10%)\n"
+        "  • Leverage vs thesis recommended (WARN 2-3x, FAIL >3x)\n"
+        "  • Weekend leverage cap if Friday Brisbane evening\n"
+        "  • Sweep risk score (bank step-up pattern detection)\n"
+        "  • Funding cost (WARN >30% ann., FAIL >60% ann.)\n"
+        "`/evening SILVER` — filter to one market only\n"
+        "`/morning` — post-sleep debrief: overnight fills, SL/TP hits, cascade events, Asia setup\n"
+        "These are 100%% deterministic code — no AI, no cost.\n"
         "\n📊 *Quick Data*\n"
         "`/status` — portfolio overview + PnL\n"
         "`/position` — detailed risk per position\n"
@@ -3798,6 +3814,14 @@ HANDLERS = {
     "tp": cmd_tp,
     "/start": cmd_menu,
     "start": cmd_menu,
+    "/evening": cmd_evening,
+    "evening": cmd_evening,
+    "/eve": cmd_evening,
+    "eve": cmd_evening,
+    "/morning": cmd_morning,
+    "morning": cmd_morning,
+    "/morn": cmd_morning,
+    "morn": cmd_morning,
 }
 
 
@@ -3897,6 +3921,9 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "feedback", "description": "Submit feedback"},
         {"command": "guide", "description": "How to use this bot"},
         {"command": "help", "description": "Full command list"},
+        # Safety Checklists
+        {"command": "evening", "description": "Pre-sleep safety cockpit — SL/TP/sweep risk for all positions"},
+        {"command": "morning", "description": "Post-sleep debrief — overnight fills, cascades, decisions pending"},
     ]
     requests.post(
         f"https://api.telegram.org/bot{token}/setMyCommands",

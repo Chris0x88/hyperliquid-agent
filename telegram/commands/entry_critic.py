@@ -1,136 +1,185 @@
-"""Entry-critic Telegram lookup command — third submodule in the
-cli/telegram_commands/ split (after lessons.py, brutal_review.py).
+"""Entry-critic Telegram lookup command.
 
-The Trade Entry Critic iterator (cli/daemon/iterators/entry_critic.py)
-detects new positions, scores them against a deterministic signal stack,
-posts a Telegram alert immediately, and persists the row to
-data/research/entry_critiques.jsonl. The auto-fired alerts are the
-primary surface — this command is the manual lookup for after-the-fact
-review of past entries.
+The Trade Entry Critic iterator (daemon/iterators/entry_critic.py)
+detects new positions, scores them deterministically, and persists each
+row to data/research/entry_critiques.jsonl.  The auto-fired alert is the
+primary surface; this command is the manual lookup for after-the-fact
+review.
 
-Deterministic. No AI. The full grading was already computed by the
-iterator at entry time; we just read the JSONL and reformat.
+Data is fetched via ``agent.tool_functions.read_entry_critiques`` — the
+single source of truth (tools share one implementation, per architecture).
 
 Commands exported:
-    cmd_critique  — show recent entry critiques (deterministic)
+    cmd_critique  — show recent entry critiques (deterministic, no AI)
+
+Usage::
+    /critique                — last 5 critiques, compact list
+    /critique BTC            — last 5 critiques for BTC
+    /critique BTC 10         — last 10 critiques for BTC
+    /critique 1              — newest critique, full detail
+    /critique BTC 1          — newest BTC critique, full detail
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import time
+from datetime import datetime, timezone
 
-ENTRY_CRITIQUES_JSONL = "data/research/entry_critiques.jsonl"
-
-_OVERALL_EMOJI = {
-    "GREAT": "🟢",
+# ── Overall label → display emoji (per spec) ───────────────────────────
+# PASS=✅  MIXED=⚠️  FAIL=🔴  NO_THESIS=❓  unknown=·
+_LABEL_EMOJI: dict[str, str] = {
+    # Canonical iterator labels
+    "GREAT ENTRY": "✅",
+    "GOOD ENTRY": "✅",
+    "OK ENTRY": "⚠️",
+    "RISKY ENTRY": "🔴",
+    "BAD ENTRY": "🔴",
+    "MIXED ENTRY": "⚠️",
+    "NO THESIS": "❓",
+    # Shortened variants written by some paths
+    "GREAT": "✅",
     "GOOD": "✅",
-    "OK": "🟡",
-    "RISKY": "⚠️",
-    "BAD": "❌",
+    "OK": "⚠️",
+    "RISKY": "🔴",
+    "BAD": "🔴",
+    "MIXED": "⚠️",
+    "PASS": "✅",
+    "FAIL": "🔴",
 }
+
+_VERDICT_MARKER: dict[str, str] = {
+    "GREAT": "✅", "ALIGNED": "✅", "LEAD": "✅", "SAFE": "✅", "CHEAP": "✅",
+    "OK": "⚠️", "FAIR": "⚠️", "NEUTRAL": "⚠️",
+    "OVERWEIGHT": "⚠️", "LATE": "⚠️", "CASCADE_RISK": "⚠️",
+    "EXPENSIVE": "⚠️", "UNDERWEIGHT": "⚠️",
+    "OPPOSED": "🔴", "BAD": "🔴", "DANGER": "🔴",
+    "NO_THESIS": "❓",
+}
+
+
+def _label_emoji(overall: str) -> str:
+    return _LABEL_EMOJI.get(overall.upper(), "·")
+
+
+def _verdict_marker(verdict: str) -> str:
+    return _VERDICT_MARKER.get(verdict.upper(), "·")
+
+
+def _age_str(created_at: str) -> str:
+    """Return human-readable age like '3h 12m ago' from ISO-8601 UTC string."""
+    if not created_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        secs = int(time.time() - dt.timestamp())
+        if secs < 60:
+            return f"{secs}s ago"
+        if secs < 3600:
+            return f"{secs // 60}m ago"
+        h = secs // 3600
+        m = (secs % 3600) // 60
+        return f"{h}h {m}m ago" if m else f"{h}h ago"
+    except (ValueError, TypeError):
+        return created_at[:16].replace("T", " ")
 
 
 def cmd_critique(token: str, chat_id: str, args: str) -> None:
     """Show recent entry critiques from data/research/entry_critiques.jsonl.
 
-    Usage:
-        /critique             — most recent critique (full detail)
-        /critique 5           — last 5 critiques (compact list)
-        /critique BTC         — last 5 critiques filtered to instrument
-        /critique BTC 10      — last 10 critiques filtered to instrument
+    /critique             — last 5 critiques, compact list
+    /critique BTC         — last 5 for BTC (xyz: prefix stripped automatically)
+    /critique BTC 10      — last 10 for BTC
+    /critique 1           — most recent critique, full detail
+    /critique BTC 1       — most recent BTC critique, full detail
 
-    Deterministic — reads the JSONL written by the entry_critic iterator
-    when each new position was detected. No AI.
+    Deterministic — reads the JSONL written by the entry_critic iterator.
+    No AI.
     """
     from telegram.bot import tg_send
+    from agent.tool_functions import read_entry_critiques
 
     parts = args.strip().split() if args else []
     instrument_filter: str | None = None
-    limit = 1
+    limit = 5
 
-    # Parse args: integer-only → limit; string-only → instrument; both → instrument + limit
     for p in parts:
         if p.isdigit():
             limit = max(1, min(20, int(p)))
         else:
             instrument_filter = p.upper()
 
-    # If only instrument was given, default to 5 entries
-    if instrument_filter and len(parts) == 1:
-        limit = 5
-
-    path = Path(ENTRY_CRITIQUES_JSONL)
-    if not path.exists():
-        tg_send(
-            token,
-            chat_id,
-            "📊 No entry critiques yet — the entry_critic iterator hasn't "
-            "detected any new positions. (Or the daemon isn't running.)",
-        )
-        return
-
-    rows: list[dict] = []
-    try:
-        with path.open("r") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    except OSError as e:
-        tg_send(token, chat_id, f"📊 Error reading critiques: {e}")
-        return
-
-    # Filter by instrument if requested. Compare both raw and stripped forms
-    # so xyz:BRENTOIL and BRENTOIL both match.
-    if instrument_filter:
-        def _match(r: dict) -> bool:
-            inst = (r.get("instrument") or "").upper()
-            stripped = inst.replace("XYZ:", "")
-            return inst == instrument_filter or stripped == instrument_filter
-
-        rows = [r for r in rows if _match(r)]
-
-    # Most recent first
-    rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
-    rows = rows[:limit]
+    result = read_entry_critiques(limit=limit, market=instrument_filter)
+    rows = result.get("critiques", [])
+    total = result.get("total", 0)
 
     if not rows:
         scope = f" for {instrument_filter}" if instrument_filter else ""
-        tg_send(token, chat_id, f"📊 No entry critiques{scope} found.")
+        tg_send(token, chat_id,
+                f"No entry critiques{scope}. "
+                "Daemon entry_critic iterator fires on every new position.")
         return
 
-    if limit == 1:
-        tg_send(token, chat_id, _format_one_full(rows[0]))
+    if limit == 1 or (not args.strip() and len(rows) == 1):
+        tg_send(token, chat_id, _format_full(rows[0]))
     else:
-        tg_send(token, chat_id, _format_compact_list(rows, instrument_filter))
+        tg_send(token, chat_id, _format_compact(rows, instrument_filter, total))
 
 
-def _format_one_full(row: dict) -> str:
-    """Full single-critique view — matches the iterator's live alert format."""
+# ── Formatters ──────────────────────────────────────────────────────────
+
+def _format_compact(rows: list[dict], instrument_filter: str | None, total: int) -> str:
+    scope = f" — {instrument_filter}" if instrument_filter else ""
+    shown = len(rows)
+    lines = [f"*Entry Critiques{scope}* ({shown} of {total})", ""]
+    for r in rows:
+        instrument = r.get("instrument", "?")
+        direction = (r.get("direction") or "?").upper()
+        grade = r.get("grade") or {}
+        overall = grade.get("overall_label", "?")
+        emoji = _label_emoji(overall)
+        p_n = grade.get("pass_count", 0)
+        w_n = grade.get("warn_count", 0)
+        f_n = grade.get("fail_count", 0)
+        age = _age_str(r.get("created_at", ""))
+        entry_price = r.get("entry_price")
+        # First suggestion as "short reason"
+        suggestions = grade.get("suggestions") or []
+        reason = suggestions[0][:60] if suggestions else overall
+        px_str = f"@{entry_price}" if entry_price else ""
+        lines.append(
+            f"{emoji} *{instrument}* {direction} {px_str}  "
+            f"({p_n}✅/{w_n}⚠️/{f_n}🔴)  {age}"
+        )
+        if reason and reason != overall:
+            lines.append(f"   _{reason}_")
+    lines.append("")
+    lines.append("Use `/critique 1` for the latest full critique.")
+    return "\n".join(lines)
+
+
+def _format_full(row: dict) -> str:
     instrument = row.get("instrument", "?")
     direction = (row.get("direction") or "?").upper()
     entry_price = row.get("entry_price")
     entry_qty = row.get("entry_qty")
     created_at = (row.get("created_at") or "")[:19].replace("T", " ")
+    age = _age_str(row.get("created_at", ""))
     grade = row.get("grade") or {}
     signals = row.get("signals") or {}
 
     overall = grade.get("overall_label", "?")
-    emoji = _OVERALL_EMOJI.get(overall, "·")
-    pass_n = grade.get("pass_count", 0)
-    warn_n = grade.get("warn_count", 0)
-    fail_n = grade.get("fail_count", 0)
+    emoji = _label_emoji(overall)
+    p_n = grade.get("pass_count", 0)
+    w_n = grade.get("warn_count", 0)
+    f_n = grade.get("fail_count", 0)
 
     lines = [
-        f"📊 *Entry Critique — {instrument} {direction} {entry_qty} @ {entry_price}*",
-        f"_{created_at} UTC_",
+        f"*Entry Critique — {instrument} {direction}*",
+        f"_{created_at} UTC ({age})_",
+        f"Entry: `{entry_qty}` @ `${entry_price}`",
         "",
     ]
-    for axis, axis_label in (
+
+    for axis, label in (
         ("sizing", "Sizing"),
         ("direction", "Direction"),
         ("catalyst_timing", "Timing"),
@@ -140,20 +189,37 @@ def _format_one_full(row: dict) -> str:
         verdict = grade.get(axis, "?")
         detail = grade.get(f"{axis}_detail", "")
         marker = _verdict_marker(verdict)
-        lines.append(f"{marker} *{axis_label}:* {verdict} — {detail}")
+        lines.append(f"{marker} *{label}:* {verdict} — {detail}")
+
+    # Signals compact block
+    rsi = signals.get("rsi")
+    atr_pct = signals.get("atr_pct")
+    liq_cushion = signals.get("liquidation_cushion_pct")
+    snapshot_flags = signals.get("snapshot_flags") or []
+    sigs = []
+    if rsi is not None:
+        sigs.append(f"RSI {rsi:.1f}")
+    if atr_pct is not None:
+        sigs.append(f"ATR {atr_pct:.2f}%")
+    if liq_cushion is not None:
+        sigs.append(f"liq-cushion {liq_cushion:.1f}%")
+    if snapshot_flags:
+        sigs.append(" ".join(snapshot_flags[:3]))
+    if sigs:
+        lines.append("")
+        lines.append(f"_Signals: {' · '.join(sigs)}_")
 
     lessons = signals.get("lesson_ids") or []
     if lessons:
-        lines.append("")
-        lines.append(f"📚 *Lessons consulted:* {', '.join(f'#{lid}' for lid in lessons[:5])}")
+        lines.append(f"_Lessons recalled: {', '.join(f'#{x}' for x in lessons[:5])}_")
 
     lines.append("")
-    lines.append(f"{emoji} *OVERALL: {overall}*  ({pass_n} ✅ / {warn_n} ⚠️ / {fail_n} ❌)")
+    lines.append(f"{emoji} *{overall}*  ({p_n}✅ / {w_n}⚠️ / {f_n}🔴)")
 
     suggestions = grade.get("suggestions") or []
     if suggestions:
         lines.append("")
-        lines.append("💡 *Suggestions:*")
+        lines.append("*Suggestions:*")
         for s in suggestions[:5]:
             lines.append(f"  · {s}")
 
@@ -164,43 +230,3 @@ def _format_one_full(row: dict) -> str:
         lines.append(f"_Degraded inputs: {', '.join(missing)}_")
 
     return "\n".join(lines)
-
-
-def _format_compact_list(rows: list[dict], instrument_filter: str | None) -> str:
-    """One-line-per-critique compact view."""
-    title_scope = f" — {instrument_filter}" if instrument_filter else ""
-    lines = [f"📊 *Recent Entry Critiques{title_scope} ({len(rows)})*", ""]
-    for r in rows:
-        ts = (r.get("created_at") or "")[:16].replace("T", " ")
-        instrument = r.get("instrument", "?")
-        direction = (r.get("direction") or "?").upper()
-        qty = r.get("entry_qty")
-        price = r.get("entry_price")
-        grade = r.get("grade") or {}
-        overall = grade.get("overall_label", "?")
-        emoji = _OVERALL_EMOJI.get(overall, "·")
-        pass_n = grade.get("pass_count", 0)
-        warn_n = grade.get("warn_count", 0)
-        fail_n = grade.get("fail_count", 0)
-        lines.append(
-            f"{emoji} `{ts}` *{instrument}* {direction} {qty}@{price}  "
-            f"{overall} ({pass_n}✅/{warn_n}⚠️/{fail_n}❌)"
-        )
-    lines.append("")
-    lines.append("Use `/critique` (no args) for the latest full critique.")
-    return "\n".join(lines)
-
-
-def _verdict_marker(verdict: str) -> str:
-    """Map an axis verdict to an inline marker."""
-    if verdict in ("GREAT", "ALIGNED", "LEAD", "SAFE", "CHEAP"):
-        return "✅"
-    if verdict in ("OK", "FAIR", "NEUTRAL"):
-        return "🟡"
-    if verdict in ("OVERWEIGHT", "LATE", "CASCADE_RISK", "EXPENSIVE", "UNDERWEIGHT"):
-        return "⚠️"
-    if verdict in ("OPPOSED", "BAD", "DANGER"):
-        return "❌"
-    if verdict == "NO_THESIS":
-        return "·"
-    return "·"

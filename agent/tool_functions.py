@@ -779,6 +779,68 @@ def get_feedback(limit: int = 10) -> dict:
         return {"error": f"get_feedback failed: {e}"}
 
 
+_ENTRY_CRITIQUES_JSONL = _PROJECT_ROOT / "data" / "research" / "entry_critiques.jsonl"
+
+
+def read_entry_critiques(limit: int = 5, market: Optional[str] = None) -> dict:
+    """Read recent entry critiques from data/research/entry_critiques.jsonl.
+
+    Returns the most-recent ``limit`` rows, newest first. If ``market`` is
+    supplied, filters to that instrument only — both the raw form
+    (``xyz:BRENTOIL``) and the bare form (``BRENTOIL``) are matched so
+    the caller does not need to know whether the xyz: prefix is present.
+
+    Return shape::
+
+        {
+            "critiques": [<row>, ...],   # newest first, up to ``limit``
+            "total":     int,            # rows in file matching filter
+            "market_filter": str|None,
+        }
+
+    On file-not-found or empty file returns ``{"critiques": [], "total": 0}``.
+    Malformed JSONL lines are silently skipped.
+    """
+    path = _ENTRY_CRITIQUES_JSONL
+    if not path.exists():
+        return {"critiques": [], "total": 0, "market_filter": market}
+
+    # Normalise caller's market arg for comparison
+    bare_filter: Optional[str] = None
+    if market:
+        bare_filter = market.upper().replace("XYZ:", "")
+
+    rows: List[dict] = []
+    try:
+        with path.open("r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if bare_filter is not None:
+                    inst = (row.get("instrument") or "").upper()
+                    bare_inst = inst.replace("XYZ:", "")
+                    if bare_inst != bare_filter and inst != bare_filter:
+                        continue
+                rows.append(row)
+    except OSError:
+        return {"critiques": [], "total": 0, "market_filter": market}
+
+    total = len(rows)
+    # Newest first: sort by created_at ISO string (lexicographic is correct for
+    # ISO-8601 UTC timestamps, which is what the iterator writes).
+    rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return {
+        "critiques": rows[:limit],
+        "total": total,
+        "market_filter": market,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Registry
 # ═══════════════════════════════════════════════════════════════════════
@@ -805,6 +867,7 @@ TOOL_REGISTRY: Dict[str, Any] = {
     "run_bash": run_bash,
     "get_errors": get_errors,
     "get_feedback": get_feedback,
+    "read_entry_critiques": read_entry_critiques,
     # Back-compat aliases
     "account_summary": status,
 }
@@ -834,4 +897,5 @@ TOOL_DESCRIPTIONS = {
     "run_bash": "Run a shell command (requires approval)",
     "get_errors": "Recent agent errors from diagnostics",
     "get_feedback": "Recent user feedback from /feedback",
+    "read_entry_critiques": "Recent entry critiques: grade, signals, suggestions per new position",
 }
