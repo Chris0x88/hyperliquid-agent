@@ -108,8 +108,11 @@ def eval_tp_on_exchange(market: str, ctx: dict) -> EvalResult:
         return ("pass", "Take-profit on exchange", None)
 
     thesis = ctx.get("thesis") or {}
-    tp_price = thesis.get("take_profit_price")
-    hint = f" — thesis TP at ${tp_price:,.2f}" if tp_price else " — no thesis TP set"
+    direction = (thesis.get("direction") or "").upper()
+    conv = thesis.get("conviction")
+    hint = ""
+    if direction and conv is not None:
+        hint = f" — thesis: {direction} conv={conv:.2f}"
     return ("warn", f"No TP on exchange{hint}", {"coin": market})
 
 

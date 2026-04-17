@@ -63,9 +63,14 @@ function ThesisCard({ market, thesis }: { market: string; thesis: ThesisData }) 
       {thesis.thesis_summary && (
         <p className="text-[12px] mt-3 leading-relaxed line-clamp-2" style={{ color: t.colors.textSecondary }}>{thesis.thesis_summary}</p>
       )}
+      {thesis.fair_value_note && (
+        <p className="text-[11px] mt-2 italic leading-snug line-clamp-2" style={{ color: t.colors.textMuted }}>
+          Bias: {thesis.fair_value_note}
+        </p>
+      )}
       <div className="flex justify-between mt-3 text-[11px]" style={{ color: t.colors.textDim }}>
         <span>Updated {ageDisplay}</span>
-        {thesis.take_profit_price && <span>TP ${thesis.take_profit_price}</span>}
+        <span className="font-mono">{thesis.direction?.toUpperCase()}</span>
       </div>
     </div>
   );

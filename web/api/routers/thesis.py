@@ -23,6 +23,9 @@ class ThesisUpdate(BaseModel):
     direction: str | None = None
     conviction: float | None = None
     thesis_summary: str | None = None
+    fair_value_note: str | None = None
+    # DEPRECATED 2026-04-17 — accepted for back-compat but no longer drives TP
+    # placement. Prefer fair_value_note (narrative text).
     take_profit_price: float | None = None
     invalidation_conditions: list[str] | None = None
     tactical_notes: str | None = None
@@ -68,6 +71,8 @@ async def update_thesis(market: str, body: ThesisUpdate):
         ts.conviction = body.conviction
     if body.thesis_summary is not None:
         ts.thesis_summary = body.thesis_summary
+    if body.fair_value_note is not None:
+        ts.fair_value_note = body.fair_value_note
     if body.take_profit_price is not None:
         ts.take_profit_price = body.take_profit_price
     if body.invalidation_conditions is not None:

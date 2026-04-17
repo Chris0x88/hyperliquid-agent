@@ -820,22 +820,23 @@ def run_heartbeat(
         elif has_stop:
             pos_summary["existing_stop"] = "yes"
 
-        # Take-profit order placement
-        # - With thesis + TP price: use thesis target (e.g. gold→$10k)
-        # - With thesis + no TP price: thesis controls exit, no mechanical TP
-        # - No thesis at all: ALWAYS place mechanical TP (5x ATR above entry)
+        # Take-profit order placement — 2026-04-17 refactor: always mechanical
+        # 5x ATR. Thesis-based price targets (`take_profit_price`) go stale on
+        # news shocks (Iran-US deal evaporated CL's war premium in minutes) and
+        # can't serve as a reliable on-exchange anchor. The thesis stays
+        # directional (LONG/SHORT/NEUTRAL + conviction + invalidation); the TP
+        # level comes from price structure via ATR. Narrative targets live in
+        # thesis.fair_value_note for operator reference only.
         tp_price = None
         tp_reason = ""
-        if thesis and thesis.take_profit_price:
-            tp_price = thesis.take_profit_price
-            tp_reason = f"Thesis TP: {thesis.thesis_summary[:60]}"
-        elif not thesis and atr_val > 0:
-            # No thesis = unmanaged position. Set mechanical TP at 5x ATR from entry.
+        if atr_val > 0:
             if side == "long":
                 tp_price = entry + (5.0 * atr_val)
             else:
                 tp_price = entry - (5.0 * atr_val)
-            tp_reason = f"Mechanical TP (no thesis): 5x ATR=${atr_val:.2f}"
+            tp_reason = f"Mechanical TP: 5x ATR=${atr_val:.2f}"
+            if thesis and getattr(thesis, "fair_value_note", ""):
+                tp_reason += f" | Bias: {thesis.fair_value_note[:60]}"
 
         if tp_price and not dry_run:
             # BUG-FIX 2026-04-08 HB-3: the original heuristic inferred "this

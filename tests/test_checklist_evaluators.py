@@ -126,10 +126,13 @@ class TestTpOnExchange:
         assert status == "warn"
         assert "No TP" in reason
 
-    def test_warn_includes_thesis_tp_hint(self):
+    def test_warn_includes_thesis_direction_hint(self):
+        # 2026-04-17: hint switched from stale numeric TP to thesis direction
+        # + conviction (mechanical 5× ATR now drives on-exchange TP).
         ctx = _base_ctx(orders=[SL_ORDER])
         status, reason, data = eval_tp_on_exchange("xyz:SILVER", ctx)
-        assert "95" in reason  # thesis TP at $95
+        assert "LONG" in reason
+        assert "0.55" in reason
 
     def test_skip_when_no_position(self):
         ctx = _base_ctx(positions=[])

@@ -215,7 +215,8 @@ export interface ThesisData {
   age_hours: number;
   needs_review: boolean;
   is_stale: boolean;
-  take_profit_price: number | null;
+  fair_value_note: string;
+  take_profit_price: number | null;  // deprecated 2026-04-17
   invalidation_conditions: string[];
   tactical_notes: string;
 }
@@ -224,7 +225,8 @@ export interface ThesisUpdate {
   direction: string;
   conviction: number;
   thesis_summary: string;
-  take_profit_price: number | null;
+  fair_value_note: string;
+  take_profit_price: number | null;  // deprecated 2026-04-17
   invalidation_conditions: string[];
   tactical_notes: string;
 }

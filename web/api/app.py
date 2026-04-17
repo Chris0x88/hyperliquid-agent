@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from web.api.dependencies import get_data_dir
-from web.api.routers import account, health, daemon, thesis, config, watchlist, authority, logs, news, strategies, charts, alerts, critiques, agent
+from web.api.routers import account, health, daemon, thesis, config, watchlist, authority, logs, news, strategies, charts, alerts, critiques, agent, signals
 
 
 AUTH_TOKEN_PATH = Path(__file__).resolve().parent.parent / ".auth_token"
@@ -69,5 +69,6 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
     app.include_router(critiques.router, prefix="/api/critiques", tags=["critiques"])
     app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
+    app.include_router(signals.router, prefix="/api/signals", tags=["signals"])
 
     return app

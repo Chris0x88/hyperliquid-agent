@@ -72,7 +72,19 @@ class ThesisState:
     recommended_leverage: float = 5.0
     recommended_size_pct: float = 0.10   # fraction of account
     weekend_leverage_cap: float = 3.0    # reduced during thin liquidity
-    take_profit_price: Optional[float] = None  # thesis-based TP (e.g. gold→$10k). None = no TP.
+
+    # Fair-value narrative. Replaces the mechanical `take_profit_price` anchor
+    # (deprecated 2026-04-17). Thesis is directional/conviction only — numeric
+    # price targets go stale too fast on news shocks (Iran-US deal, Fed pivot,
+    # OPEC shock). Structural narrative stays valid; the exchange TP comes from
+    # mechanical 5x ATR in heartbeat.py. Free-form text, shown in dashboard
+    # alongside direction + conviction.
+    fair_value_note: str = ""
+
+    # DEPRECATED 2026-04-17 — no longer drives TP placement. Kept for schema
+    # back-compat so old thesis files still load. If you see this set on a
+    # live thesis, migrate the number into fair_value_note as narrative.
+    take_profit_price: Optional[float] = None
 
     # Tactical trade guidance
     allow_tactical_trades: bool = True   # if True, execution_engine may enter/exit intraday
@@ -156,7 +168,8 @@ class ThesisState:
             "weekend_leverage_cap": self.weekend_leverage_cap,
             "allow_tactical_trades": self.allow_tactical_trades,
             "tactical_notes": self.tactical_notes,
-            "take_profit_price": self.take_profit_price,
+            "fair_value_note": self.fair_value_note,
+            "take_profit_price": self.take_profit_price,  # deprecated, kept for back-compat
             "last_evaluation_ts": self.last_evaluation_ts,
             "snapshot_ref": self.snapshot_ref,
             "notes": self.notes,
@@ -208,6 +221,7 @@ class ThesisState:
                 weekend_leverage_cap=float(data.get("weekend_leverage_cap", 3.0)),
                 allow_tactical_trades=data.get("allow_tactical_trades", True),
                 tactical_notes=data.get("tactical_notes", ""),
+                fair_value_note=data.get("fair_value_note", ""),
                 take_profit_price=data.get("take_profit_price"),
                 last_evaluation_ts=int(data.get("last_evaluation_ts", 0)),
                 snapshot_ref=data.get("snapshot_ref", ""),

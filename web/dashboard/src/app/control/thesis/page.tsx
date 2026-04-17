@@ -83,7 +83,7 @@ function ThesisEditorCard({
   const [direction, setDirection] = useState(thesis.direction);
   const [conviction, setConviction] = useState(Math.round(thesis.conviction * 100));
   const [summary, setSummary] = useState(thesis.thesis_summary);
-  const [tp, setTp] = useState(thesis.take_profit_price?.toString() ?? "");
+  const [fvNote, setFvNote] = useState(thesis.fair_value_note ?? "");
   const [notes, setNotes] = useState(thesis.tactical_notes);
   const [conditions, setConditions] = useState<string[]>(thesis.invalidation_conditions ?? []);
   const [saving, setSaving] = useState(false);
@@ -93,7 +93,7 @@ function ThesisEditorCard({
     direction !== thesis.direction ||
     conviction !== Math.round(thesis.conviction * 100) ||
     summary !== thesis.thesis_summary ||
-    tp !== (thesis.take_profit_price?.toString() ?? "") ||
+    fvNote !== (thesis.fair_value_note ?? "") ||
     notes !== thesis.tactical_notes ||
     JSON.stringify(conditions) !== JSON.stringify(thesis.invalidation_conditions ?? []);
 
@@ -109,7 +109,7 @@ function ThesisEditorCard({
         direction,
         conviction: conviction / 100,
         thesis_summary: summary,
-        take_profit_price: tp ? parseFloat(tp) : null,
+        fair_value_note: fvNote,
         invalidation_conditions: conditions,
         tactical_notes: notes,
       };
@@ -213,16 +213,20 @@ function ThesisEditorCard({
             </div>
           </div>
 
-          {/* Take Profit */}
+          {/* Fair-value note (replaces Take Profit Price — 2026-04-17) */}
           <div>
             <label className="text-[11px] uppercase tracking-wider mb-1.5 block"
               style={{ color: t.colors.textMuted, fontFamily: t.fonts.heading }}>
-              Take Profit Price
+              Fair-value Note
+              <span className="ml-2 normal-case tracking-normal text-[10px]" style={{ color: t.colors.textDim }}>
+                narrative only — TP comes from mechanical 5× ATR
+              </span>
             </label>
-            <input type="text" value={tp} onChange={(e) => setTp(e.target.value)}
-              placeholder="e.g. 108.00 (blank = mechanical 5× ATR)"
-              className="w-full px-3 py-2 rounded-lg text-[13px] focus:outline-none"
-              style={{ background: t.colors.bg, border: `1px solid ${t.colors.border}`, color: t.colors.text, fontFamily: t.fonts.mono }}
+            <textarea value={fvNote} onChange={(e) => setFvNote(e.target.value)}
+              rows={2} spellCheck={false}
+              placeholder="e.g. Gold $5–6k on debasement; don't trade the number, size off conviction."
+              className="w-full px-3 py-2 rounded-lg text-[12px] leading-relaxed resize-y focus:outline-none"
+              style={{ background: t.colors.bg, border: `1px solid ${t.colors.border}`, color: t.colors.textSecondary, fontFamily: t.fonts.body }}
             />
           </div>
         </div>
