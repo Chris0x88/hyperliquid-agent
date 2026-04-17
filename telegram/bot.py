@@ -1077,6 +1077,11 @@ def cmd_help(token: str, chat_id: str, _args: str) -> None:
         "  /authority — who manages what\n"
         "  /delegate ASSET — hand to agent\n"
         "  /reclaim ASSET — take back\n"
+        "  /stop — abort current agent run\n"
+        "  /steer <msg> — inject steering before next LLM turn\n"
+        "  /cancel — abort run + clear pending approvals\n"
+        "  /follow <msg> — queue follow-up after current run\n"
+        "  /agentstate — live agent state (turn, tool, abort, queues, tokens)\n"
         "\n*Vault*\n"
         "  /rebalancer — status / start / stop\n"
         "  /rebalance — force rebalance now\n"
@@ -2842,6 +2847,13 @@ from telegram.commands.readiness import cmd_readiness  # noqa: E402
 from telegram.commands.activate import cmd_activate  # noqa: E402
 from telegram.commands.adaptlog import cmd_adaptlog  # noqa: E402
 from telegram.commands.checklist import cmd_evening, cmd_morning  # noqa: E402
+from telegram.commands.agent_control import (  # noqa: E402
+    cmd_stop,
+    cmd_steer,
+    cmd_cancel,
+    cmd_follow,
+    cmd_agentstate,
+)
 
 
 def cmd_guide(token: str, chat_id: str, _args: str) -> None:
@@ -2973,6 +2985,13 @@ def cmd_guide(token: str, chat_id: str, _args: str) -> None:
         "`/reclaim BRENTOIL` — take it back to manual\n"
         "\n🤖 Agent = bot makes all decisions (you approve trades)\n"
         "👤 Manual = you trade, bot ensures SL/TP exist\n"
+        "\n🎛 *Agent Runtime Control*\n"
+        "`/stop` — abort the running agent. Current tool finishes; no further tool calls.\n"
+        "`/steer focus on BRENTOIL funding` — inject a steering note before the next LLM turn.\n"
+        "`/cancel` — abort + clear all pending Approve/Reject buttons (I-changed-my-mind).\n"
+        "`/follow check GOLD thesis` — queue a follow-up that runs after the current run settles.\n"
+        "`/agentstate` — pretty-print the live state file: session, turn, current tool, "
+        "abort flag, queue depths, token usage.\n"
         "\n🏦 *Vault (BTC power-law rebalancer)*\n"
         "`/rebalancer` — status, start, stop the 1h rebalance daemon\n"
         "`/rebalance` — force an immediate rebalance (ignores threshold)\n"
@@ -3849,6 +3868,19 @@ HANDLERS = {
     "morning": cmd_morning,
     "/morn": cmd_morning,
     "morn": cmd_morning,
+    # Agent runtime control (deterministic — no AI)
+    "/stop": cmd_stop,
+    "stop": cmd_stop,
+    "/steer": cmd_steer,
+    "steer": cmd_steer,
+    "/cancel": cmd_cancel,
+    "cancel": cmd_cancel,
+    "/follow": cmd_follow,
+    "follow": cmd_follow,
+    "/agentstate": cmd_agentstate,
+    "agentstate": cmd_agentstate,
+    "/as": cmd_agentstate,
+    "as": cmd_agentstate,
 }
 
 
@@ -3934,6 +3966,11 @@ def _set_telegram_commands(token: str) -> None:
         {"command": "authority", "description": "Who manages what"},
         {"command": "delegate", "description": "Hand asset to agent"},
         {"command": "reclaim", "description": "Take asset back"},
+        {"command": "stop", "description": "Abort current agent run (current tool finishes)"},
+        {"command": "steer", "description": "/steer <msg> — inject steering before next LLM turn"},
+        {"command": "cancel", "description": "Abort run + clear all pending approvals"},
+        {"command": "follow", "description": "/follow <msg> — queue follow-up after current run"},
+        {"command": "agentstate", "description": "Show live agent state (turn, tool, abort, queues, tokens)"},
         # Vault
         {"command": "rebalancer", "description": "Rebalancer status/start/stop"},
         {"command": "rebalance", "description": "Force vault rebalance"},
