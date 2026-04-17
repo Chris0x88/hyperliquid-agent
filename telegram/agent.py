@@ -564,7 +564,7 @@ def handle_ai_message(token: str, chat_id: str, text: str, user_name: str = "") 
                 except Exception as e:
                     log.warning("Failed to inject semantic memory: %s", e)
 
-            live_context = _build_live_context()
+            live_context = _build_live_context(user_text=text)
             history = _load_chat_history(_MAX_HISTORY)
 
             messages = [
@@ -1209,12 +1209,17 @@ def _load_recent_entry_critiques(open_coins: set, max_per_coin: int = 1, lookbac
         return ""
 
 
-def _build_live_context() -> str:
+def _build_live_context(user_text: str = "") -> str:
     """Build token-budgeted, relevance-scored context using the context harness.
 
     Uses common.context_harness — the same system designed for thesis evaluation.
     Tiers: CRITICAL (alerts, position, snapshot) > RELEVANT (thesis, memory,
     learnings) > BACKGROUND (research notes, issues).
+
+    Optional user_text: when context_engine.json enabled=true, classifies the
+    user's message intent and appends an ENRICHED CONTEXT block with additional
+    data sources (bot classifier, supply disruptions, calendar, proposals, etc.)
+    that the main harness does not cover. Kill switch: data/config/context_engine.json.
     """
     try:
         from agent.context_harness import build_multi_market_context
@@ -1284,7 +1289,25 @@ def _build_live_context() -> str:
         critiques_text = f"\n{critiques_block}\n" if critiques_block else ""
 
         footer = f"[Context: {assembled.estimated_tokens}t, {assembled.budget_used_pct}% budget, blocks: {', '.join(assembled.blocks_included)}]"
-        return f"{header}\n{alert_prefix}{evals}{critiques_text}{assembled.text}\n{footer}"
+        base = f"{header}\n{alert_prefix}{evals}{critiques_text}{assembled.text}\n{footer}"
+
+        # context_engine.json kill switch — intent-aware enriched block
+        # Pure compute, no LLM cost. Appended AFTER the main harness output.
+        enriched = ""
+        if user_text:
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _ce_cfg_path = _Path(__file__).resolve().parent.parent / "data" / "config" / "context_engine.json"
+                _ce_cfg = _json.loads(_ce_cfg_path.read_text()) if _ce_cfg_path.exists() else {}
+                if _ce_cfg.get("enabled", False):
+                    from engines.analysis.context_engine import classify_intent, assemble_context
+                    intent = classify_intent(user_text)
+                    enriched = assemble_context(intent, account_state, market_snapshots)
+            except Exception as _e:
+                log.debug("context_engine enrichment skipped: %s", _e)
+
+        return base + (f"\n{enriched}" if enriched else "")
 
     except Exception as e:
         log.warning("Context harness failed, using fallback: %s", e)

@@ -1,0 +1,4 @@
+{
+  "_doc": "Intent-aware enriched context block. Inserts ENRICHED CONTEXT into agent prompt based on user message intent classification. Pure compute, no LLM cost.",
+  "enabled": false
+}
