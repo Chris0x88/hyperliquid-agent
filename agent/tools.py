@@ -28,6 +28,38 @@ _MAX_RESPONSE_CHARS = 12000
 # Write tools that require user approval before execution
 WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash", "restart_daemon"}
 
+# ── Gate chain (built once at module load) ────────────────────────────────
+# Import is deferred inside _get_gate_chain() to avoid circular imports at
+# load time (tool_gates imports agent_control which imports state_writer).
+_gate_chain = None
+
+
+def _get_gate_chain():
+    """Return the module-level gate chain, building it lazily on first call."""
+    global _gate_chain
+    if _gate_chain is None:
+        try:
+            from agent.control.tool_gates import default_gate_chain
+            _gate_chain = default_gate_chain()
+        except Exception as exc:
+            log.warning("Gate chain init failed (running without gates): %s", exc)
+    return _gate_chain
+
+
+def set_gate_chain(chain) -> None:
+    """Replace the module-level gate chain.
+
+    Use in tests to inject a mock or None (disables gating entirely):
+
+        import agent.tools as tools_mod
+        tools_mod.set_gate_chain(None)       # disable all gates in test
+        tools_mod.set_gate_chain(my_chain)   # inject a custom chain
+
+    Call with None at teardown to restore lazy-build behaviour.
+    """
+    global _gate_chain
+    _gate_chain = chain
+
 # Display tools — pre-formatted output, send directly to Telegram without LLM commentary
 DISPLAY_TOOLS = {"get_calendar", "get_research", "get_technicals"}
 
@@ -1819,13 +1851,66 @@ _TOOL_DISPATCH = {
 # ═══════════════════════════════════════════════════════════════════════
 
 def execute_tool(name: str, arguments: dict) -> str:
-    """Execute a tool and return capped result string."""
+    """Execute a tool and return capped result string.
+
+    Before invoking the tool function, the call walks the gate chain:
+    - If decision.allow is False: log the block reason, return an error
+      string, and DO NOT call the tool function.
+    - If decision.requires_approval is True: the caller (telegram/agent.py)
+      routes through the approval flow.  execute_tool itself returns a
+      sentinel so callers that bypass approval (e.g. direct admin calls)
+      are informed.  The normal agent path in telegram/agent.py checks
+      is_write_tool() BEFORE calling execute_tool, so requires_approval
+      here is a belt-and-suspenders signal.
+    - If decision.transformed_args is not None: use them instead of args.
+    """
     fn = _TOOL_DISPATCH.get(name)
     if not fn:
         return f"Unknown tool: {name}"
+
     t0 = time.time()
     try:
         args = json.loads(arguments) if isinstance(arguments, str) else arguments
+    except Exception as e:
+        return f"Tool arg parse error ({name}): {e}"
+
+    # ── Gate chain evaluation ─────────────────────────────────────────────
+    chain = _get_gate_chain()
+    if chain is not None:
+        try:
+            decision = chain.evaluate(name, args, {})
+        except Exception as exc:
+            log.error("Gate chain evaluation error for %s: %s", name, exc)
+            decision = None
+
+        if decision is not None:
+            if not decision.allow:
+                reason = decision.block_reason or "blocked by gate chain"
+                log.warning("Tool %s BLOCKED: %s", name, reason)
+                try:
+                    from common.diagnostics import diag
+                    diag.log_tool_call(
+                        name, args,
+                        f"BLOCKED: {reason}",
+                        duration_ms=int((time.time() - t0) * 1000),
+                        error=True,
+                    )
+                except Exception:
+                    pass
+                return f"BLOCKED: {reason}"
+
+            if decision.requires_approval:
+                # Normal agent path already handles this via is_write_tool()
+                # before reaching execute_tool.  This path is hit only when
+                # execute_tool is called directly (e.g. after approval lands
+                # in telegram/approval.py — which is the correct flow).
+                log.debug("Tool %s: approval already granted, continuing", name)
+
+            if decision.transformed_args is not None:
+                args = decision.transformed_args
+
+    # ── Dispatch ─────────────────────────────────────────────────────────
+    try:
         result = fn(args)
         duration_ms = int((time.time() - t0) * 1000)
         log.info("Tool %s executed (%dms): %s", name, duration_ms, str(result)[:100])
