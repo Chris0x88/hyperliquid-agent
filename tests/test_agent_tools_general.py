@@ -105,7 +105,10 @@ class TestEditFile:
         tools_mod._PROJECT_ROOT = tmp_path
 
         try:
-            result = tools_mod.edit_file("test_edit.py", "old_value = 42", "new_value = 99")
+            # allow_unsafe=True needed: synthetic path is outside the
+            # default safe-path allowlist (P3 #11–13 hardening). This test
+            # is verifying the edit/diff/backup mechanics, not the policy.
+            result = tools_mod.edit_file("test_edit.py", "old_value = 42", "new_value = 99", allow_unsafe=True)
             assert result.get("status") == "edited"
             assert "backup" in result  # backup should be created
 
@@ -129,7 +132,7 @@ class TestEditFile:
         original_root = tools_mod._PROJECT_ROOT
         tools_mod._PROJECT_ROOT = tmp_path
         try:
-            result = tools_mod.edit_file("test_dup.py", "x = 1", "x = 2")
+            result = tools_mod.edit_file("test_dup.py", "x = 1", "x = 2", allow_unsafe=True)
             assert "error" in result
             assert "2 times" in result["error"]
         finally:

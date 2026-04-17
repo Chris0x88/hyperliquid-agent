@@ -26,7 +26,7 @@ _HL_API = "https://api.hyperliquid.xyz/info"
 _MAX_RESPONSE_CHARS = 12000
 
 # Write tools that require user approval before execution
-WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash"}
+WRITE_TOOLS = {"place_trade", "update_thesis", "close_position", "set_sl", "set_tp", "memory_write", "edit_file", "run_bash", "restart_daemon"}
 
 # Display tools — pre-formatted output, send directly to Telegram without LLM commentary
 DISPLAY_TOOLS = {"get_calendar", "get_research", "get_technicals"}
@@ -371,13 +371,26 @@ TOOL_DEFS: List[dict] = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Edit a project file by replacing a specific string. Claude Code pattern. REQUIRES APPROVAL.",
+            "description": (
+                "Edit a project file by replacing a specific string. Claude Code pattern. "
+                "REQUIRES APPROVAL. Default-allowed paths: agent/prompts/, data/thesis/, "
+                "data/agent_memory/, data/config/, tests/, docs/. For anything outside that "
+                "set (exchange/, trading/, common/, daemon/, etc) pass allow_unsafe=True — "
+                "only after Chris has explicitly authorized the edit. If a .py edit breaks "
+                "tests the change is REVERTED automatically and the result reports "
+                "EDIT_REVERTED_TESTS_FAILED."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path relative to project root"},
                     "old_str": {"type": "string", "description": "Exact string to find and replace (must be unique in file)"},
                     "new_str": {"type": "string", "description": "Replacement string"},
+                    "allow_unsafe": {
+                        "type": "boolean",
+                        "description": "Pass true to edit a path outside the default allowlist. Use only when Chris has explicitly asked.",
+                        "default": False,
+                    },
                 },
                 "required": ["path", "old_str", "new_str"],
             },
@@ -395,6 +408,19 @@ TOOL_DEFS: List[dict] = [
                 },
                 "required": ["command"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "restart_daemon",
+            "description": (
+                "Restart the trading daemon via launchd (no sudo). REQUIRES APPROVAL. "
+                "Use AFTER a successful edit_file to .py code paths so the daemon picks "
+                "up the change. Chris must explicitly approve — never restart "
+                "mid-conversation without consent (in-flight ticks may be interrupted)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -1205,7 +1231,12 @@ def _tool_memory_write(args: dict) -> str:
 
 def _tool_edit_file(args: dict) -> str:
     from agent.tool_functions import edit_file
-    result = edit_file(args.get("path", ""), args.get("old_str", ""), args.get("new_str", ""))
+    result = edit_file(
+        args.get("path", ""),
+        args.get("old_str", ""),
+        args.get("new_str", ""),
+        allow_unsafe=bool(args.get("allow_unsafe", False)),
+    )
     if "error" in result:
         return result["error"]
     return f"Edited {result['path']} ({result['replacements']} replacement)"
@@ -1222,6 +1253,18 @@ def _tool_run_bash(args: dict) -> str:
         parts.append(f"STDERR: {result['stderr']}")
     parts.append(f"(exit {result['returncode']})")
     return "\n".join(parts)
+
+
+def _tool_restart_daemon(args: dict) -> str:
+    from agent.tool_functions import restart_daemon
+    result = restart_daemon()
+    if "error" in result:
+        return f"restart_daemon failed: {result['error']}"
+    return (
+        f"Daemon restart {result.get('status', 'unknown')}  "
+        f"(bootout rc={result.get('bootout_rc')}, "
+        f"bootstrap rc={result.get('bootstrap_rc')})"
+    )
 
 
 def _tool_get_errors(args: dict) -> str:
@@ -1758,6 +1801,7 @@ _TOOL_DISPATCH = {
     "memory_write": _tool_memory_write,
     "edit_file": _tool_edit_file,
     "run_bash": _tool_run_bash,
+    "restart_daemon": _tool_restart_daemon,
     "get_errors": _tool_get_errors,
     "get_feedback": _tool_get_feedback,
     "introspect_self": _tool_introspect_self,

@@ -26,6 +26,44 @@ _HL_API = "https://api.hyperliquid.xyz/info"
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# edit_file safety policy (P3 #11–13, 2026-04-17)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# An LLM-driven edit_file inside the project root is powerful and risky.
+# A bad edit to exchange/risk_manager.py or trading/heartbeat.py could
+# silently change live trading behavior. The defaults are SAFE-FIRST:
+#
+#   1. Path allowlist — only the prefixes below are editable without an
+#      explicit allow_unsafe=True override. Everything else returns
+#      "PATH_NOT_ALLOWED" and links to this comment.
+#
+#   2. Test-fail revert — when an .py edit lands in an allowlisted path,
+#      pytest runs (already wired). If it fails, the .bak file is
+#      restored over the edit and the result reports
+#      "EDIT_REVERTED_TESTS_FAILED". Existing behavior was to write the
+#      edit anyway and report tests-failing — which leaves a broken
+#      tree on disk for the next tick.
+#
+#   3. Daemon restart is NOT automatic. A new restart_daemon() helper
+#      exists for the agent to call explicitly via approval. Auto-restart
+#      mid-session can stomp in-flight ticks; the agent should propose a
+#      restart and let Chris confirm.
+#
+# To edit something outside the allowlist (e.g. when Chris explicitly
+# says "patch exchange/risk_manager.py"), pass allow_unsafe=True. The
+# tool log marks any unsafe edit so it shows up in audit.
+
+_EDIT_FILE_ALLOWLIST = (
+    "agent/prompts/",
+    "data/thesis/",
+    "data/agent_memory/",
+    "data/config/",
+    "tests/",
+    "docs/",
+)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -542,12 +580,18 @@ def memory_write(topic: str, content: str) -> dict:
         return {"error": f"memory_write failed: {e}"}
 
 
-def edit_file(path: str, old_str: str, new_str: str) -> dict:
+def edit_file(path: str, old_str: str, new_str: str, allow_unsafe: bool = False) -> dict:
     """Edit a file by replacing old_str with new_str. Claude Code pattern.
 
-    Harness improvements:
-    - Returns unified diff so the model sees exactly what changed
-    - Auto-runs pytest if a .py file was edited, feeding results back
+    Safety (P3 #11–13, 2026-04-17):
+      * Path allowlist — see ``_EDIT_FILE_ALLOWLIST`` for the default safe set.
+        Pass ``allow_unsafe=True`` to edit anything else inside the project
+        root (e.g. exchange/*.py, trading/*.py, common/*.py). Unsafe edits
+        are marked in the return so audit shows them clearly.
+      * Test-fail revert — if the edit touches .py and pytest fails, the
+        .bak file is restored and the tool returns EDIT_REVERTED_TESTS_FAILED.
+        Previously the broken edit stayed on disk until the next manual fix.
+      * No auto-restart — use ``restart_daemon()`` explicitly (approval-gated).
     """
     try:
         target = (_PROJECT_ROOT / path).resolve()
@@ -555,6 +599,21 @@ def edit_file(path: str, old_str: str, new_str: str) -> dict:
             return {"error": f"Path outside project: {path}"}
         if not target.exists():
             return {"error": f"File not found: {path}"}
+
+        # Normalize to a project-relative path for allowlist matching.
+        rel = str(target.relative_to(_PROJECT_ROOT))
+        is_allowlisted = any(rel.startswith(prefix) for prefix in _EDIT_FILE_ALLOWLIST)
+        if not is_allowlisted and not allow_unsafe:
+            return {
+                "error": "PATH_NOT_ALLOWED",
+                "detail": (
+                    f"{path} is outside the default edit allowlist. Pass "
+                    f"allow_unsafe=True only when Chris has explicitly asked "
+                    f"for a patch to this path. Allowlist: "
+                    f"{', '.join(_EDIT_FILE_ALLOWLIST)}"
+                ),
+            }
+
         content = target.read_text()
         if old_str not in content:
             return {"error": f"old_str not found in {path}"}
@@ -576,18 +635,66 @@ def edit_file(path: str, old_str: str, new_str: str) -> dict:
             "replacements": 1,
             "backup": str(backup_path.relative_to(_PROJECT_ROOT)),
             "diff": diff,
+            "unsafe_path": (not is_allowlisted),
         }
 
-        # Auto-test: run pytest if .py file changed
+        # Auto-test: run pytest if .py file changed. If it fails, REVERT.
         test_result = _auto_test(path)
         if test_result is not None:
             result["auto_test"] = test_result
             if not test_result["passed"]:
-                result["status"] = "edited_tests_failing"
+                # Revert to backup — don't leave a broken tree on disk.
+                try:
+                    target.write_text(content)
+                    result["status"] = "EDIT_REVERTED_TESTS_FAILED"
+                    result["reverted"] = True
+                except Exception as revert_err:
+                    result["status"] = "edited_tests_failing_REVERT_FAILED"
+                    result["revert_error"] = str(revert_err)
 
         return result
     except Exception as e:
         return {"error": f"edit_file failed: {e}"}
+
+
+def restart_daemon() -> dict:
+    """Restart the trading daemon via launchd. WRITE tool — requires approval.
+
+    Uses the same plist the operator uses at the CLI — not sudo. If launchctl
+    isn't available (non-macOS, or daemon not loaded), returns a clear error.
+
+    The agent should propose a restart AFTER a successful edit_file, then let
+    Chris approve. Never restart mid-conversation without explicit consent —
+    in-flight daemon ticks may be interrupted.
+    """
+    plist_path = _PROJECT_ROOT / "plists" / "com.hyperliquid.daemon.plist"
+    if not plist_path.exists():
+        return {"error": f"plist not found at {plist_path}"}
+    try:
+        # Unload then load. launchctl load is idempotent — safe if already loaded.
+        uid = subprocess.check_output(["id", "-u"], text=True).strip()
+        unload = subprocess.run(
+            ["launchctl", "bootout", f"gui/{uid}/com.hyperliquid.daemon"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # bootout often returns non-zero when the service is already down — don't fail on that.
+        load = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        return {
+            "status": "restarted" if load.returncode == 0 else "restart_attempted",
+            "bootout_rc": unload.returncode,
+            "bootstrap_rc": load.returncode,
+            "bootout_stderr": unload.stderr.strip()[:500],
+            "bootstrap_stderr": load.stderr.strip()[:500],
+        }
+    except FileNotFoundError:
+        return {"error": "launchctl not available on this system"}
+    except subprocess.TimeoutExpired:
+        return {"error": "launchctl command timed out after 10s"}
+    except Exception as e:
+        return {"error": f"restart_daemon failed: {e}"}
 
 
 def run_bash(command: str) -> dict:
