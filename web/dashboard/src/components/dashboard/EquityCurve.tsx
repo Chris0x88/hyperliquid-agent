@@ -152,8 +152,8 @@ export function EquityCurve() {
         priceFormat: { type: "price", precision: 2, minMove: 0.01 },
       });
 
-      chartRef.current = chart as typeof chartRef.current;
-      seriesRef.current = areaSeries as typeof seriesRef.current;
+      chartRef.current = chart as unknown as typeof chartRef.current;
+      seriesRef.current = areaSeries as unknown as typeof seriesRef.current;
 
       // Resize observer — keeps chart width in sync with container
       if (observerRef.current) observerRef.current.disconnect();

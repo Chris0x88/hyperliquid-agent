@@ -3,20 +3,35 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   createChart,
+  createSeriesMarkers,
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type CandlestickData,
   type LineData,
   type HistogramData,
   type Time,
+  type SeriesMarker,
 } from "lightweight-charts";
 import { theme as t } from "@/lib/theme";
 import { sma, ema, bollingerBands } from "@/lib/indicators";
+import { usePolling } from "@/lib/hooks";
+import {
+  getAccountStatus,
+  getChartMarkers,
+  getChartOverlay,
+  type Position,
+  type NewsMarker,
+  type TradeMarker,
+  type LessonMarker,
+  type ChartMarkersResponse,
+  type ChartOverlayResponse,
+} from "@/lib/api";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Candle {
   time: number;
@@ -33,12 +48,13 @@ interface CandleResponse {
   candles: Candle[];
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const MARKETS = ["BTC", "BRENTOIL", "GOLD", "SILVER", "CL", "SP500"] as const;
 type Market = (typeof MARKETS)[number];
 
 const INTERVALS = [
+  { value: "1m", label: "1m" },
   { value: "5m", label: "5m" },
   { value: "15m", label: "15m" },
   { value: "1h", label: "1H" },
@@ -71,23 +87,32 @@ const INDICATOR_LABELS: Record<keyof IndicatorState, string> = {
   ema26: "EMA 26",
 };
 
-// Indicator colors
 const IND_COLORS = {
-  bbUpper: t.colors.tertiary,        // #87CAE6
+  bbUpper: t.colors.tertiary,
   bbMiddle: "rgba(135,202,230,0.55)",
   bbLower: t.colors.tertiary,
-  sma50: t.colors.primary,           // #A26B32
-  sma200: t.colors.secondary,        // #8F7156
-  ema12: "#c084fc",                  // purple-400
-  ema26: "#f472b6",                  // pink-400
+  sma50: t.colors.primary,
+  sma200: t.colors.secondary,
+  ema12: "#c084fc",
+  ema26: "#f472b6",
 };
 
-// ─── Helper: build lightweight-charts series data ─────────────────────────────
+// Severity → color for news markers
+const SEVERITY_COLORS: Record<number, string> = {
+  5: t.colors.danger,
+  4: t.colors.warning,
+  3: t.colors.tertiary,
+  2: t.colors.textMuted,
+  1: t.colors.textDim,
+};
 
-function toLineData(
-  candles: Candle[],
-  values: (number | null)[]
-): LineData[] {
+function severityColor(n: number): string {
+  return SEVERITY_COLORS[Math.min(5, Math.max(1, n))] ?? t.colors.textDim;
+}
+
+// ─── Tiny helpers ─────────────────────────────────────────────────────────────
+
+function toLineData(candles: Candle[], values: (number | null)[]): LineData[] {
   const out: LineData[] = [];
   for (let i = 0; i < candles.length; i++) {
     if (values[i] !== null) {
@@ -97,7 +122,23 @@ function toLineData(
   return out;
 }
 
-// ─── Tiny UI components ───────────────────────────────────────────────────────
+function fmtTs(unix: number): string {
+  return new Date(unix * 1000).toLocaleString("en-AU", {
+    timeZone: "Australia/Brisbane",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fmtPnl(v: number) {
+  const color = v >= 0 ? t.colors.success : t.colors.danger;
+  const sign = v >= 0 ? "+" : "";
+  return { text: `${sign}$${v.toFixed(2)}`, color };
+}
+
+// ─── Segmented control ────────────────────────────────────────────────────────
 
 function SegmentedControl<T extends string>({
   options,
@@ -149,7 +190,7 @@ function IndicatorToggle({
   return (
     <button
       onClick={onToggle}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-all duration-100"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium"
       style={{
         background: active ? "rgba(255,255,255,0.06)" : "transparent",
         color: active ? t.colors.text : t.colors.textDim,
@@ -167,27 +208,72 @@ function IndicatorToggle({
   );
 }
 
-// ─── Chart handle exposed to parent via ref ──────────────────────────────────
+// ─── Chart handle ─────────────────────────────────────────────────────────────
 
 interface ChartHandle {
   updateTick: (candles: Candle[]) => void;
+  setMarkers: (markers: SeriesMarker<Time>[]) => void;
 }
 
-// ─── Main Chart Component ─────────────────────────────────────────────────────
+// ─── Popover ──────────────────────────────────────────────────────────────────
+
+interface PopoverData {
+  title: string;
+  lines: { label: string; value: string; color?: string }[];
+}
+
+function Popover({ data, onClose }: { data: PopoverData; onClose: () => void }) {
+  return (
+    <div
+      className="absolute top-4 right-4 z-30 rounded-xl p-4 shadow-2xl w-72"
+      style={{ background: t.colors.surface, border: `1px solid ${t.colors.border}` }}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <span className="text-[13px] font-semibold" style={{ color: t.colors.text, fontFamily: t.fonts.heading }}>
+          {data.title}
+        </span>
+        <button
+          onClick={onClose}
+          className="text-[12px] px-2 py-0.5 rounded"
+          style={{ color: t.colors.textMuted, cursor: "pointer" }}
+        >
+          x
+        </button>
+      </div>
+      <div className="space-y-2">
+        {data.lines.map((l, i) => (
+          <div key={i} className="flex justify-between gap-4">
+            <span className="text-[11px]" style={{ color: t.colors.textMuted }}>{l.label}</span>
+            <span
+              className="text-[11px] text-right"
+              style={{ color: l.color ?? t.colors.text, fontFamily: t.fonts.mono, maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {l.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main CandleChart component ───────────────────────────────────────────────
 
 function CandleChart({
   candles,
   indicators,
+  markers,
   handleRef,
+  onMarkerClick,
 }: {
   candles: Candle[];
   indicators: IndicatorState;
+  markers: SeriesMarker<Time>[];
   handleRef: React.MutableRefObject<ChartHandle | null>;
+  onMarkerClick?: (markerTime: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-
-  // Series refs
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -197,8 +283,10 @@ function CandleChart({
   const sma200Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema12Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema26Ref = useRef<ISeriesApi<"Line"> | null>(null);
+  // v5 markers plugin (replaces deprecated series.setMarkers)
+  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
-  // ── Create chart on mount ─────────────────────────────────────────────────
+  // Create chart on mount
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -222,16 +310,12 @@ function CandleChart({
         timeVisible: true,
         secondsVisible: false,
       },
-      rightPriceScale: {
-        borderColor: t.colors.border,
-      },
+      rightPriceScale: { borderColor: t.colors.border },
       width: containerRef.current.clientWidth,
-      height: 480,
+      height: 440,
     });
-
     chartRef.current = chart;
 
-    // ── Candlestick series ──────────────────────────────────────────────────
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: t.colors.success,
       downColor: t.colors.danger,
@@ -242,7 +326,6 @@ function CandleChart({
     });
     candleSeriesRef.current = candleSeries;
 
-    // ── Volume histogram on separate price scale ────────────────────────────
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: "rgba(162, 107, 50, 0.4)",
       priceFormat: { type: "volume" },
@@ -254,74 +337,58 @@ function CandleChart({
     });
     volumeSeriesRef.current = volumeSeries;
 
-    // ── Bollinger Bands ─────────────────────────────────────────────────────
     const bbLineOpts = {
       color: IND_COLORS.bbUpper,
       lineWidth: 1 as const,
-      lineStyle: 2 as const, // dashed
+      lineStyle: 2 as const,
       lastValueVisible: false,
       priceLineVisible: false,
     };
     bbUpperRef.current = chart.addSeries(LineSeries, bbLineOpts);
     bbLowerRef.current = chart.addSeries(LineSeries, bbLineOpts);
     bbMiddleRef.current = chart.addSeries(LineSeries, {
-      color: IND_COLORS.bbMiddle,
-      lineWidth: 1 as const,
-      lineStyle: 2 as const,
-      lastValueVisible: false,
-      priceLineVisible: false,
+      color: IND_COLORS.bbMiddle, lineWidth: 1 as const, lineStyle: 2 as const,
+      lastValueVisible: false, priceLineVisible: false,
     });
 
-    // ── SMA / EMA lines ─────────────────────────────────────────────────────
     sma50Ref.current = chart.addSeries(LineSeries, {
-      color: IND_COLORS.sma50,
-      lineWidth: 1 as const,
-      lastValueVisible: true,
-      priceLineVisible: false,
+      color: IND_COLORS.sma50, lineWidth: 1 as const, lastValueVisible: true, priceLineVisible: false,
     });
     sma200Ref.current = chart.addSeries(LineSeries, {
-      color: IND_COLORS.sma200,
-      lineWidth: 1 as const,
-      lastValueVisible: true,
-      priceLineVisible: false,
+      color: IND_COLORS.sma200, lineWidth: 1 as const, lastValueVisible: true, priceLineVisible: false,
     });
     ema12Ref.current = chart.addSeries(LineSeries, {
-      color: IND_COLORS.ema12,
-      lineWidth: 1 as const,
-      lastValueVisible: true,
-      priceLineVisible: false,
+      color: IND_COLORS.ema12, lineWidth: 1 as const, lastValueVisible: true, priceLineVisible: false,
     });
     ema26Ref.current = chart.addSeries(LineSeries, {
-      color: IND_COLORS.ema26,
-      lineWidth: 1 as const,
-      lastValueVisible: true,
-      priceLineVisible: false,
+      color: IND_COLORS.ema26, lineWidth: 1 as const, lastValueVisible: true, priceLineVisible: false,
     });
 
-    // ── Expose tick updater to parent ─────────────────────────────────────
+    // Create the v5 markers plugin (attached to candleSeries)
+    markersPluginRef.current = createSeriesMarkers(candleSeries, []);
+
+    // Expose handles
     handleRef.current = {
       updateTick: (tickCandles: Candle[]) => {
         for (const c of tickCandles) {
-          candleSeriesRef.current?.update({
-            time: c.time as Time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-          });
+          candleSeriesRef.current?.update({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close });
           volumeSeriesRef.current?.update({
-            time: c.time as Time,
-            value: c.volume,
-            color:
-              c.close >= c.open
-                ? "rgba(34, 197, 94, 0.35)"
-                : "rgba(239, 68, 68, 0.35)",
+            time: c.time as Time, value: c.volume,
+            color: c.close >= c.open ? "rgba(34, 197, 94, 0.35)" : "rgba(239, 68, 68, 0.35)",
           });
         }
       },
+      setMarkers: (m: SeriesMarker<Time>[]) => {
+        markersPluginRef.current?.setMarkers(m);
+      },
     };
 
-    // ── Resize observer ─────────────────────────────────────────────────────
+    // Click handler — propagate marker time back up
+    chart.subscribeClick((param) => {
+      if (!param.time) return;
+      onMarkerClick?.(param.time as number);
+    });
+
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
@@ -337,39 +404,26 @@ function CandleChart({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Update data when candles change (full load) ─────────────────────────────
+  // Load candle data
   useEffect(() => {
     if (!candles.length) return;
-
     const closes = candles.map((c) => c.close);
 
-    // Candlestick data
     const candleData: CandlestickData[] = candles.map((c) => ({
-      time: c.time as Time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
+      time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close,
     }));
     candleSeriesRef.current?.setData(candleData);
 
-    // Volume data — color by bar direction
     const volumeData: HistogramData[] = candles.map((c) => ({
-      time: c.time as Time,
-      value: c.volume,
-      color:
-        c.close >= c.open
-          ? "rgba(34, 197, 94, 0.35)"
-          : "rgba(239, 68, 68, 0.35)",
+      time: c.time as Time, value: c.volume,
+      color: c.close >= c.open ? "rgba(34, 197, 94, 0.35)" : "rgba(239, 68, 68, 0.35)",
     }));
     volumeSeriesRef.current?.setData(volumeData);
 
-    // ── Indicators ──────────────────────────────────────────────────────────
     const bb = bollingerBands(closes, 20, 2);
     bbUpperRef.current?.setData(toLineData(candles, bb.upper));
     bbMiddleRef.current?.setData(toLineData(candles, bb.middle));
     bbLowerRef.current?.setData(toLineData(candles, bb.lower));
-
     sma50Ref.current?.setData(toLineData(candles, sma(closes, 50)));
     sma200Ref.current?.setData(toLineData(candles, sma(closes, 200)));
     ema12Ref.current?.setData(toLineData(candles, ema(closes, 12)));
@@ -378,17 +432,11 @@ function CandleChart({
     chartRef.current?.timeScale().fitContent();
   }, [candles]);
 
-  // ── Show/hide indicator series based on toggle state ──────────────────────
+  // Sync indicators visibility
   useEffect(() => {
-    const applyVisibility = (
-      ref: React.MutableRefObject<ISeriesApi<"Line"> | null>,
-      visible: boolean
-    ) => {
-      if (ref.current) {
-        ref.current.applyOptions({ visible });
-      }
+    const applyVisibility = (ref: React.MutableRefObject<ISeriesApi<"Line"> | null>, visible: boolean) => {
+      ref.current?.applyOptions({ visible });
     };
-
     applyVisibility(bbUpperRef, indicators.bb);
     applyVisibility(bbMiddleRef, indicators.bb);
     applyVisibility(bbLowerRef, indicators.bb);
@@ -398,13 +446,523 @@ function CandleChart({
     applyVisibility(ema26Ref, indicators.ema26);
   }, [indicators]);
 
+  // Set markers via the v5 plugin
+  useEffect(() => {
+    markersPluginRef.current?.setMarkers(markers);
+  }, [markers]);
+
   return (
     <div
       ref={containerRef}
       className="w-full rounded-lg overflow-hidden"
-      style={{ height: 480, background: t.colors.surface }}
+      style={{ height: 440, background: t.colors.surface }}
     />
   );
+}
+
+// ─── Position card (sidebar) ──────────────────────────────────────────────────
+
+function PositionCard({ pos }: { pos: Position }) {
+  const pnl = parseFloat(pos.unrealizedPnl);
+  const value = parseFloat(pos.positionValue);
+  const entry = parseFloat(pos.entryPx);
+  const size = parseFloat(pos.szi);
+  const side = size > 0 ? "LONG" : "SHORT";
+  const roe = parseFloat(pos.returnOnEquity) * 100;
+  const sideColor = side === "LONG" ? t.colors.success : t.colors.danger;
+
+  return (
+    <div className="rounded-lg p-3" style={{ background: t.colors.bg, border: `1px solid ${t.colors.border}` }}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold" style={{ color: t.colors.text, fontFamily: t.fonts.heading }}>{pos.coin}</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase"
+            style={{ background: `${sideColor}18`, color: sideColor, border: `1px solid ${sideColor}35` }}>
+            {side}
+          </span>
+        </div>
+        <span className="text-[11px]" style={{ color: t.colors.textMuted }}>{pos.leverage.value}x</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <p className="text-[10px]" style={{ color: t.colors.textMuted }}>Entry</p>
+          <p className="text-[12px]" style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>${entry.toFixed(2)}</p>
+        </div>
+        <div>
+          <p className="text-[10px]" style={{ color: t.colors.textMuted }}>uPnL</p>
+          <p className="text-[12px]" style={{ color: pnl >= 0 ? t.colors.success : t.colors.danger, fontFamily: t.fonts.mono }}>
+            ${pnl.toFixed(2)} ({roe >= 0 ? "+" : ""}{roe.toFixed(1)}%)
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px]" style={{ color: t.colors.textMuted }}>Size</p>
+          <p className="text-[12px]" style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>{Math.abs(size).toFixed(4)}</p>
+        </div>
+        <div>
+          <p className="text-[10px]" style={{ color: t.colors.textMuted }}>Liq.</p>
+          <p className="text-[12px]" style={{ color: t.colors.danger, fontFamily: t.fonts.mono }}>
+            {pos.liquidationPx ? `$${parseFloat(pos.liquidationPx).toFixed(2)}` : "N/A"}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${t.colors.borderLight}` }}>
+        <p className="text-[10px]" style={{ color: t.colors.textMuted }}>Value</p>
+        <p className="text-[12px]" style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>${value.toFixed(2)}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Right sidebar ────────────────────────────────────────────────────────────
+
+function RightSidebar({
+  market,
+  markersData,
+  overlayData,
+  showManipOverlay,
+  onToggleManip,
+}: {
+  market: string;
+  markersData: ChartMarkersResponse | null;
+  overlayData: ChartOverlayResponse | null;
+  showManipOverlay: boolean;
+  onToggleManip: () => void;
+}) {
+  const { data: accountData } = usePolling(getAccountStatus, 10_000);
+  const matchingPositions = accountData?.positions.filter(
+    (p) => p.coin.replace("xyz:", "").toUpperCase() === market.toUpperCase()
+  ) ?? [];
+
+  return (
+    <div
+      className="flex flex-col gap-4 overflow-y-auto"
+      style={{ width: 264, flexShrink: 0 }}
+    >
+      {/* Position card */}
+      <Panel title="Position">
+        {matchingPositions.length === 0 ? (
+          <p className="text-[12px] px-3 pb-3" style={{ color: t.colors.textMuted }}>
+            No open position for {market}
+          </p>
+        ) : (
+          <div className="px-3 pb-3 space-y-2">
+            {matchingPositions.map((p) => <PositionCard key={p.coin} pos={p} />)}
+          </div>
+        )}
+      </Panel>
+
+      {/* Manipulation overlay toggle */}
+      <Panel title="Manipulation Overlay">
+        <div className="px-3 pb-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px]" style={{ color: t.colors.textMuted }}>Sweep-risk overlay</span>
+            <button
+              onClick={onToggleManip}
+              className="px-2.5 py-1 rounded text-[11px] font-medium"
+              style={{
+                background: showManipOverlay ? t.colors.dangerLight : t.colors.neutralLight,
+                color: showManipOverlay ? t.colors.danger : t.colors.textMuted,
+                border: `1px solid ${showManipOverlay ? t.colors.dangerBorder : t.colors.border}`,
+                cursor: "pointer",
+              }}
+            >
+              {showManipOverlay ? "On" : "Off"}
+            </button>
+          </div>
+          {overlayData?.sweep_risk && (
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px]" style={{ color: t.colors.textDim }}>Sweep Risk Score</span>
+                <span className="text-[11px]" style={{ color: t.colors.textMuted, fontFamily: t.fonts.mono }}>
+                  {overlayData.sweep_risk.stub ? "—" : overlayData.sweep_risk.score}
+                </span>
+              </div>
+              {overlayData.sweep_risk.stub && (
+                <p className="text-[10px]" style={{ color: t.colors.textDim }}>
+                  Awaiting Phase 2 sweep_detector
+                </p>
+              )}
+            </div>
+          )}
+          {overlayData && overlayData.liq_zones.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide mb-1.5" style={{ color: t.colors.textDim }}>
+                Liq. Zones ({overlayData.liq_zones.length})
+              </p>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {overlayData.liq_zones.slice(-8).map((z, i) => (
+                  <div key={i} className="flex justify-between text-[10px]">
+                    <span style={{ color: z.side === "bid" ? t.colors.success : t.colors.danger }}>
+                      {z.side.toUpperCase()} ${z.centroid?.toFixed(2)}
+                    </span>
+                    <span style={{ color: t.colors.textDim }}>
+                      ${(z.notional_usd / 1000).toFixed(0)}k
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
+
+      {/* Recent news */}
+      <Panel title="Recent News">
+        <div className="px-3 pb-3 space-y-2 max-h-64 overflow-y-auto">
+          {!markersData || markersData.news.length === 0 ? (
+            <p className="text-[11px]" style={{ color: t.colors.textMuted }}>
+              No news for {market} in the selected window
+            </p>
+          ) : (
+            markersData.news.slice(-10).reverse().map((n, i) => (
+              <div
+                key={i}
+                className="rounded p-2 space-y-0.5"
+                style={{ background: t.colors.bg, border: `1px solid ${t.colors.borderLight}` }}
+              >
+                <div className="flex items-start gap-2">
+                  <span
+                    className="flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1"
+                    style={{ background: severityColor(n.severity) }}
+                  />
+                  <span className="text-[11px] leading-snug" style={{ color: t.colors.text }}>
+                    {n.headline}
+                  </span>
+                </div>
+                <p className="text-[10px] pl-3.5" style={{ color: t.colors.textDim }}>
+                  {fmtTs(n.time)} · sev {n.severity}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </Panel>
+
+      {/* Signals panel */}
+      <Panel title="Signals">
+        <div className="px-3 pb-3">
+          <p className="text-[11px]" style={{ color: t.colors.textMuted }}>
+            Signal feed from alerts pipeline shown here when entries fire.
+          </p>
+          <p className="text-[10px] mt-1" style={{ color: t.colors.textDim }}>
+            Stub — see /alerts for live signals
+          </p>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// Small panel wrapper
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${t.colors.border}`, background: t.colors.surface }}>
+      <div
+        className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider"
+        style={{ color: t.colors.textMuted, borderBottom: `1px solid ${t.colors.border}`, fontFamily: t.fonts.heading }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── Bottom panel tabs ────────────────────────────────────────────────────────
+
+type BottomTab = "trades" | "lessons" | "critiques";
+
+function BottomPanel({
+  market,
+  markersData,
+}: {
+  market: string;
+  markersData: ChartMarkersResponse | null;
+}) {
+  const [activeTab, setActiveTab] = useState<BottomTab>("trades");
+
+  const tabs: { value: BottomTab; label: string }[] = [
+    { value: "trades", label: "Trades" },
+    { value: "lessons", label: "Lessons" },
+    { value: "critiques", label: "Critiques" },
+  ];
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${t.colors.border}`, background: t.colors.surface }}>
+      {/* Tab bar */}
+      <div className="flex" style={{ borderBottom: `1px solid ${t.colors.border}` }}>
+        {tabs.map((tab) => {
+          const active = tab.value === activeTab;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              className="px-4 py-2.5 text-[12px] font-medium"
+              style={{
+                color: active ? t.colors.primary : t.colors.textMuted,
+                borderBottom: active ? `2px solid ${t.colors.primary}` : "2px solid transparent",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+        <div className="flex-1" />
+        <span className="flex items-center px-4 text-[11px]" style={{ color: t.colors.textDim }}>
+          {market}
+        </span>
+      </div>
+
+      {/* Tab content */}
+      <div className="p-4 overflow-x-auto" style={{ maxHeight: 220 }}>
+        {activeTab === "trades" && <TradesTab markersData={markersData} />}
+        {activeTab === "lessons" && <LessonsTab markersData={markersData} />}
+        {activeTab === "critiques" && <CritiquesTab markersData={markersData} />}
+      </div>
+    </div>
+  );
+}
+
+function TradesTab({ markersData }: { markersData: ChartMarkersResponse | null }) {
+  if (!markersData || markersData.trades.length === 0) {
+    return (
+      <EmptyState message="No trade actions recorded for this market in the selected window." />
+    );
+  }
+  const trades = [...markersData.trades].reverse();
+  return (
+    <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
+      <thead>
+        <tr style={{ color: t.colors.textDim }}>
+          <th className="text-left pb-2 pr-4 font-medium">Time (AEST)</th>
+          <th className="text-left pb-2 pr-4 font-medium">Action</th>
+          <th className="text-left pb-2 pr-4 font-medium">Detail</th>
+          <th className="text-left pb-2 font-medium">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {trades.map((tr: TradeMarker, i) => (
+          <tr key={i} style={{ borderTop: `1px solid ${t.colors.borderLight}` }}>
+            <td className="py-1.5 pr-4" style={{ color: t.colors.textMuted, fontFamily: t.fonts.mono }}>
+              {fmtTs(tr.time)}
+            </td>
+            <td className="py-1.5 pr-4" style={{ color: t.colors.text }}>
+              {tr.action}
+            </td>
+            <td className="py-1.5 pr-4 max-w-xs truncate" style={{ color: t.colors.textMuted }}>
+              {tr.reasoning || JSON.stringify(tr.detail).slice(0, 80)}
+            </td>
+            <td className="py-1.5" style={{ color: t.colors.textDim }}>
+              {tr.outcome || "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function LessonsTab({ markersData }: { markersData: ChartMarkersResponse | null }) {
+  if (!markersData || markersData.lessons.length === 0) {
+    return <EmptyState message="No post-mortems for this market in the selected window." />;
+  }
+  const lessons = [...markersData.lessons].reverse();
+  return (
+    <div className="space-y-3">
+      {lessons.map((l: LessonMarker) => {
+        const pnl = fmtPnl(l.pnl_usd);
+        return (
+          <div
+            key={l.lesson_id}
+            className="rounded-lg p-3"
+            style={{ background: t.colors.bg, border: `1px solid ${t.colors.borderLight}` }}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase"
+                  style={{
+                    background: l.direction === "long" ? t.colors.successLight : t.colors.dangerLight,
+                    color: l.direction === "long" ? t.colors.success : t.colors.danger,
+                    border: `1px solid ${l.direction === "long" ? t.colors.successBorder : t.colors.dangerBorder}`,
+                  }}
+                >
+                  {l.direction}
+                </span>
+                <span className="text-[11px]" style={{ color: t.colors.text }}>{l.lesson_type}</span>
+              </div>
+              <span className="text-[11px]" style={{ color: pnl.color, fontFamily: t.fonts.mono }}>
+                {pnl.text} ({l.roe_pct >= 0 ? "+" : ""}{l.roe_pct.toFixed(2)}%)
+              </span>
+            </div>
+            <p className="text-[11px] leading-snug" style={{ color: t.colors.textMuted }}>
+              {l.summary}
+            </p>
+            {l.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {l.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-1.5 py-0.5 rounded text-[9px]"
+                    style={{ background: t.colors.neutralLight, color: t.colors.textDim }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] mt-1.5" style={{ color: t.colors.textDim }}>
+              Closed {fmtTs(l.time)}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CritiquesTab({ markersData }: { markersData: ChartMarkersResponse | null }) {
+  const stubMsg = markersData?.critiques.find((c) => c.stub)?.message;
+  return (
+    <EmptyState
+      message={
+        stubMsg ??
+        "Entry critique markers are not yet wired to chart markers. Available when entry_critic writes post-mortem rows to memory.db."
+      }
+    />
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex items-center justify-center h-20">
+      <p className="text-[12px] text-center max-w-md" style={{ color: t.colors.textMuted }}>
+        {message}
+      </p>
+    </div>
+  );
+}
+
+// ─── Onboarding help sidebar ──────────────────────────────────────────────────
+
+function HelpSidebar({ onClose }: { onClose: () => void }) {
+  const sections = [
+    {
+      title: "Chart",
+      body: "Candlestick OHLCV chart with volume histogram. Use the market selector to switch assets, and the timeframe bar to change the interval. Indicators toggle on/off from the Overlays bar.",
+    },
+    {
+      title: "Markers",
+      body: "Coloured pins on the chart indicate events: news catalysts (triangle-up/down by severity), trade actions (circles), and post-mortem lessons (diamonds). Click a candle near a marker to open its popover.",
+    },
+    {
+      title: "Right Sidebar",
+      body: "Shows the open position for the selected market, liquidation heatmap zones, recent news catalysts, and a placeholder for the manipulation-overlay toggle.",
+    },
+    {
+      title: "Bottom Panel",
+      body: "Three tabs: Trades shows action_log entries; Lessons shows closed-trade post-mortems from memory.db; Critiques will show entry-critic analysis when Phase 2 ships.",
+    },
+    {
+      title: "Manipulation Overlay",
+      body: "Toggle on the sidebar shades candle regions where sweep_detector flagged elevated stop-hunt risk. Returns mock data today — gets real data when Phase 2 sweep_detector ships.",
+    },
+  ];
+  return (
+    <div
+      className="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl overflow-y-auto"
+      style={{ width: 320, background: t.colors.surface, borderLeft: `1px solid ${t.colors.border}` }}
+    >
+      <div
+        className="flex items-center justify-between px-5 py-4"
+        style={{ borderBottom: `1px solid ${t.colors.border}` }}
+      >
+        <span className="text-[15px] font-semibold" style={{ color: t.colors.text, fontFamily: t.fonts.heading }}>
+          Charts Guide
+        </span>
+        <button
+          onClick={onClose}
+          className="text-[12px] px-3 py-1 rounded"
+          style={{ color: t.colors.textMuted, background: t.colors.bg, border: `1px solid ${t.colors.border}`, cursor: "pointer" }}
+        >
+          Close
+        </button>
+      </div>
+      <div className="p-5 space-y-5">
+        {sections.map((s) => (
+          <div key={s.title}>
+            <h4
+              className="text-[12px] font-semibold mb-1.5"
+              style={{ color: t.colors.primary, fontFamily: t.fonts.heading }}
+            >
+              {s.title}
+            </h4>
+            <p className="text-[12px] leading-relaxed" style={{ color: t.colors.textMuted }}>
+              {s.body}
+            </p>
+          </div>
+        ))}
+        <div
+          className="rounded-lg p-3 text-[11px]"
+          style={{ background: t.colors.primaryLight, border: `1px solid ${t.colors.primaryBorder}`, color: t.colors.primary }}
+        >
+          Thesis-driven markets: BTC, BRENTOIL, GOLD, SILVER.
+          <br />
+          CL and SP500 are tracked but not thesis-driven.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Build lightweight-charts markers from API data ───────────────────────────
+
+function buildChartMarkers(markersData: ChartMarkersResponse | null): SeriesMarker<Time>[] {
+  if (!markersData) return [];
+  const out: SeriesMarker<Time>[] = [];
+
+  for (const n of markersData.news) {
+    if (n.stub) continue;
+    out.push({
+      time: n.time as Time,
+      position: n.expected_direction === "bear" ? "aboveBar" : "belowBar",
+      color: severityColor(n.severity),
+      shape: n.expected_direction === "bear" ? "arrowDown" : "arrowUp",
+      text: `N${n.severity}`,
+      size: 1,
+    });
+  }
+
+  for (const tr of markersData.trades) {
+    if (tr.stub) continue;
+    const isExit = tr.action.includes("exit") || tr.action.includes("close");
+    out.push({
+      time: tr.time as Time,
+      position: isExit ? "aboveBar" : "belowBar",
+      color: isExit ? t.colors.warning : t.colors.tertiary,
+      shape: "circle",
+      text: tr.action.slice(0, 3).toUpperCase(),
+      size: 1,
+    });
+  }
+
+  for (const l of markersData.lessons) {
+    if (l.stub) continue;
+    out.push({
+      time: l.time as Time,
+      position: "aboveBar",
+      color: l.pnl_usd >= 0 ? t.colors.success : t.colors.danger,
+      shape: "square",
+      text: "L",
+      size: 1,
+    });
+  }
+
+  // Sort by time — required by lightweight-charts
+  out.sort((a, b) => (a.time as number) - (b.time as number));
+  return out;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -418,16 +976,35 @@ export default function ChartsPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [livePrice, setLivePrice] = useState<Candle | null>(null);
+  const [showManipOverlay, setShowManipOverlay] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [popover, setPopover] = useState<PopoverData | null>(null);
   const chartHandleRef = useRef<ChartHandle | null>(null);
 
-  // ── Full candle load (initial + 60s refresh) ────────────────────────────────
+  // ── Markers + overlay polling ─────────────────────────────────────────────
+  const { data: markersData } = usePolling(
+    useCallback(() => getChartMarkers(market, 72), [market]),
+    60_000
+  );
+  const { data: overlayData } = usePolling(
+    useCallback(() => getChartOverlay(market, 24), [market]),
+    120_000
+  );
+
+  // ── Chart markers (computed from API data) ────────────────────────────────
+  const chartMarkers = buildChartMarkers(markersData);
+
+  // Push markers to chart whenever they change
+  useEffect(() => {
+    chartHandleRef.current?.setMarkers(chartMarkers);
+  }, [chartMarkers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Candle loading ────────────────────────────────────────────────────────
   const fetchCandles = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/charts/candles/${market}?interval=${interval}&limit=500`
-      );
+      const res = await fetch(`/api/charts/candles/${market}?interval=${interval}&limit=500`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail ?? `HTTP ${res.status}`);
@@ -435,9 +1012,7 @@ export default function ChartsPage() {
       const data: CandleResponse = await res.json();
       setCandles(data.candles);
       setLastUpdated(new Date());
-      if (data.candles.length > 0) {
-        setLivePrice(data.candles[data.candles.length - 1]);
-      }
+      if (data.candles.length > 0) setLivePrice(data.candles[data.candles.length - 1]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -445,24 +1020,17 @@ export default function ChartsPage() {
     }
   }, [market, interval]);
 
-  // Fetch on mount + whenever market/interval changes
-  useEffect(() => {
-    fetchCandles();
-  }, [fetchCandles]);
-
-  // Full refresh every 60s (reloads indicators, catches new candle boundaries)
+  useEffect(() => { fetchCandles(); }, [fetchCandles]);
   useEffect(() => {
     const id = window.setInterval(fetchCandles, 60_000);
     return () => window.clearInterval(id);
   }, [fetchCandles]);
 
-  // ── Live tick poll (3s) — uses series.update(), no chart redraw ────────────
+  // ── Live tick poll (3s) ───────────────────────────────────────────────────
   useEffect(() => {
     const id = window.setInterval(async () => {
       try {
-        const res = await fetch(
-          `/api/charts/candles/${market}/tick?interval=${interval}`
-        );
+        const res = await fetch(`/api/charts/candles/${market}/tick?interval=${interval}`);
         if (!res.ok) return;
         const data: CandleResponse = await res.json();
         if (data.candles.length > 0) {
@@ -471,23 +1039,89 @@ export default function ChartsPage() {
           setLastUpdated(new Date());
         }
       } catch {
-        // silent — tick failures are non-critical
+        // silent
       }
     }, 3_000);
     return () => window.clearInterval(id);
   }, [market, interval]);
 
-  const toggleIndicator = (key: keyof IndicatorState) => {
+  const toggleIndicator = (key: keyof IndicatorState) =>
     setIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+
+  // Click on chart — find nearest marker and show popover
+  const handleMarkerClick = useCallback(
+    (clickTime: number) => {
+      if (!markersData) return;
+      // Find the closest marker within 3 candle-widths
+      const WINDOW = 3 * 3600; // 3 hours in seconds, rough
+      const allMarkers = [
+        ...markersData.news.filter((n) => !n.stub),
+        ...markersData.trades.filter((tr) => !tr.stub),
+        ...markersData.lessons.filter((l) => !l.stub),
+      ];
+      const nearest = allMarkers
+        .filter((m) => Math.abs(m.time - clickTime) <= WINDOW)
+        .sort((a, b) => Math.abs(a.time - clickTime) - Math.abs(b.time - clickTime))[0];
+
+      if (!nearest) {
+        setPopover(null);
+        return;
+      }
+
+      if (nearest.type === "news") {
+        const n = nearest as NewsMarker;
+        setPopover({
+          title: `News · Sev ${n.severity}`,
+          lines: [
+            { label: "Headline", value: n.headline },
+            { label: "Category", value: n.category },
+            { label: "Source", value: n.source },
+            { label: "Direction", value: n.expected_direction ?? "—" },
+            { label: "Rationale", value: n.rationale },
+            { label: "Time (AEST)", value: fmtTs(n.time) },
+          ],
+        });
+      } else if (nearest.type === "trade") {
+        const tr = nearest as TradeMarker;
+        setPopover({
+          title: `Trade · ${tr.action}`,
+          lines: [
+            { label: "Action", value: tr.action },
+            { label: "Reasoning", value: tr.reasoning || "—" },
+            { label: "Outcome", value: tr.outcome || "—" },
+            { label: "Time (AEST)", value: fmtTs(tr.time) },
+          ],
+        });
+      } else if (nearest.type === "lesson") {
+        const l = nearest as LessonMarker;
+        const pnl = fmtPnl(l.pnl_usd);
+        setPopover({
+          title: `Lesson · ${l.lesson_type}`,
+          lines: [
+            { label: "Direction", value: l.direction },
+            { label: "Outcome", value: l.outcome },
+            { label: "PnL", value: pnl.text, color: pnl.color },
+            { label: "ROE", value: `${l.roe_pct >= 0 ? "+" : ""}${l.roe_pct.toFixed(2)}%`, color: pnl.color },
+            { label: "Summary", value: l.summary.slice(0, 120) + (l.summary.length > 120 ? "…" : "") },
+            { label: "Tags", value: l.tags.join(", ") || "—" },
+            { label: "Closed", value: fmtTs(l.time) },
+          ],
+        });
+      }
+    },
+    [markersData]
+  );
 
   const marketOptions = MARKETS.map((m) => ({ value: m, label: m }));
   const intervalOptions = INTERVALS.map((i) => ({ value: i.value, label: i.label }));
 
   return (
-    <div className="p-8 space-y-6 max-w-[1400px]">
+    <div className="p-6 space-y-4 max-w-[1600px]">
+      {/* Help sidebar overlay */}
+      {showHelp && <HelpSidebar onClose={() => setShowHelp(false)} />}
+
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2
             className="text-2xl font-semibold"
@@ -495,33 +1129,20 @@ export default function ChartsPage() {
           >
             Charts
           </h2>
-          <p className="text-[13px] mt-1" style={{ color: t.colors.textMuted }}>
-            OHLCV candlestick charts with technical overlays
+          <p className="text-[13px] mt-0.5" style={{ color: t.colors.textMuted }}>
+            OHLCV with news, trade, and lesson markers
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Market selector */}
-          <SegmentedControl
-            options={marketOptions}
-            value={market}
-            onChange={(v) => setMarket(v as Market)}
-          />
-
-          {/* Interval selector */}
-          <SegmentedControl
-            options={intervalOptions}
-            value={interval}
-            onChange={(v) => setInterval(v as Interval)}
-          />
-
-          {/* Refresh button */}
+          <SegmentedControl options={marketOptions} value={market} onChange={(v) => setMarket(v as Market)} />
+          <SegmentedControl options={intervalOptions} value={interval} onChange={(v) => setInterval(v as Interval)} />
           <button
             onClick={fetchCandles}
             disabled={loading}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all"
+            className="px-3 py-1.5 rounded-lg text-[12px] font-medium"
             style={{
-              background: loading ? t.colors.primaryLight : t.colors.primaryLight,
+              background: t.colors.primaryLight,
               color: t.colors.primary,
               border: `1px solid ${t.colors.primaryBorder}`,
               cursor: loading ? "wait" : "pointer",
@@ -530,220 +1151,191 @@ export default function ChartsPage() {
           >
             {loading ? "Loading…" : "Refresh"}
           </button>
+          <button
+            onClick={() => setShowHelp((v) => !v)}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-semibold"
+            title="Chart guide"
+            style={{
+              background: t.colors.neutralLight,
+              color: t.colors.textMuted,
+              border: `1px solid ${t.colors.border}`,
+              cursor: "pointer",
+            }}
+          >
+            ?
+          </button>
         </div>
       </div>
 
-      {/* ── Chart card ────────────────────────────────────────────────────── */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{
-          border: `1px solid ${t.colors.border}`,
-          background: t.colors.surface,
-        }}
-      >
-        {/* Card header: market name + indicator toggles */}
-        <div
-          className="flex items-center justify-between px-5 py-3 flex-wrap gap-3"
-          style={{ borderBottom: `1px solid ${t.colors.border}` }}
-        >
-          <div className="flex items-center gap-3">
-            <span
-              className="text-[15px] font-semibold"
-              style={{ color: t.colors.text, fontFamily: t.fonts.heading }}
+      {/* ── Main layout: chart + right sidebar ───────────────────────────── */}
+      <div className="flex gap-4 items-start">
+        {/* Chart column */}
+        <div className="flex-1 min-w-0 space-y-0">
+          {/* Chart card */}
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ border: `1px solid ${t.colors.border}`, background: t.colors.surface }}
+          >
+            {/* Card header */}
+            <div
+              className="flex items-center justify-between px-4 py-2.5 flex-wrap gap-3"
+              style={{ borderBottom: `1px solid ${t.colors.border}` }}
             >
-              {market}
-            </span>
-            <span
-              className="text-[11px] px-2 py-0.5 rounded"
-              style={{
-                background: t.colors.primaryLight,
-                color: t.colors.primary,
-                border: `1px solid ${t.colors.primaryBorder}`,
-              }}
-            >
-              {interval}
-            </span>
-            {candles.length > 0 && (
-              <span className="text-[11px]" style={{ color: t.colors.textMuted }}>
-                {candles.length} candles
-              </span>
+              <div className="flex items-center gap-3">
+                <span
+                  className="text-[15px] font-semibold"
+                  style={{ color: t.colors.text, fontFamily: t.fonts.heading }}
+                >
+                  {market}
+                </span>
+                <span
+                  className="text-[11px] px-2 py-0.5 rounded"
+                  style={{
+                    background: t.colors.primaryLight,
+                    color: t.colors.primary,
+                    border: `1px solid ${t.colors.primaryBorder}`,
+                  }}
+                >
+                  {interval}
+                </span>
+                {candles.length > 0 && (
+                  <span className="text-[11px]" style={{ color: t.colors.textMuted }}>
+                    {candles.length} candles
+                  </span>
+                )}
+                {markersData && (
+                  <span className="text-[11px]" style={{ color: t.colors.textDim }}>
+                    {markersData.news.length} news · {markersData.trades.length} actions · {markersData.lessons.length} lessons
+                  </span>
+                )}
+              </div>
+
+              {/* Indicator toggles */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span
+                  className="text-[10px] font-medium uppercase tracking-wider mr-1"
+                  style={{ color: t.colors.textDim }}
+                >
+                  Overlays
+                </span>
+                {(Object.keys(indicators) as (keyof IndicatorState)[]).map((key) => {
+                  const colorMap: Record<keyof IndicatorState, string> = {
+                    bb: IND_COLORS.bbUpper,
+                    sma50: IND_COLORS.sma50,
+                    sma200: IND_COLORS.sma200,
+                    ema12: IND_COLORS.ema12,
+                    ema26: IND_COLORS.ema26,
+                  };
+                  return (
+                    <IndicatorToggle
+                      key={key}
+                      label={INDICATOR_LABELS[key]}
+                      active={indicators[key]}
+                      color={colorMap[key]}
+                      onToggle={() => toggleIndicator(key)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Chart area */}
+            <div className="relative">
+              {error && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center z-10 rounded-b-xl"
+                  style={{ background: t.colors.surface }}
+                >
+                  <div
+                    className="text-[13px] px-4 py-3 rounded-lg"
+                    style={{
+                      background: t.colors.dangerLight,
+                      color: t.colors.danger,
+                      border: `1px solid ${t.colors.dangerBorder}`,
+                    }}
+                  >
+                    {error}
+                  </div>
+                  <p className="text-[11px] mt-2" style={{ color: t.colors.textMuted }}>
+                    Candle data may not be available for {market} {interval} yet.
+                  </p>
+                </div>
+              )}
+              {!error && candles.length === 0 && !loading && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center z-10"
+                  style={{ background: t.colors.surface, height: 440 }}
+                >
+                  <div className="text-[13px]" style={{ color: t.colors.textMuted }}>
+                    No candle data for {market} {interval}
+                  </div>
+                  <p className="text-[11px] mt-1" style={{ color: t.colors.textDim }}>
+                    The candle cache may not have populated this market yet.
+                  </p>
+                </div>
+              )}
+
+              <CandleChart
+                candles={candles}
+                indicators={indicators}
+                markers={chartMarkers}
+                handleRef={chartHandleRef}
+                onMarkerClick={handleMarkerClick}
+              />
+
+              {/* Popover */}
+              {popover && (
+                <Popover data={popover} onClose={() => setPopover(null)} />
+              )}
+            </div>
+
+            {/* Footer */}
+            {lastUpdated && (
+              <div
+                className="px-4 py-2 flex items-center justify-between"
+                style={{ borderTop: `1px solid ${t.colors.border}` }}
+              >
+                <div className="flex items-center gap-4 text-[11px]" style={{ color: t.colors.textDim }}>
+                  {livePrice && (() => {
+                    const prev = candles.length > 1 ? candles[candles.length - 2] : null;
+                    const change = prev ? ((livePrice.close - prev.close) / prev.close) * 100 : null;
+                    return (
+                      <>
+                        <span>
+                          Last:{" "}
+                          <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>
+                            {livePrice.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                          </span>
+                        </span>
+                        {change !== null && (
+                          <span style={{ color: change >= 0 ? t.colors.success : t.colors.danger, fontFamily: t.fonts.mono }}>
+                            {change >= 0 ? "+" : ""}{change.toFixed(2)}%
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <span className="text-[11px]" style={{ color: t.colors.textDim }}>
+                  Updated {lastUpdated.toLocaleTimeString()}
+                </span>
+              </div>
             )}
           </div>
-
-          {/* Indicator toggles */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span
-              className="text-[10px] font-medium uppercase tracking-wider mr-1"
-              style={{ color: t.colors.textDim }}
-            >
-              Overlays
-            </span>
-            {(Object.keys(indicators) as (keyof IndicatorState)[]).map((key) => {
-              const colorMap: Record<keyof IndicatorState, string> = {
-                bb: IND_COLORS.bbUpper,
-                sma50: IND_COLORS.sma50,
-                sma200: IND_COLORS.sma200,
-                ema12: IND_COLORS.ema12,
-                ema26: IND_COLORS.ema26,
-              };
-              return (
-                <IndicatorToggle
-                  key={key}
-                  label={INDICATOR_LABELS[key]}
-                  active={indicators[key]}
-                  color={colorMap[key]}
-                  onToggle={() => toggleIndicator(key)}
-                />
-              );
-            })}
-          </div>
         </div>
 
-        {/* Chart area */}
-        <div className="relative">
-          {error && (
-            <div
-              className="absolute inset-0 flex flex-col items-center justify-center z-10 rounded-b-xl"
-              style={{ background: t.colors.surface }}
-            >
-              <div
-                className="text-[13px] px-4 py-3 rounded-lg"
-                style={{
-                  background: t.colors.dangerLight,
-                  color: t.colors.danger,
-                  border: `1px solid ${t.colors.dangerBorder}`,
-                }}
-              >
-                {error}
-              </div>
-              <p className="text-[11px] mt-2" style={{ color: t.colors.textMuted }}>
-                Candle data may not be available for this market/interval yet.
-              </p>
-            </div>
-          )}
-
-          {!error && candles.length === 0 && !loading && (
-            <div
-              className="absolute inset-0 flex flex-col items-center justify-center z-10"
-              style={{ background: t.colors.surface, height: 480 }}
-            >
-              <div className="text-[13px]" style={{ color: t.colors.textMuted }}>
-                No candle data for {market} {interval}
-              </div>
-              <p className="text-[11px] mt-1" style={{ color: t.colors.textDim }}>
-                The candle cache may not have populated this market yet.
-              </p>
-            </div>
-          )}
-
-          <CandleChart candles={candles} indicators={indicators} handleRef={chartHandleRef} />
-        </div>
-
-        {/* Card footer — live price from tick */}
-        {lastUpdated && (
-          <div
-            className="px-5 py-2 flex items-center justify-between"
-            style={{ borderTop: `1px solid ${t.colors.border}` }}
-          >
-            <div className="flex items-center gap-4 text-[11px]" style={{ color: t.colors.textDim }}>
-              {livePrice && (() => {
-                const prev = candles.length > 1 ? candles[candles.length - 2] : null;
-                const change = prev ? ((livePrice.close - prev.close) / prev.close) * 100 : null;
-                return (
-                  <>
-                    <span>
-                      Last:{" "}
-                      <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>
-                        {livePrice.close.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 4,
-                        })}
-                      </span>
-                    </span>
-                    {change !== null && (
-                      <span
-                        style={{
-                          color: change >= 0 ? t.colors.success : t.colors.danger,
-                          fontFamily: t.fonts.mono,
-                        }}
-                      >
-                        {change >= 0 ? "+" : ""}
-                        {change.toFixed(2)}%
-                      </span>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-            <span className="text-[11px]" style={{ color: t.colors.textDim }}>
-              Updated {lastUpdated.toLocaleTimeString()}
-            </span>
-          </div>
-        )}
+        {/* Right sidebar */}
+        <RightSidebar
+          market={market}
+          markersData={markersData ?? null}
+          overlayData={overlayData ?? null}
+          showManipOverlay={showManipOverlay}
+          onToggleManip={() => setShowManipOverlay((v) => !v)}
+        />
       </div>
 
-      {/* ── Indicator legend ──────────────────────────────────────────────── */}
-      <div
-        className="rounded-xl px-5 py-4"
-        style={{
-          border: `1px solid ${t.colors.border}`,
-          background: t.colors.surface,
-        }}
-      >
-        <h3
-          className="text-[11px] font-medium uppercase tracking-wider mb-3"
-          style={{ color: t.colors.textMuted, fontFamily: t.fonts.heading }}
-        >
-          Indicator Reference
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {[
-            {
-              key: "bb" as const,
-              color: IND_COLORS.bbUpper,
-              desc: "Bollinger Bands · 20-period SMA ± 2σ — measures volatility envelope",
-            },
-            {
-              key: "sma50" as const,
-              color: IND_COLORS.sma50,
-              desc: "SMA 50 · 50-bar simple moving average — medium-term trend",
-            },
-            {
-              key: "sma200" as const,
-              color: IND_COLORS.sma200,
-              desc: "SMA 200 · 200-bar simple moving average — long-term trend",
-            },
-            {
-              key: "ema12" as const,
-              color: IND_COLORS.ema12,
-              desc: "EMA 12 · Fast exponential moving average — short-term momentum",
-            },
-            {
-              key: "ema26" as const,
-              color: IND_COLORS.ema26,
-              desc: "EMA 26 · Slow exponential moving average — MACD baseline",
-            },
-          ].map(({ key, color, desc }) => (
-            <div key={key} className="flex gap-2">
-              <div
-                className="w-0.5 flex-shrink-0 rounded-full mt-0.5"
-                style={{ background: color, minHeight: 16 }}
-              />
-              <div>
-                <span
-                  className="text-[11px] font-medium block"
-                  style={{ color: indicators[key] ? t.colors.text : t.colors.textDim }}
-                >
-                  {INDICATOR_LABELS[key]}
-                </span>
-                <span className="text-[10px]" style={{ color: t.colors.textDim }}>
-                  {desc.split(" · ")[1]}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* ── Bottom panel ──────────────────────────────────────────────────── */}
+      <BottomPanel market={market} markersData={markersData ?? null} />
     </div>
   );
 }

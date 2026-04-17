@@ -1,8 +1,15 @@
-"""Candle OHLCV data endpoints for the charting page."""
+"""Candle OHLCV data endpoints for the charting page.
+
+Extended with:
+  GET /charts/{market}/markers  — news, trade, lesson, critique markers
+  GET /charts/{market}/overlay  — liquidation zones + sweep-risk score
+"""
 
 from __future__ import annotations
 
+import json
 import logging
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -18,6 +25,7 @@ if str(_project_root) not in sys.path:
 
 from engines.data.candle_cache import CandleCache, INTERVAL_MS
 from web.api.dependencies import DATA_DIR
+from web.api.readers.jsonl_reader import FileEventReader
 
 log = logging.getLogger("charts")
 
@@ -338,3 +346,276 @@ async def get_candle_meta(coin: str):
         _reset_cache()
 
     return result
+
+
+# ─── Marker data readers ──────────────────────────────────────────────────────
+
+_catalysts_reader = FileEventReader(DATA_DIR / "news" / "catalysts.jsonl")
+_headlines_reader = FileEventReader(DATA_DIR / "news" / "headlines.jsonl")
+_MEMORY_DB = DATA_DIR / "memory" / "memory.db"
+_HEATMAP_ZONES = DATA_DIR / "heatmap" / "zones.jsonl"
+
+
+def _memory_conn() -> sqlite3.Connection | None:
+    """Open a read-only connection to memory.db; return None if not found."""
+    if not _MEMORY_DB.exists():
+        return None
+    conn = sqlite3.connect(str(_MEMORY_DB), check_same_thread=False, timeout=5)
+    conn.execute("PRAGMA query_only=ON")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _coin_matches(coin: str, value: str | list) -> bool:
+    """True if the canonical coin name (e.g. BRENTOIL) appears in value.
+
+    Handles both native form ('BRENTOIL') and xyz: prefix ('xyz:BRENTOIL').
+    Value may be a string or a list of strings.
+    """
+    forms = {coin.upper(), f"xyz:{coin.upper()}"}
+    if isinstance(value, list):
+        return any(v.upper() in forms or v.replace("xyz:", "").upper() == coin.upper() for v in value)
+    return value.upper() in forms or value.replace("xyz:", "").upper() == coin.upper()
+
+
+def _read_zones_for_market(canonical: str, limit: int = 50) -> list[dict]:
+    """Read the most recent heatmap zones for a market from zones.jsonl."""
+    if not _HEATMAP_ZONES.exists():
+        return []
+    zones: list[dict] = []
+    try:
+        with open(_HEATMAP_ZONES, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    z = json.loads(line)
+                    if _coin_matches(canonical, z.get("instrument", "")):
+                        zones.append(z)
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    # Return most recent `limit` zones
+    return zones[-limit:]
+
+
+# ─── /markers endpoint ────────────────────────────────────────────────────────
+
+@router.get("/{market}/markers")
+async def get_chart_markers(
+    market: str,
+    lookback_h: int = Query(default=72, ge=1, le=8760, description="Hours of history to include"),
+):
+    """Chart marker data for a market.
+
+    Returns four lists:
+    - news: catalyst events with timestamp, severity, headline, rationale
+    - trades: entry/exit markers from action_log
+    - lessons: post-mortems from lessons table (closed-trade context)
+    - critiques: entry critique markers (stub — entry_critic not yet wired to DB)
+
+    Any list that has no underlying data source returns an empty list with
+    stub=True so the frontend can render placeholder surfaces.
+    """
+    canonical = _resolve_coin(market)
+    cutoff_ms = int((time.time() - lookback_h * 3600) * 1000)
+    cutoff_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - lookback_h * 3600))
+
+    # ── News markers ──────────────────────────────────────────────────────────
+    # Join catalysts (have instruments + severity) with headlines (have title/url)
+    headlines_by_id: dict[str, dict] = {}
+    for h in _headlines_reader.read_latest(500):
+        hid = h.get("id")
+        if hid:
+            headlines_by_id[hid] = h
+
+    news_markers: list[dict] = []
+    for c in _catalysts_reader.read_latest(500):
+        instruments = c.get("instruments", [])
+        if not _coin_matches(canonical, instruments):
+            continue
+        event_ts_iso = c.get("event_date") or c.get("created_at", "")
+        # Parse ISO to unix seconds for the chart
+        try:
+            import datetime as dt
+            ts = dt.datetime.fromisoformat(event_ts_iso.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            continue
+        if ts * 1000 < cutoff_ms:
+            continue
+        hid = c.get("headline_id", "")
+        hl = headlines_by_id.get(hid, {})
+        news_markers.append({
+            "time": int(ts),
+            "type": "news",
+            "severity": c.get("severity", 1),          # 1-5
+            "category": c.get("category", "unknown"),
+            "headline": hl.get("title", c.get("rationale", "News event")),
+            "source": hl.get("source", ""),
+            "url": hl.get("url", ""),
+            "rationale": c.get("rationale", ""),
+            "expected_direction": c.get("expected_direction"),
+            "stub": False,
+        })
+    news_markers.sort(key=lambda x: x["time"])
+
+    # ── Trade / action markers from action_log ────────────────────────────────
+    trade_markers: list[dict] = []
+    conn = _memory_conn()
+    if conn is not None:
+        try:
+            rows = conn.execute(
+                """
+                SELECT timestamp_ms, market, action_type, detail, reasoning, outcome
+                FROM action_log
+                WHERE market = ? AND timestamp_ms >= ?
+                ORDER BY timestamp_ms ASC
+                """,
+                (canonical, cutoff_ms),
+            ).fetchall()
+            for r in rows:
+                detail_raw = r["detail"] or "{}"
+                try:
+                    detail = json.loads(detail_raw) if detail_raw.startswith("{") else {}
+                except json.JSONDecodeError:
+                    detail = {}
+                trade_markers.append({
+                    "time": r["timestamp_ms"] // 1000,
+                    "type": "trade",
+                    "action": r["action_type"],
+                    "market": r["market"],
+                    "detail": detail,
+                    "reasoning": r["reasoning"] or "",
+                    "outcome": r["outcome"] or "",
+                    "stub": False,
+                })
+        except Exception as exc:
+            log.debug("action_log query failed: %s", exc)
+        finally:
+            conn.close()
+    else:
+        trade_markers = []  # No memory DB yet
+
+    # ── Lesson markers from lessons table ─────────────────────────────────────
+    lesson_markers: list[dict] = []
+    conn2 = _memory_conn()
+    if conn2 is not None:
+        try:
+            rows2 = conn2.execute(
+                """
+                SELECT id, created_at, trade_closed_at, market, direction,
+                       lesson_type, outcome, pnl_usd, roe_pct, holding_ms,
+                       conviction_at_open, summary, tags
+                FROM lessons
+                WHERE market = ? AND trade_closed_at >= ?
+                ORDER BY trade_closed_at ASC
+                """,
+                (canonical, cutoff_iso),
+            ).fetchall()
+            for r in rows2:
+                try:
+                    import datetime as dt
+                    ts = dt.datetime.fromisoformat(
+                        r["trade_closed_at"].replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    continue
+                try:
+                    tags = json.loads(r["tags"]) if r["tags"] else []
+                except json.JSONDecodeError:
+                    tags = []
+                lesson_markers.append({
+                    "time": int(ts),
+                    "type": "lesson",
+                    "lesson_id": r["id"],
+                    "market": r["market"],
+                    "direction": r["direction"],
+                    "lesson_type": r["lesson_type"],
+                    "outcome": r["outcome"],
+                    "pnl_usd": r["pnl_usd"],
+                    "roe_pct": r["roe_pct"],
+                    "holding_ms": r["holding_ms"],
+                    "conviction_at_open": r["conviction_at_open"],
+                    "summary": r["summary"],
+                    "tags": tags,
+                    "stub": False,
+                })
+        except Exception as exc:
+            log.debug("lessons query failed: %s", exc)
+        finally:
+            conn2.close()
+
+    # ── Entry critique markers — stub until entry_critic writes to DB ─────────
+    critique_markers: list[dict] = [{
+        "time": 0,
+        "type": "critique",
+        "stub": True,
+        "message": "Entry critiques not yet wired to chart markers. Available when entry_critic writes post-mortem rows to memory.db.",
+    }] if not lesson_markers else []
+
+    return {
+        "market": canonical,
+        "lookback_h": lookback_h,
+        "news": news_markers,
+        "trades": trade_markers,
+        "lessons": lesson_markers,
+        "critiques": critique_markers,
+    }
+
+
+# ─── /overlay endpoint ────────────────────────────────────────────────────────
+
+@router.get("/{market}/overlay")
+async def get_chart_overlay(
+    market: str,
+    lookback_h: int = Query(default=24, ge=1, le=720),
+):
+    """Manipulation-overlay data for the chart.
+
+    Returns:
+    - liq_zones: list of liquidation-heatmap zones for the market
+    - cascades: recent cascade events (stub — sweep_detector not yet shipped)
+    - sweep_risk: integer 0-100 risk score from sweep_detector (stub today)
+
+    Items with stub=True will be replaced in-place when Phase 2 sweep_detector ships.
+    """
+    canonical = _resolve_coin(market)
+
+    # ── Liquidation heatmap zones ─────────────────────────────────────────────
+    raw_zones = _read_zones_for_market(canonical, limit=100)
+    liq_zones: list[dict] = []
+    for z in raw_zones:
+        liq_zones.append({
+            "snapshot_at": z.get("snapshot_at", ""),
+            "side": z.get("side", ""),           # "bid" | "ask"
+            "price_low": z.get("price_low"),
+            "price_high": z.get("price_high"),
+            "centroid": z.get("centroid"),
+            "notional_usd": z.get("notional_usd"),
+            "distance_bps": z.get("distance_bps"),
+            "rank": z.get("rank", 1),
+            "stub": False,
+        })
+
+    # ── Cascades — stub (sweep_detector Phase 2) ──────────────────────────────
+    cascades: list[dict] = [{
+        "stub": True,
+        "message": "Cascade events require sweep_detector (Phase 2). Returns real data when shipped.",
+    }]
+
+    # ── Sweep-risk score — stub ───────────────────────────────────────────────
+    sweep_risk = {
+        "score": 0,
+        "label": "Unknown",
+        "stub": True,
+        "message": "Sweep risk score from sweep_detector (Phase 2). Returns 0-100 when shipped.",
+    }
+
+    return {
+        "market": canonical,
+        "liq_zones": liq_zones,
+        "cascades": cascades,
+        "sweep_risk": sweep_risk,
+    }
