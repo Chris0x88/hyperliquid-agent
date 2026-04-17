@@ -39,6 +39,7 @@ TIER_ITERATORS = {
         "memory_consolidation", # compress old events hourly
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "lesson_consumer",     # wedge 6: lesson candidate → authored lesson in memory.db (AI; kill switch OFF at ship)
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "oil_botpattern_patternlib",  # sub-system 6 L3: pattern library growth (read-only observational, safe in WATCH)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
@@ -46,7 +47,7 @@ TIER_ITERATORS = {
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
-        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
+        # "architect" removed 2026-04-17 — archived; superseded by sub-6 L2 (oil_botpattern_reflect)
         "telegram",
     ],
     "rebalance": [
@@ -80,13 +81,14 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "lesson_consumer",     # wedge 6: lesson candidate → authored lesson in memory.db (AI; kill switch OFF at ship)
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
-        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
+        # "architect" removed 2026-04-17 — archived; superseded by sub-6 L2 (oil_botpattern_reflect)
         "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "telegram",
     ],
@@ -123,13 +125,14 @@ TIER_ITERATORS = {
         "memory_consolidation",
         "journal",
         "lesson_author",       # wedge 5: closed-position → lesson candidate writer (no AI)
+        "lesson_consumer",     # wedge 6: lesson candidate → authored lesson in memory.db (AI; kill switch OFF at ship)
         "entry_critic",        # Trade Entry Critic — deterministic grading on every new entry (no AI)
         "memory_backup",       # hourly atomic snapshot of memory.db (read-only, safe everywhere)
         "action_queue",        # daily sweep of operator-ritual queue (read-only, safe everywhere)
         "thesis_challenger",   # catalyst vs invalidation condition matcher (read-only, safe everywhere)
         "thesis_updater",      # Haiku-powered news → conviction adjustment (kill switch OFF at ship)
         "lab",                 # strategy development pipeline (read-only + paper trading, kill switch OFF at ship)
-        "architect",           # mechanical self-improvement (read-only, 12h cadence, kill switch OFF at ship)
+        # "architect" removed 2026-04-17 — archived; superseded by sub-6 L2 (oil_botpattern_reflect)
         "apex_advisor",        # signal-driven APEX — dry-run by default, live when apex_executor.json enabled=true
         "telegram",
     ],
