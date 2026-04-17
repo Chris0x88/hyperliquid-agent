@@ -462,7 +462,24 @@ async def get_chart_markers(
     news_markers.sort(key=lambda x: x["time"])
 
     # ── Trade / action markers from action_log ────────────────────────────────
+    # Filter to ACTUAL TRADE events. The action_log table also stores
+    # auto-deleverage events, stop placements, TP placements, and other
+    # system housekeeping — those are not trades and clutter the chart
+    # ("21 trade actions" was 22 deleverage + 3 stop_placed in practice).
+    # Operator wants this view to mean: real entry / exit / scale decisions.
+    _REAL_TRADE_ACTIONS = {
+        "place_order", "market_order", "limit_order",
+        "position_opened", "position_closed",
+        "scale_in", "scale_out",
+        "manual_entry", "manual_exit",
+        "buy", "sell",  # generic action types from older code paths
+    }
+    # Everything else (deleverage / stop_placed / tp_placed / sl_updated /
+    # leverage_adjusted etc) is housekeeping and stays out of this list.
+    # If a future row uses an action_type we haven't whitelisted, it WILL
+    # be filtered — operator can grep action_log directly to investigate.
     trade_markers: list[dict] = []
+    housekeeping_count = 0
     conn = _memory_conn()
     if conn is not None:
         try:
@@ -476,6 +493,10 @@ async def get_chart_markers(
                 (canonical, cutoff_ms),
             ).fetchall()
             for r in rows:
+                action = (r["action_type"] or "").lower()
+                if action not in _REAL_TRADE_ACTIONS:
+                    housekeeping_count += 1
+                    continue
                 detail_raw = r["detail"] or "{}"
                 try:
                     detail = json.loads(detail_raw) if detail_raw.startswith("{") else {}
@@ -491,6 +512,12 @@ async def get_chart_markers(
                     "outcome": r["outcome"] or "",
                     "stub": False,
                 })
+            if housekeeping_count > 0:
+                log.debug(
+                    "/charts/%s/markers: filtered %d housekeeping action_log rows "
+                    "(deleverage / stop_placed / etc) to keep trade marker list trade-only",
+                    canonical, housekeeping_count,
+                )
         except Exception as exc:
             log.debug("action_log query failed: %s", exc)
         finally:
