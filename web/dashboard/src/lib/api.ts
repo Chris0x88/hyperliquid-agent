@@ -28,6 +28,11 @@ async function postJSON<T = unknown>(path: string, data?: unknown): Promise<T> {
 
 // Account
 export const getAccountStatus = () => fetchJSON<AccountStatus>("/account/status");
+export const getAccountLedger = () => fetchJSON<AccountLedger>("/account/ledger");
+export const getPositionsDetailed = () => fetchJSON<DetailedPositionsResponse>("/account/positions/detailed");
+export const getRiskBudget = () => fetchJSON<RiskBudget>("/account/risk-budget");
+export const resetHWM = (reason: string) =>
+  postJSON<ResetHWMResponse>("/account/reset-hwm", { reason });
 export const getPrices = (market = "all") => fetchJSON(`/account/prices?market=${market}`);
 export const getOrders = () => fetchJSON("/account/orders");
 
@@ -474,4 +479,105 @@ export interface ChartOverlayResponse {
   liq_zones: LiqZone[];
   cascades: { stub: boolean; message?: string }[];
   sweep_risk: { score: number; label: string; stub: boolean; message?: string };
+}
+
+// ─── Account Ledger (EquityLedger component) ──────────────────────────────────
+
+export interface WalletRow {
+  role: string;
+  label: string;
+  is_vault: boolean;
+  total_equity: number;
+  spot_usdc: number;
+  spot_assets: number;
+  native_equity: number;
+  xyz_equity: number;
+  free_margin: number;
+  spot_balances: { coin: string; total: number }[];
+}
+
+export interface AccountLedger {
+  total_equity: number;
+  accounts: WalletRow[];
+  unrealized_pnl: Record<string, number>;
+  leverage_summary: {
+    total_notional: number;
+    total_margin: number;
+    effective_leverage: number;
+  };
+  hwm: {
+    value: number | null;
+    set_at: string | null;
+    drawdown_pct: number | null;
+  };
+  realized_pnl: {
+    today: number | null;
+    week: number | null;
+    inception: number | null;
+  };
+  funding_today: number | null;
+  trade_count_24h: number | null;
+}
+
+export interface RiskBudget {
+  risk_usd: number | null;
+  risk_pct: number | null;
+  total_equity: number | null;
+  warn_pct: number;
+  cap_pct: number;
+  status: "safe" | "warning" | "critical" | "error" | "no_equity";
+  positions: {
+    coin: string;
+    entry: number;
+    sl: number | null;
+    sl_source: string;
+    size: number;
+    risk_usd: number;
+  }[];
+}
+
+export interface ResetHWMResponse {
+  ok: boolean;
+  previous_hwm: number | null;
+  new_hwm: number;
+  reset_at: string;
+  reason: string;
+  backup_path: string;
+}
+
+export interface DistanceInfo {
+  delta: number;
+  pct: number | null;
+  atrs: number | null;
+}
+
+export interface DetailedPosition {
+  coin: string;
+  szi: string;
+  entryPx: string;
+  currentPx: number | null;
+  positionValue: string;
+  marginUsed: string;
+  unrealizedPnl: string;
+  returnOnEquity: string;
+  leverage: { type: string; value: number };
+  maxLeverage: number;
+  liquidationPx: string | null;
+  liq_cushion_pct: number | null;
+  liq_atrs: number | null;
+  time_to_liq_atrs: number | null;
+  sl_px: number | null;
+  sl_distance: DistanceInfo | null;
+  tp_px: number | null;
+  tp_distance: DistanceInfo | null;
+  atr: number | null;
+  sweep_risk: { score: number; label: string } | null;
+  dex: string;
+  wallet: string;
+  entry_ts: number | null;
+  time_held_ms: number | null;
+}
+
+export interface DetailedPositionsResponse {
+  positions: DetailedPosition[];
 }

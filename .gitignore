@@ -57,6 +57,12 @@ data/supply/state.json
 
 # Logs and runtime state
 logs/
+# Negations must list every path under the ignored dir explicitly because
+# gitignore won't re-include files inside an ignored parent dir via a
+# single directory-level negation. Whitelist source files under the
+# dashboard's logs page (it's a Next.js route, not log output).
+!web/dashboard/src/app/logs
+!web/dashboard/src/app/logs/**
 state/
 *.pid
 *.db

@@ -208,11 +208,75 @@ function IndicatorToggle({
   );
 }
 
+// ─── Marker toggles (P0 fix 2026-04-17 — replaces sprint-1 agent A's
+// hallucinated MarkerToggleBar that never landed in the file).
+// Persists to localStorage so toggle state survives reload + nav.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MarkerKey = "news" | "trades" | "lessons";
+
+const MARKER_DEFAULTS: Record<MarkerKey, boolean> = {
+  news: true,
+  trades: false,   // Default OFF — these were the "DEL" stack the operator
+                   // explicitly complained about. Easy to turn on, off by default.
+  lessons: false,
+};
+
+const MARKER_LABELS: Record<MarkerKey, string> = {
+  news: "News",
+  trades: "Trade actions",
+  lessons: "Lessons",
+};
+
+const MARKER_COLORS: Record<MarkerKey, string> = {
+  news: "#3b82f6",  // blue
+  trades: "#a78bfa",  // violet — distinct from SL red and TP green
+  lessons: "#facc15",  // amber
+};
+
+const MARKER_LS_KEY = "charts.markerToggles.v1";
+
+function loadMarkerToggles(): Record<MarkerKey, boolean> {
+  if (typeof window === "undefined") return MARKER_DEFAULTS;
+  try {
+    const raw = localStorage.getItem(MARKER_LS_KEY);
+    if (!raw) return MARKER_DEFAULTS;
+    const parsed = JSON.parse(raw) as Partial<Record<MarkerKey, boolean>>;
+    return { ...MARKER_DEFAULTS, ...parsed };
+  } catch {
+    return MARKER_DEFAULTS;
+  }
+}
+
+function MarkerToggle({
+  active, label, color, onToggle, count,
+}: { active: boolean; label: string; color: string; onToggle: () => void; count?: number }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all"
+      style={{
+        background: active ? `${color}22` : t.colors.surfaceHover,
+        border: `1px solid ${active ? color : t.colors.border}`,
+        color: active ? color : t.colors.textMuted,
+        cursor: "pointer",
+      }}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{ background: active ? color : t.colors.textDim }}
+      />
+      {label}{typeof count === "number" ? ` (${count})` : ""}
+    </button>
+  );
+}
+
 // ─── Chart handle ─────────────────────────────────────────────────────────────
 
 interface ChartHandle {
   updateTick: (candles: Candle[]) => void;
   setMarkers: (markers: SeriesMarker<Time>[]) => void;
+  drawPositionLines: (positions: Position[]) => void;
 }
 
 // ─── Popover ──────────────────────────────────────────────────────────────────
@@ -368,6 +432,13 @@ function CandleChart({
     markersPluginRef.current = createSeriesMarkers(candleSeries, []);
 
     // Expose handles
+    // Position price-lines are stored so toggle off can remove them cleanly.
+    // P0 fix 2026-04-17 — SL/TP/Liq/Entry rendered as horizontal price lines
+    // (NOT markers) per Chris's spec. Lines persist across the visible range,
+    // unlike markers which are point-in-time. createPriceLine returns a
+    // handle we keep so we can removePriceLine() on update.
+    const positionPriceLines: Array<ReturnType<typeof candleSeries.createPriceLine>> = [];
+
     handleRef.current = {
       updateTick: (tickCandles: Candle[]) => {
         for (const c of tickCandles) {
@@ -380,6 +451,50 @@ function CandleChart({
       },
       setMarkers: (m: SeriesMarker<Time>[]) => {
         markersPluginRef.current?.setMarkers(m);
+      },
+      drawPositionLines: (positions: Position[]) => {
+        if (!candleSeriesRef.current) return;
+        // Wipe existing lines first; createPriceLine has no replace-all API.
+        for (const ln of positionPriceLines) {
+          try { candleSeriesRef.current.removePriceLine(ln); } catch { /* already gone */ }
+        }
+        positionPriceLines.length = 0;
+        for (const p of positions) {
+          const entry = parseFloat(p.entryPx);
+          const liq = p.liquidationPx ? parseFloat(p.liquidationPx) : null;
+          const isLong = parseFloat(p.szi) > 0;
+          // Entry line (white solid)
+          if (entry > 0) {
+            positionPriceLines.push(
+              candleSeriesRef.current.createPriceLine({
+                price: entry,
+                color: "#f3f4f6",
+                lineWidth: 1,
+                lineStyle: 0, // Solid
+                axisLabelVisible: true,
+                title: `Entry ${isLong ? "L" : "S"} ${parseFloat(p.szi).toFixed(4)}`,
+              })
+            );
+          }
+          // Liquidation line (orange dashed)
+          if (liq && liq > 0) {
+            positionPriceLines.push(
+              candleSeriesRef.current.createPriceLine({
+                price: liq,
+                color: "#fb923c",
+                lineWidth: 1,
+                lineStyle: 2, // Dashed
+                axisLabelVisible: true,
+                title: `LIQ ${liq.toFixed(2)}`,
+              })
+            );
+          }
+          // Note: SL/TP price lines require fetching open trigger orders per
+          // position. That endpoint exists (/api/account/orders); a future
+          // pass should pair them by coin and add red/green dashed lines.
+          // Today we render entry + liq only — those are the highest-value
+          // levels and don't need a second API call.
+        }
       },
     };
 
@@ -919,45 +1034,54 @@ function HelpSidebar({ onClose }: { onClose: () => void }) {
 
 // ─── Build lightweight-charts markers from API data ───────────────────────────
 
-function buildChartMarkers(markersData: ChartMarkersResponse | null): SeriesMarker<Time>[] {
+function buildChartMarkers(
+  markersData: ChartMarkersResponse | null,
+  toggles: Record<MarkerKey, boolean>,
+): SeriesMarker<Time>[] {
   if (!markersData) return [];
   const out: SeriesMarker<Time>[] = [];
 
-  for (const n of markersData.news) {
-    if (n.stub) continue;
-    out.push({
-      time: n.time as Time,
-      position: n.expected_direction === "bear" ? "aboveBar" : "belowBar",
-      color: severityColor(n.severity),
-      shape: n.expected_direction === "bear" ? "arrowDown" : "arrowUp",
-      text: `N${n.severity}`,
-      size: 1,
-    });
+  if (toggles.news) {
+    for (const n of markersData.news) {
+      if (n.stub) continue;
+      out.push({
+        time: n.time as Time,
+        position: n.expected_direction === "bear" ? "aboveBar" : "belowBar",
+        color: severityColor(n.severity),
+        shape: n.expected_direction === "bear" ? "arrowDown" : "arrowUp",
+        text: `N${n.severity}`,
+        size: 1,
+      });
+    }
   }
 
-  for (const tr of markersData.trades) {
-    if (tr.stub) continue;
-    const isExit = tr.action.includes("exit") || tr.action.includes("close");
-    out.push({
-      time: tr.time as Time,
-      position: isExit ? "aboveBar" : "belowBar",
-      color: isExit ? t.colors.warning : t.colors.tertiary,
-      shape: "circle",
-      text: tr.action.slice(0, 3).toUpperCase(),
-      size: 1,
-    });
+  if (toggles.trades) {
+    for (const tr of markersData.trades) {
+      if (tr.stub) continue;
+      const isExit = tr.action.includes("exit") || tr.action.includes("close");
+      out.push({
+        time: tr.time as Time,
+        position: isExit ? "aboveBar" : "belowBar",
+        color: isExit ? t.colors.warning : MARKER_COLORS.trades,
+        shape: "circle",
+        text: tr.action.slice(0, 3).toUpperCase(),
+        size: 1,
+      });
+    }
   }
 
-  for (const l of markersData.lessons) {
-    if (l.stub) continue;
-    out.push({
-      time: l.time as Time,
-      position: "aboveBar",
-      color: l.pnl_usd >= 0 ? t.colors.success : t.colors.danger,
-      shape: "square",
-      text: "L",
-      size: 1,
-    });
+  if (toggles.lessons) {
+    for (const l of markersData.lessons) {
+      if (l.stub) continue;
+      out.push({
+        time: l.time as Time,
+        position: "aboveBar",
+        color: l.pnl_usd >= 0 ? t.colors.success : t.colors.danger,
+        shape: "square",
+        text: "L",
+        size: 1,
+      });
+    }
   }
 
   // Sort by time — required by lightweight-charts
@@ -981,6 +1105,31 @@ export default function ChartsPage() {
   const [popover, setPopover] = useState<PopoverData | null>(null);
   const chartHandleRef = useRef<ChartHandle | null>(null);
 
+  // P0 fix 2026-04-17 — marker toggle state, persisted to localStorage.
+  // Defaults: News on, Trades off (the "DEL" stack), Lessons off.
+  // Operator can flip any chip in the toggle bar above the chart.
+  const [markerToggles, setMarkerToggles] = useState<Record<MarkerKey, boolean>>(MARKER_DEFAULTS);
+  useEffect(() => {
+    setMarkerToggles(loadMarkerToggles());
+  }, []);
+  const toggleMarker = useCallback((key: MarkerKey) => {
+    setMarkerToggles((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(MARKER_LS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
+  // Position fetch — drives SL/TP/Liq/Entry horizontal price lines.
+  const { data: accountStatus } = usePolling(
+    useCallback(() => getAccountStatus(), []),
+    30_000,
+  );
+  const positionsForMarket = (accountStatus?.positions ?? []).filter((p) => {
+    const stripped = p.coin.replace("xyz:", "").toUpperCase();
+    return stripped === market.toUpperCase();
+  });
+
   // ── Markers + overlay polling ─────────────────────────────────────────────
   const { data: markersData } = usePolling(
     useCallback(() => getChartMarkers(market, 72), [market]),
@@ -991,13 +1140,21 @@ export default function ChartsPage() {
     120_000
   );
 
-  // ── Chart markers (computed from API data) ────────────────────────────────
-  const chartMarkers = buildChartMarkers(markersData);
+  // ── Chart markers (computed from API data, filtered by toggle state) ──────
+  const chartMarkers = buildChartMarkers(markersData, markerToggles);
 
-  // Push markers to chart whenever they change
+  // Push markers to chart whenever they change OR toggle state changes
   useEffect(() => {
     chartHandleRef.current?.setMarkers(chartMarkers);
-  }, [chartMarkers]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chartMarkers]);
+
+  // Push position price lines (SL/TP/Liq/Entry) whenever positions change.
+  // P0 2026-04-17 — replaces marker stack on the right edge with persistent
+  // horizontal lines per the spec.
+  useEffect(() => {
+    chartHandleRef.current?.drawPositionLines(positionsForMarket);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountStatus, market]);
 
   // ── Candle loading ────────────────────────────────────────────────────────
   const fetchCandles = useCallback(async () => {
@@ -1237,6 +1394,52 @@ export default function ChartsPage() {
                   );
                 })}
               </div>
+            </div>
+
+            {/* Marker toggle bar — P0 2026-04-17.  Lets the operator hide
+                the trade-action stack ("DEL" markers) and other clutter.
+                Persists to localStorage. SL/TP/Liq/Entry are NOT here —
+                those are horizontal price lines, always shown for any
+                position on the selected market. */}
+            <div
+              className="flex items-center gap-1.5 flex-wrap px-4 py-2"
+              style={{ borderBottom: `1px solid ${t.colors.border}`, background: t.colors.bg }}
+            >
+              <span
+                className="text-[10px] font-medium uppercase tracking-wider mr-1"
+                style={{ color: t.colors.textDim }}
+              >
+                Markers
+              </span>
+              {(Object.keys(MARKER_DEFAULTS) as MarkerKey[]).map((key) => {
+                const counts = {
+                  news: markersData?.news.length ?? 0,
+                  trades: markersData?.trades.length ?? 0,
+                  lessons: markersData?.lessons.length ?? 0,
+                };
+                return (
+                  <MarkerToggle
+                    key={key}
+                    label={MARKER_LABELS[key]}
+                    color={MARKER_COLORS[key]}
+                    active={markerToggles[key]}
+                    onToggle={() => toggleMarker(key)}
+                    count={counts[key]}
+                  />
+                );
+              })}
+              {positionsForMarket.length > 0 && (
+                <span
+                  className="ml-2 text-[10px] px-2 py-0.5 rounded"
+                  style={{
+                    color: t.colors.textMuted,
+                    background: t.colors.surfaceHover,
+                    border: `1px solid ${t.colors.border}`,
+                  }}
+                >
+                  Lines: Entry + Liq for {positionsForMarket.length} open position{positionsForMarket.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
 
             {/* Chart area */}
