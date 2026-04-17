@@ -9,6 +9,7 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { CommandPalette } from "@/components/CommandPalette";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -37,6 +38,7 @@ export default function RootLayout({
       >
         <Sidebar />
         <main className="flex-1 overflow-auto">{children}</main>
+        <CommandPalette />
       </body>
     </html>
   );
