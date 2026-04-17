@@ -26,7 +26,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger("context_engine")
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# BUG-FIX 2026-04-17: file path is engines/analysis/context_engine.py, so
+# .parent.parent = engines/. The project root is one more level up.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 # ═══════════════════════════════════════════════════════════════════════

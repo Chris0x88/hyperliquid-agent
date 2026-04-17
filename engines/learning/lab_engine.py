@@ -37,7 +37,11 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("lab_engine")
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# BUG-FIX 2026-04-17: Path is engines/learning/lab_engine.py, so .parent
+# .parent resolves to engines/ — NOT the project root. _LAB_DIR was
+# silently writing to engines/data/lab/ instead of agent-cli/data/lab/.
+# Fix is to climb one more level (file → learning/ → engines/ → agent-cli/).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _LAB_DIR = _PROJECT_ROOT / "data" / "lab"
 _EXPERIMENTS_FILE = _LAB_DIR / "experiments.json"
 _CONFIG_FILE = _PROJECT_ROOT / "data" / "config" / "lab.json"
@@ -357,6 +361,54 @@ class LabEngine:
             "enabled": self.enabled,
         }
 
+    # ── Archetype → Strategy factory ────────────────────────────
+
+    @staticmethod
+    def _archetype_to_strategy(archetype_name: str, params: Dict[str, Any]):
+        """Convert an archetype name + params dict into a concrete BaseStrategy instance.
+
+        Only ``momentum_breakout`` is wired to a real strategy class.
+        The other four archetypes raise NotImplementedError so Chris can spec them later
+        without this method silently doing the wrong thing.
+        """
+        if archetype_name == "momentum_breakout":
+            from strategies.momentum_breakout import MomentumBreakoutStrategy
+            return MomentumBreakoutStrategy(
+                strategy_id="momentum_breakout",
+                lookback=int(params.get("lookback_bars", 20)),
+                breakout_threshold_bps=float(params.get("breakout_atr_mult", 1.5)) * 10,
+                volume_surge_mult=float(params.get("min_volume_ratio", 1.2)),
+                trailing_stop_bps=float(params.get("stop_atr_mult", 2.0)) * 15,
+                size=1.0,
+            )
+
+        if archetype_name == "mean_reversion":
+            raise NotImplementedError(
+                "mean_reversion archetype is not yet wired to a concrete strategy class. "
+                "Spec: assign strategies/mean_reversion.py and map its __init__ params."
+            )
+
+        if archetype_name == "bot_fade":
+            raise NotImplementedError(
+                "bot_fade archetype is not yet wired — needs bot_classifier integration. "
+                "Spec: create strategies/bot_fade.py using BotClassifier signals."
+            )
+
+        if archetype_name == "catalyst_anticipation":
+            raise NotImplementedError(
+                "catalyst_anticipation archetype is not yet wired — needs CatalystBridge. "
+                "Spec: create strategies/catalyst_anticipation.py using CalendarContext."
+            )
+
+        if archetype_name == "trend_following":
+            raise NotImplementedError(
+                "trend_following archetype is not yet wired to a concrete strategy class. "
+                "Spec: assign strategies/trend_follower.py and map its __init__ params."
+            )
+
+        raise ValueError(f"Unknown archetype: {archetype_name!r}. "
+                         f"Valid archetypes: {list(STRATEGY_ARCHETYPES)}")
+
     # ── Backtest ─────────────────────────────────────────────────
 
     def run_backtest(self, exp_id: str) -> Optional[Dict[str, float]]:
@@ -373,13 +425,28 @@ class LabEngine:
         self._save_experiments()
 
         try:
-            from engines.learning.backtest_engine import BacktestEngine
-            bt = BacktestEngine()
-            results = bt.run(
-                market=exp.market,
-                strategy=exp.strategy,
-                params=exp.params,
+            from engines.learning.backtest_engine import BacktestEngine, BacktestConfig
+            from engines.data.candle_cache import CandleCache
+
+            strategy = self._archetype_to_strategy(exp.strategy, exp.params)
+            cache = CandleCache()
+            bt_config = BacktestConfig(
+                coin=exp.market.replace("xyz:", ""),
+                interval=exp.params.get("interval", "1h"),
+                days=int(exp.params.get("backtest_days", 90)),
             )
+            bt = BacktestEngine(cache, bt_config)
+            result = bt.run(strategy)
+            result.compute_metrics()
+
+            results = {
+                "sharpe": result.sharpe_ratio,
+                "win_rate": result.win_rate / 100.0,   # store as fraction
+                "max_drawdown": result.max_drawdown_pct / 100.0,
+                "profit_factor": result.profit_factor if result.profit_factor != float("inf") else 99.0,
+                "total_return": result.net_pnl_pct / 100.0,
+                "n_trades": result.total_trades,
+            }
 
             exp.backtest_metrics = {
                 "sharpe": results.get("sharpe", 0),
@@ -388,7 +455,7 @@ class LabEngine:
                 "profit_factor": results.get("profit_factor", 0),
                 "total_return": results.get("total_return", 0),
             }
-            exp.backtest_trades = results.get("n_trades", 0)
+            exp.backtest_trades = int(results.get("n_trades", 0))
             exp.backtest_completed_at = time.time()
 
             # Check graduation criteria for backtest

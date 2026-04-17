@@ -61,7 +61,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# BUG-FIX 2026-04-17: file path is engines/learning/feedback_store.py, so
+# .parent.parent = engines/. The project root is one more level up.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Known status vocabularies. Adding a new status is additive; callers
 # pass raw strings so we don't hard-fail on unknown values, but new
