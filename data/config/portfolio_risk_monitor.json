@@ -1,6 +1,7 @@
 {
-  "_doc": "Kill switch + thresholds for portfolio_risk_monitor iterator. Alert-only cumulative open-risk cap. Sums (entry-SL)*size across all open positions, compares to total equity. Turn 'enabled' to true once the numbers look right. See daemon/iterators/portfolio_risk_monitor.py for behavior.",
-  "enabled": false,
+  "_doc": "Kill switch + thresholds for portfolio_risk_monitor iterator. Alert-only cumulative open-risk cap. Sums (entry-SL)*size across all open positions, compares to total equity. See daemon/iterators/portfolio_risk_monitor.py for behavior.",
+  "_enabled_2026-04-17": "Flipped on after calibration vs current Silver 25x position: cumulative risk = (entry-liq)*qty / equity = $21.54/$616 = 3.5% — well under 8% warn threshold, so flipping does NOT spam alerts at current state. Iterator never closes positions per Chris's 'don't override' rule; at the 10% cap it sets risk_gate=COOLDOWN to throttle NEW entries only. The 25x leverage concern on Silver is handled separately by liquidation_monitor (different iterator, different metric).",
+  "enabled": true,
   "cap_pct": 0.10,
   "warn_pct": 0.08,
   "tick_interval_s": 30

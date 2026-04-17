@@ -1,6 +1,7 @@
 {
-  "_comment": "Sub-system 6 L3 — pattern library growth for oil_botpattern bot classifier. Ships with enabled=false. Watches data/research/bot_patterns.jsonl, detects novel (classification, direction, confidence_band, signals) signatures, and writes candidates to bot_pattern_candidates.jsonl after min_occurrences repetitions. Chris promotes candidates into the live catalog via /patternpromote <id>. Library growth is purely observational — it does NOT modify sub-system 4's classification behavior in this wedge.",
-  "enabled": false,
+  "_comment": "Sub-system 6 L3 — pattern library growth for oil_botpattern bot classifier. Watches data/research/bot_patterns.jsonl, detects novel (classification, direction, confidence_band, signals) signatures, and writes candidates to bot_pattern_candidates.jsonl after min_occurrences repetitions. Chris promotes candidates into the live catalog via /patternpromote <id>. Library growth is purely observational — it does NOT modify sub-system 4's classification behavior in this wedge.",
+  "_enabled_2026-04-17": "Flipped on after deep-dive verified input alive (1,787 rows in bot_patterns.jsonl) + output observational (no trading impact). Safest Sub-6 activation. Produces real signal candidates within days. Independent of Sub-5 trade history.",
+  "enabled": true,
 
   "tick_interval_s": 600,
   "min_occurrences": 3,
