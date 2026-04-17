@@ -283,3 +283,137 @@ def test_bad_state_file_resets(tmp_path):
 
     # State is now rewritten as valid JSON
     assert json.loads(state_path.read_text())["last_run_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Shadow-trade loader — gated on decisions_only
+# ---------------------------------------------------------------------------
+
+def _shadow_losing_sl_trades(n: int, instrument: str = "CL") -> list[dict]:
+    """n shadow-trade rows with sl_hit exit (using the shadow schema)."""
+    return [
+        {
+            "instrument": instrument,
+            "side": "long",
+            "entry_ts": _now_iso(1),
+            "entry_price": 94.0,
+            "exit_ts": _now_iso(0),
+            "exit_price": 92.0,
+            "size": 0.26,
+            "leverage": 3.0,
+            "notional_usd": 24.0,
+            "exit_reason": "sl_hit",
+            "realised_pnl_usd": -0.5,
+            "roe_pct": -6.0,
+            "edge": 0.65,
+            "rung": 1,
+            "hold_hours": 0.44,
+        }
+        for _ in range(n)
+    ]
+
+
+def _write_shadow(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+
+
+def _strategy_cfg_with_shadow(shadow_path: Path, decisions_only: bool) -> dict:
+    return {
+        "decisions_only": decisions_only,
+        "shadow_trades_jsonl": str(shadow_path),
+    }
+
+
+def test_shadow_trades_loaded_when_decisions_only_true(tmp_path):
+    """Shadow sl_hit trades trigger an instrument_dead proposal when decisions_only=true."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strat_cfg = _strategy_cfg_with_shadow(shadow_path, decisions_only=True)
+    (tmp_path / "oil_botpattern.json").write_text(json.dumps(strat_cfg))
+
+    cfg = _reflect_cfg(tmp_path)
+    cfg["strategy_config_path"] = str(tmp_path / "oil_botpattern.json")
+    cfg_path = _write_config(tmp_path, "oil_botpattern_reflect.json", cfg)
+
+    # No main journal rows; 6 shadow sl_hit rows on CL
+    (tmp_path / "journal.jsonl").write_text("")
+    _write_shadow(shadow_path, _shadow_losing_sl_trades(6, "CL"))
+
+    it = OilBotPatternReflectIterator(config_path=str(cfg_path))
+    ctx = _fake_ctx()
+    it.on_start(ctx)
+    it.tick(ctx)
+
+    proposals_path = tmp_path / "oil_botpattern_proposals.jsonl"
+    assert proposals_path.exists()
+    rows = [json.loads(l) for l in proposals_path.read_text().splitlines() if l]
+    assert any(p["type"] == "instrument_dead" for p in rows)
+
+
+def test_shadow_trades_tagged_source_shadow(tmp_path):
+    """Each row loaded via _load_shadow_trades has source='shadow' and mapped fields."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strat_cfg = _strategy_cfg_with_shadow(shadow_path, decisions_only=True)
+    (tmp_path / "oil_botpattern.json").write_text(json.dumps(strat_cfg))
+
+    cfg = _reflect_cfg(tmp_path)
+    cfg["strategy_config_path"] = str(tmp_path / "oil_botpattern.json")
+    cfg_path = _write_config(tmp_path, "oil_botpattern_reflect.json", cfg)
+    (tmp_path / "journal.jsonl").write_text("")
+    _write_shadow(shadow_path, _shadow_losing_sl_trades(1))
+
+    it = OilBotPatternReflectIterator(config_path=str(cfg_path))
+    it._reload_config()
+    rows = it._load_shadow_trades()
+
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shadow"
+    assert rows[0]["strategy_id"] == "oil_botpattern"
+    assert rows[0]["status"] == "closed"
+    assert rows[0]["close_reason"] == "sl_hit"
+    assert rows[0]["close_ts"] == rows[0]["exit_ts"]
+
+
+def test_shadow_trades_not_loaded_when_decisions_only_false(tmp_path):
+    """Shadow trades are suppressed when decisions_only=false (live mode)."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strat_cfg = _strategy_cfg_with_shadow(shadow_path, decisions_only=False)
+    (tmp_path / "oil_botpattern.json").write_text(json.dumps(strat_cfg))
+
+    cfg = _reflect_cfg(tmp_path)
+    cfg["strategy_config_path"] = str(tmp_path / "oil_botpattern.json")
+    cfg_path = _write_config(tmp_path, "oil_botpattern_reflect.json", cfg)
+    (tmp_path / "journal.jsonl").write_text("")
+    _write_shadow(shadow_path, _shadow_losing_sl_trades(6))
+
+    it = OilBotPatternReflectIterator(config_path=str(cfg_path))
+    it._reload_config()
+    rows = it._load_shadow_trades()
+
+    assert rows == []
+
+
+def test_shadow_trades_combined_with_journal_trades(tmp_path):
+    """Shadow rows are appended after real journal rows in _load_closed_trades."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strat_cfg = _strategy_cfg_with_shadow(shadow_path, decisions_only=True)
+    (tmp_path / "oil_botpattern.json").write_text(json.dumps(strat_cfg))
+
+    cfg = _reflect_cfg(tmp_path)
+    cfg["strategy_config_path"] = str(tmp_path / "oil_botpattern.json")
+    cfg_path = _write_config(tmp_path, "oil_botpattern_reflect.json", cfg)
+
+    # 2 real + 3 shadow
+    real_rows = _losing_cl_trades(2)
+    (tmp_path / "journal.jsonl").write_text("\n".join(json.dumps(r) for r in real_rows))
+    _write_shadow(shadow_path, _shadow_losing_sl_trades(3))
+
+    it = OilBotPatternReflectIterator(config_path=str(cfg_path))
+    it._reload_config()
+    rows = it._load_closed_trades()
+
+    assert len(rows) == 5
+    shadow_count = sum(1 for r in rows if r.get("source") == "shadow")
+    assert shadow_count == 3

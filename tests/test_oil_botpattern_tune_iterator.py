@@ -388,3 +388,134 @@ def test_audit_index_feeds_rate_limit(tmp_path):
 
     # long_min_edge should NOT be nudged again
     assert json.loads(strat_path.read_text())["long_min_edge"] == 0.50
+
+
+# ---------------------------------------------------------------------------
+# Shadow-trade loader — gated on decisions_only
+# ---------------------------------------------------------------------------
+
+def _shadow_winning_longs(n: int) -> list[dict]:
+    """n shadow-trade rows using the shadow-trades schema (no strategy_id/status)."""
+    from datetime import datetime, timezone
+    now_iso = datetime.now(tz=timezone.utc).isoformat()
+    return [
+        {
+            "instrument": "BRENTOIL",
+            "side": "long",
+            "entry_ts": now_iso,
+            "entry_price": 90.0,
+            "exit_ts": now_iso,
+            "exit_price": 95.0,
+            "size": 0.1,
+            "leverage": 3.0,
+            "notional_usd": 9.0,
+            "exit_reason": "tp_hit",
+            "realised_pnl_usd": 50.0,
+            "roe_pct": 5.0,
+            "edge": 0.65,
+            "rung": 1,
+            "hold_hours": 4.0,
+        }
+        for i in range(n)
+    ]
+
+
+def _write_shadow_trades(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+
+
+def test_shadow_trades_loaded_when_decisions_only_true(tmp_path):
+    """Shadow trades are appended to closed-trade list when decisions_only=true."""
+    # Strategy config with decisions_only=true pointing at shadow trades file
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strategy_cfg = _strategy_cfg()
+    strategy_cfg["decisions_only"] = True
+    strategy_cfg["shadow_trades_jsonl"] = str(shadow_path)
+    strat_path = _write_config(tmp_path, "oil_botpattern.json", strategy_cfg)
+
+    tune_cfg = _tune_cfg(tmp_path)
+    # No rows in main journal
+    _write_journal_rows(tmp_path / "journal.jsonl", [])
+    # 6 winning shadow trades
+    _write_shadow_trades(shadow_path, _shadow_winning_longs(6))
+    tune_path = _write_config(tmp_path, "oil_botpattern_tune.json", tune_cfg)
+
+    it = OilBotPatternTuneIterator(config_path=str(tune_path))
+    ctx = _fake_ctx()
+    it.on_start(ctx)
+    it.tick(ctx)
+
+    # L1 should have consumed shadow trades and nudged the config
+    new_cfg = json.loads(strat_path.read_text())
+    assert new_cfg["long_min_edge"] < 0.50
+
+
+def test_shadow_trades_tagged_with_source_shadow(tmp_path):
+    """Each shadow row appended by _load_shadow_trades carries source='shadow'."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strategy_cfg = _strategy_cfg()
+    strategy_cfg["decisions_only"] = True
+    strategy_cfg["shadow_trades_jsonl"] = str(shadow_path)
+    _write_config(tmp_path, "oil_botpattern.json", strategy_cfg)
+
+    tune_cfg = _tune_cfg(tmp_path)
+    _write_journal_rows(tmp_path / "journal.jsonl", [])
+    _write_shadow_trades(shadow_path, _shadow_winning_longs(1))
+    tune_path = _write_config(tmp_path, "oil_botpattern_tune.json", tune_cfg)
+
+    it = OilBotPatternTuneIterator(config_path=str(tune_path))
+    it._reload_config()
+    rows = it._load_recent_closed_trades(20)
+
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shadow"
+    assert rows[0]["strategy_id"] == "oil_botpattern"
+    assert rows[0]["status"] == "closed"
+    assert rows[0]["close_reason"] == "tp_hit"
+
+
+def test_shadow_trades_not_loaded_when_decisions_only_false(tmp_path):
+    """Shadow trades are NOT appended when decisions_only=false (live mode)."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strategy_cfg = _strategy_cfg()
+    strategy_cfg["decisions_only"] = False
+    strategy_cfg["shadow_trades_jsonl"] = str(shadow_path)
+    _write_config(tmp_path, "oil_botpattern.json", strategy_cfg)
+
+    tune_cfg = _tune_cfg(tmp_path)
+    _write_journal_rows(tmp_path / "journal.jsonl", [])
+    _write_shadow_trades(shadow_path, _shadow_winning_longs(6))
+    tune_path = _write_config(tmp_path, "oil_botpattern_tune.json", tune_cfg)
+
+    it = OilBotPatternTuneIterator(config_path=str(tune_path))
+    it._reload_config()
+    rows = it._load_recent_closed_trades(20)
+
+    # Shadow trades suppressed; main journal is empty → total is 0
+    assert len(rows) == 0
+
+
+def test_shadow_trades_combined_with_journal_trades(tmp_path):
+    """Shadow trades are appended AFTER main journal rows."""
+    shadow_path = tmp_path / "shadow_trades.jsonl"
+    strategy_cfg = _strategy_cfg()
+    strategy_cfg["decisions_only"] = True
+    strategy_cfg["shadow_trades_jsonl"] = str(shadow_path)
+    _write_config(tmp_path, "oil_botpattern.json", strategy_cfg)
+
+    tune_cfg = _tune_cfg(tmp_path)
+    # 2 real journal rows + 3 shadow rows
+    _write_journal_rows(tmp_path / "journal.jsonl", _winning_longs(2))
+    _write_shadow_trades(shadow_path, _shadow_winning_longs(3))
+    tune_path = _write_config(tmp_path, "oil_botpattern_tune.json", tune_cfg)
+
+    it = OilBotPatternTuneIterator(config_path=str(tune_path))
+    it._reload_config()
+    rows = it._load_recent_closed_trades(20)
+
+    assert len(rows) == 5
+    sources = [r.get("source") for r in rows]
+    assert sources.count("shadow") == 3

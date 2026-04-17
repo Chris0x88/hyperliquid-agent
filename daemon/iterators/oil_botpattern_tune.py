@@ -186,32 +186,87 @@ class OilBotPatternTuneIterator:
     # ------------------------------------------------------------------
 
     def _load_recent_closed_trades(self, window_size: int) -> list[dict]:
-        """Last `window_size` closed oil_botpattern trades from main journal."""
+        """Last `window_size` closed oil_botpattern trades from main journal.
+
+        When Sub-5 is in decisions_only=true (shadow mode), also appends rows
+        from the shadow-trades JSONL so L1 has learning signal. Each shadow row
+        is tagged source="shadow". Shadow rows are NOT appended when
+        decisions_only=false to avoid double-counting live positions.
+        """
         path = Path(self._config.get(
             "main_journal_jsonl", "data/research/journal.jsonl"
         ))
-        if not path.exists():
+        out: list[dict] = []
+        if path.exists():
+            try:
+                with path.open("r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if row.get("strategy_id") != "oil_botpattern":
+                            continue
+                        if row.get("status") != "closed":
+                            continue
+                        out.append(row)
+            except OSError as e:
+                log.warning("oil_botpattern_tune: failed to read %s: %s", path, e)
+
+        out.extend(self._load_shadow_trades())
+        return out[-window_size:] if window_size > 0 else out
+
+    def _load_shadow_trades(self) -> list[dict]:
+        """Append shadow-mode closed trades when Sub-5 is in decisions_only=true.
+
+        Reads Sub-5's config to check the decisions_only gate. Maps shadow-trade
+        fields to canonical closed-trade fields so compute_proposals sees a
+        uniform schema. Each row carries source="shadow" for attribution.
+        """
+        strategy_cfg_path = Path(self._config.get(
+            "strategy_config_path", "data/config/oil_botpattern.json"
+        ))
+        try:
+            strategy_cfg = json.loads(strategy_cfg_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
             return []
+        if not strategy_cfg.get("decisions_only", False):
+            return []
+
+        shadow_path = Path(strategy_cfg.get(
+            "shadow_trades_jsonl", "data/strategy/oil_botpattern_shadow_trades.jsonl"
+        ))
+        if not shadow_path.exists():
+            return []
+
         out: list[dict] = []
         try:
-            with path.open("r") as f:
+            with shadow_path.open("r") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     try:
-                        row = json.loads(line)
+                        raw = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if row.get("strategy_id") != "oil_botpattern":
-                        continue
-                    if row.get("status") != "closed":
-                        continue
+                    # Map shadow fields → canonical closed-trade schema
+                    row = dict(raw)
+                    row.setdefault("strategy_id", "oil_botpattern")
+                    row.setdefault("status", "closed")
+                    row.setdefault("source", "shadow")
+                    if "exit_reason" in row and "close_reason" not in row:
+                        row["close_reason"] = row["exit_reason"]
+                    if "exit_ts" in row and "close_ts" not in row:
+                        row["close_ts"] = row["exit_ts"]
                     out.append(row)
         except OSError as e:
-            log.warning("oil_botpattern_tune: failed to read %s: %s", path, e)
-            return []
-        return out[-window_size:] if window_size > 0 else out
+            log.warning("oil_botpattern_tune: failed to read shadow trades %s: %s",
+                        shadow_path, e)
+        return out
 
     def _load_recent_decisions(self, window_size: int) -> list[dict]:
         path = Path(self._config.get(
