@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "batch_size": 3,
+  "min_interval_s": 3600,
+  "_comment": "Flip enabled=true to start autonomous lesson authoring. batch_size caps candidates per tick. min_interval_s is the minimum seconds between processing runs (default 3600 = 1h)."
+}
