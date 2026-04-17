@@ -127,11 +127,18 @@ def cmd_evening(token: str, chat_id: str, args: str) -> None:
         positions = bundle.get("positions", [])
         total_equity = float(bundle.get("account", {}).get("total_equity", 0))
         from exchange.helpers import _get_all_orders
-        main_addr = next(
-            (a["address"] for a in bundle.get("accounts", []) if a.get("role") == "main"),
-            "",
-        )
-        orders = _get_all_orders(main_addr) if main_addr else []
+        # Fetch orders from every configured wallet so vault positions get SL/TP audit
+        orders = []
+        seen_oids: set = set()
+        for acct in bundle.get("accounts", []):
+            addr = acct.get("address", "")
+            if not addr:
+                continue
+            for o in _get_all_orders(addr):
+                oid = o.get("oid") or id(o)
+                if oid not in seen_oids:
+                    seen_oids.add(oid)
+                    orders.append(o)
 
         ctx = build_ctx(positions=positions, orders=orders, total_equity=total_equity)
 
@@ -213,11 +220,18 @@ def cmd_morning(token: str, chat_id: str, args: str) -> None:
         positions = bundle.get("positions", [])
         total_equity = float(bundle.get("account", {}).get("total_equity", 0))
         from exchange.helpers import _get_all_orders
-        main_addr = next(
-            (a["address"] for a in bundle.get("accounts", []) if a.get("role") == "main"),
-            "",
-        )
-        orders = _get_all_orders(main_addr) if main_addr else []
+        # Fetch orders from every configured wallet so vault positions get SL/TP audit
+        orders = []
+        seen_oids_m: set = set()
+        for acct in bundle.get("accounts", []):
+            addr = acct.get("address", "")
+            if not addr:
+                continue
+            for o in _get_all_orders(addr):
+                oid = o.get("oid") or id(o)
+                if oid not in seen_oids_m:
+                    seen_oids_m.add(oid)
+                    orders.append(o)
 
         ctx = build_ctx(positions=positions, orders=orders, total_equity=total_equity)
 

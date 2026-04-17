@@ -195,9 +195,8 @@ def generate_report(mechanical: bool = False) -> Path:
         rs = ag / al if al > 0 else 100
         rsi = 100 - (100 / (1 + rs))
 
-    # Extract position data
-    xyz_positions = xyz_state.get("assetPositions", [])
-    vault_positions = vault_state.get("assetPositions", [])
+    # Extract position data — use bundle positions (all wallets, normalized) for display
+    bundle_positions = account_bundle.get("positions", [])
     acc = account_bundle.get("account", {})
     xyz_val = float(acc.get("xyz_equity", 0))
     usdc = float(acc.get("spot_usdc", 0))
@@ -237,24 +236,24 @@ def generate_report(mechanical: bool = False) -> Path:
                 )
                 y -= 0.015
 
-        # Positions
+        # Positions — use normalized bundle positions (all wallets)
         y -= 0.04
         fig.text(0.05, y, "POSITIONS", fontsize=12, fontweight="bold", color="#58a6ff")
-        for p in xyz_positions:
-            pos = p["position"]
+        for pos in bundle_positions:
             y -= 0.025
-            lev = pos.get("leverage", {})
-            lev_v = lev.get("value", "?") if isinstance(lev, dict) else lev
+            coin = str(pos.get("coin", "?"))
+            size = pos.get("size", 0)
+            entry = pos.get("entry", 0)
+            upnl = pos.get("upnl", 0)
+            lev_v = pos.get("leverage", "?")
+            liq = pos.get("liq", "N/A")
+            role = pos.get("account_role", "main")
+            prefix = f"[{role.upper()}] " if role != "main" else ""
+            color = "#8b949e" if role != "main" else "#c9d1d9"
             fig.text(0.05, y,
-                     f"{pos['coin']}: {pos['szi']} @ ${pos['entryPx']} | "
-                     f"uPnL: ${pos['unrealizedPnl']} | {lev_v}x | liq: ${pos.get('liquidationPx', 'N/A')}",
-                     fontsize=9, color="#c9d1d9", family="monospace")
-        for p in vault_positions:
-            pos = p["position"]
-            y -= 0.025
-            fig.text(0.05, y,
-                     f"[VAULT] {pos['coin']}: {pos['szi']} @ ${pos['entryPx']} | uPnL: ${pos['unrealizedPnl']}",
-                     fontsize=9, color="#8b949e", family="monospace")
+                     f"{prefix}{coin}: {size} @ ${entry:,.2f} | "
+                     f"uPnL: ${upnl:,.2f} | {lev_v}x | liq: ${liq}",
+                     fontsize=9, color=color, family="monospace")
 
         # Orders
         all_orders = (xyz_orders or []) + (native_orders or [])

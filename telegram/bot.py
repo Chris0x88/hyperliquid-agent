@@ -283,8 +283,18 @@ def cmd_status(renderer: Renderer, _args: str) -> None:
                 f" • spot `${row['spot_usdc']:,.2f}`)"
             )
 
-    # Orders (compact)
-    orders = _get_all_orders(MAIN_ADDR)
+    # Orders (compact) — fetch from every configured account address
+    all_addrs = [row["address"] for row in account_rows if row.get("address")]
+    if not all_addrs:
+        all_addrs = [MAIN_ADDR]
+    orders: list = []
+    seen_order_ids: set = set()
+    for addr in all_addrs:
+        for o in _get_all_orders(addr):
+            oid = o.get("oid") or id(o)
+            if oid not in seen_order_ids:
+                seen_order_ids.add(oid)
+                orders.append(o)
     if orders:
         lines.append(f"\n*Orders* ({len(orders)})")
         for o in orders[:5]:
@@ -362,7 +372,17 @@ def _format_order_line(o: dict) -> str:
 
 
 def cmd_orders(renderer: Renderer, _args: str) -> None:
-    orders = _get_all_orders(MAIN_ADDR)
+    from common.account_state import fetch_registered_account_state as _fetch_state
+    _bundle = _fetch_state()
+    _all_addrs = [row["address"] for row in _bundle.get("accounts", []) if row.get("address")] or [MAIN_ADDR]
+    _seen_oids: set = set()
+    orders: list = []
+    for _addr in _all_addrs:
+        for _o in _get_all_orders(_addr):
+            _oid = _o.get("oid") or id(_o)
+            if _oid not in _seen_oids:
+                _seen_oids.add(_oid)
+                orders.append(_o)
     if not orders:
         renderer.send_text("📋 No open orders")
         return
@@ -785,17 +805,18 @@ def cmd_signals(token: str, chat_id: str, args: str) -> None:
 def cmd_delegate(token: str, chat_id: str, args: str) -> None:
     """Delegate an asset to the agent. Usage: /delegate BRENTOIL"""
     from common.authority import delegate, format_authority_status
+    from common.account_state import fetch_registered_account_state as _fetch_state
     asset = args.strip().upper()
     if not asset:
-        # Show current positions so user can pick
-        positions = _get_all_positions(MAIN_ADDR)
+        # Show current positions (all wallets) so user can pick
+        _bundle = _fetch_state()
         pos_data = []
-        for p in positions:
+        for pos in _bundle.get("positions", []):
             pos_data.append({
-                "coin": p.get("coin", "?"),
-                "side": "long" if float(p.get("szi", 0)) > 0 else "short",
-                "size": abs(float(p.get("szi", 0))),
-                "entry_price": float(p.get("entryPx", 0)),
+                "coin": pos.get("coin", "?"),
+                "side": "long" if float(pos.get("size", 0)) > 0 else "short",
+                "size": abs(float(pos.get("size", 0))),
+                "entry_price": float(pos.get("entry", 0)),
             })
         status = format_authority_status(pos_data)
         tg_send(token, chat_id, status + "\n\nUsage: `/delegate BRENTOIL`")
@@ -821,16 +842,17 @@ def cmd_reclaim(token: str, chat_id: str, args: str) -> None:
 
 
 def cmd_authority(token: str, chat_id: str, _args: str) -> None:
-    """Show authority status for all assets."""
+    """Show authority status for all assets (all wallets)."""
     from common.authority import format_authority_status
-    positions = _get_all_positions(MAIN_ADDR)
+    from common.account_state import fetch_registered_account_state as _fetch_state
+    _bundle = _fetch_state()
     pos_data = []
-    for p in positions:
+    for pos in _bundle.get("positions", []):
         pos_data.append({
-            "coin": p.get("coin", "?"),
-            "side": "long" if float(p.get("szi", 0)) > 0 else "short",
-            "size": abs(float(p.get("szi", 0))),
-            "entry_price": float(p.get("entryPx", 0)),
+            "coin": pos.get("coin", "?"),
+            "side": "long" if float(pos.get("size", 0)) > 0 else "short",
+            "size": abs(float(pos.get("size", 0))),
+            "entry_price": float(pos.get("entry", 0)),
         })
     status = format_authority_status(pos_data)
     tg_send(token, chat_id, status)
@@ -1242,11 +1264,16 @@ def cmd_market(token: str, chat_id: str, args: str) -> None:
             )
 
         # Full signal summary — exhaustion, divergence, multi-TF, volume, position guidance
-        # Get position data for position-specific signals
+        # Get position data for position-specific signals (all wallets)
         pos_data = None
-        for p in _get_all_positions(MAIN_ADDR):
+        try:
+            from common.account_state import fetch_registered_account_state as _fras
+            _all_positions = _fras().get("positions", [])
+        except Exception:
+            _all_positions = []
+        for p in _all_positions:
             if _coin_matches(p.get("coin", ""), coin):
-                sz = float(p.get("szi", 0))
+                sz = float(p.get("size", 0))
                 if sz != 0:
                     pos_data = {"direction": "long" if sz > 0 else "short", "size": abs(sz)}
                 break

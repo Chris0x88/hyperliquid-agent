@@ -266,3 +266,154 @@ class TestRendererCommandsSet:
         from telegram.bot import cmd_pnl, cmd_diag
         assert cmd_pnl not in RENDERER_COMMANDS
         assert cmd_diag not in RENDERER_COMMANDS
+
+
+# ── Multi-wallet smoke tests (bug-fix audit 2026-04-17) ──────────────────────
+# Verify that fixed commands expose BOTH positions (main + vault) and use the
+# canonical total_equity from fetch_registered_account_state.
+
+_MOCK_TWO_WALLET_BUNDLE = {
+    "account": {
+        "native_equity": 30.0,
+        "xyz_equity": 21.0,
+        "spot_usdc": 30.0,
+        "total_equity": 631.0,
+    },
+    "accounts": [
+        {
+            "role": "main", "label": "Main", "address": "0xmain",
+            "native_equity": 30.0, "xyz_equity": 21.0, "spot_usdc": 30.0, "total_equity": 81.0,
+        },
+        {
+            "role": "vault", "label": "Vault", "address": "0xvault",
+            "native_equity": 550.0, "xyz_equity": 0.0, "spot_usdc": 0.0, "total_equity": 550.0,
+        },
+    ],
+    "positions": [
+        {
+            "coin": "xyz:SILVER", "size": 17.0, "entry": 32.0, "upnl": 50.0,
+            "liq": "28.0", "leverage": 17, "dex": "xyz",
+            "account_role": "main", "account_label": "Main",
+        },
+        {
+            "coin": "BTC", "size": 0.5, "entry": 82000.0, "upnl": 1200.0,
+            "liq": "75000", "leverage": 15, "dex": "native",
+            "account_role": "vault", "account_label": "Vault",
+        },
+    ],
+}
+
+
+class TestCmdStatusTwoWallets:
+    """cmd_status must show both positions and the correct total equity."""
+
+    def _run(self):
+        buf = BufferRenderer()
+        with (
+            patch("common.account_state.fetch_registered_account_state", return_value=_MOCK_TWO_WALLET_BUNDLE),
+            patch("telegram.bot._get_current_price", return_value=33.0),
+            patch("telegram.bot._get_market_oi", return_value=""),
+            patch("telegram.bot._get_all_orders", return_value=[]),
+        ):
+            cmd_status(buf, "")
+        return buf.messages[0]["text"]
+
+    def test_shows_total_equity(self):
+        text = self._run()
+        assert "631.00" in text
+
+    def test_shows_silver_position(self):
+        text = self._run()
+        assert "SILVER" in text
+
+    def test_shows_btc_vault_position(self):
+        text = self._run()
+        assert "BTC" in text
+
+    def test_shows_both_account_rows(self):
+        text = self._run()
+        assert "Main" in text
+        assert "Vault" in text
+
+
+class TestCmdOrdersTwoWallets:
+    """cmd_orders must query all wallet addresses, not just MAIN_ADDR."""
+
+    def test_fetches_from_both_accounts(self):
+        """Verify _get_all_orders is called with vault address too."""
+        buf = BufferRenderer()
+        called_addrs: list = []
+
+        def mock_orders(addr):
+            called_addrs.append(addr)
+            return []
+
+        with (
+            patch("common.account_state.fetch_registered_account_state", return_value=_MOCK_TWO_WALLET_BUNDLE),
+            patch("telegram.bot._get_all_orders", side_effect=mock_orders),
+        ):
+            cmd_orders(buf, "")
+
+        assert "0xmain" in called_addrs
+        assert "0xvault" in called_addrs
+
+
+class TestCmdPnlTwoWallets:
+    """cmd_pnl must show all positions and total equity."""
+
+    def test_shows_both_positions_and_equity(self):
+        from telegram.commands.portfolio import cmd_pnl
+        sent: list = []
+
+        def mock_send(token, chat_id, text):
+            sent.append(text)
+
+        with (
+            patch("telegram.commands.portfolio.fetch_registered_account_state", return_value=_MOCK_TWO_WALLET_BUNDLE),
+            patch("telegram.bot.tg_send", mock_send),
+        ):
+            cmd_pnl("tok", "123", "")
+
+        assert sent
+        text = sent[0]
+        assert "SILVER" in text
+        assert "BTC" in text
+        assert "631.00" in text
+
+
+class TestCmdPositionVaultSlTp:
+    """cmd_position must fetch orders for each wallet role, not main only."""
+
+    def test_vault_position_gets_order_lookup(self):
+        """Verify _get_all_orders is called for the vault address."""
+        from telegram.commands.portfolio import cmd_position
+        from exchange.helpers import _coin_matches as _cm
+
+        called_addrs: list = []
+
+        def mock_orders(addr):
+            called_addrs.append(addr)
+            if addr == "0xvault":
+                # Simulate a stop-loss order on the vault BTC position
+                return [{"coin": "BTC", "side": "S", "sz": "0", "limitPx": "75000",
+                         "orderType": "Stop Market", "tpsl": "sl", "isTrigger": True,
+                         "triggerPx": "75000", "oid": 9999}]
+            return []
+
+        sent: list = []
+
+        def mock_send(token, chat_id, text):
+            sent.append(text)
+
+        with (
+            patch("telegram.commands.portfolio.fetch_registered_account_state", return_value=_MOCK_TWO_WALLET_BUNDLE),
+            patch("telegram.bot._get_all_orders", mock_orders),
+            patch("telegram.bot._get_current_price", return_value=83000.0),
+            patch("telegram.bot.tg_send", mock_send),
+            patch("telegram.bot._liquidity_regime", return_value="NORMAL"),
+            patch("common.authority.get_authority", return_value="manual"),
+        ):
+            cmd_position("tok", "123", "")
+
+        assert "0xvault" in called_addrs, "vault orders were not fetched"
+        assert sent

@@ -102,8 +102,14 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
     ts = datetime.now(timezone.utc).strftime('%H:%M UTC')
     lines = [f"*Positions* — {ts}", ""]
 
-    # Fetch orders once (not per-position)
-    all_orders = _get_all_orders(next((a["address"] for a in bundle.get("accounts", []) if a.get("role") == "main"), ""))
+    # Fetch orders per wallet so SL/TP audit works for vault positions too.
+    # Build a dict: account_role -> list[order]
+    orders_by_role: dict = {}
+    for acct in bundle.get("accounts", []):
+        role = acct.get("role", "")
+        addr = acct.get("address", "")
+        if addr:
+            orders_by_role[role] = _get_all_orders(addr)
 
     for pos in positions:
         coin = pos.get('coin', '?')
@@ -114,6 +120,7 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
         lev_val = pos.get('leverage', '?')
         margin_used = float(pos.get('margin_used', 0))
         account_label = pos.get("account_label", pos.get("account_role", "Account"))
+        account_role = pos.get("account_role", "main")
 
         direction = "LONG" if size > 0 else "SHORT"
         dir_dot = "🟢" if size > 0 else "🔴"
@@ -141,10 +148,11 @@ def cmd_position(token: str, chat_id: str, _args: str) -> None:
             else:
                 lines.append(f"  Liq `${liq_f:,.2f}`")
 
-        # SL/TP check
+        # SL/TP check — use orders for this position's wallet role
+        pos_orders = orders_by_role.get(account_role, [])
         sl_found = False
         tp_found = False
-        for o in all_orders if pos.get("account_role") == "main" else []:
+        for o in pos_orders:
             if not _coin_matches(o.get('coin', ''), coin):
                 continue
             tpsl = o.get('tpsl', '')
