@@ -1,6 +1,17 @@
 """PulseIterator — wraps modules/pulse_engine.py for momentum detection.
 
 Persists signals to data/research/signals.jsonl for AI agent access and historical review.
+
+BUG-FIX 2026-04-17 (deep-dive finding): the iterator previously passed
+``self._scan_history = []`` to ``engine.scan()`` and **never appended the
+result**, so ``len(scan_history) >= cfg.min_scans_for_signal`` was always
+False — Pulse silently emitted zero signals forever. There's even a
+``PulseHistoryStore`` class in ``engines/analysis/pulse_state.py`` designed
+to persist scan history to ``data/pulse/scan-history.json`` (with
+``save_scan`` / ``get_history`` / ``from_dict`` round-tripping) — the
+iterator just wasn't using it. This rewrite wires the store in:
+load-on-start, append-after-scan, and feed the engine the history-of-dicts
+shape it expects. Restarts now resume from the last 30 scans on disk.
 """
 from __future__ import annotations
 
@@ -25,14 +36,23 @@ class PulseIterator:
         self._scan_interval = scan_interval
         self._last_scan = 0
         self._engine = None
-        self._scan_history = []
+        self._history_store = None
+        self._scan_history: list = []
 
     def on_start(self, ctx: TickContext) -> None:
         Path(SIGNALS_JSONL).parent.mkdir(parents=True, exist_ok=True)
         try:
             from engines.analysis.pulse_engine import PulseEngine
+            from engines.analysis.pulse_state import PulseHistoryStore
             self._engine = PulseEngine()
-            log.info("PulseIterator started (scan every %ds)", self._scan_interval)
+            self._history_store = PulseHistoryStore()
+            # Resume scan history across restarts so the engine doesn't have
+            # to re-baseline from zero every time the daemon bounces.
+            self._scan_history = self._history_store.get_history()
+            log.info(
+                "PulseIterator started (scan every %ds, %d scans of history loaded)",
+                self._scan_interval, len(self._scan_history),
+            )
         except Exception as e:
             log.warning("PulseIterator failed to init: %s — will skip", e)
 
@@ -57,6 +77,19 @@ class PulseIterator:
                 scan_history=self._scan_history,
             )
             self._last_scan = now
+
+            # BUG-FIX 2026-04-17: persist this scan into history so the next
+            # tick's engine call has a baseline. Without this, signals never
+            # fire because has_baseline = len(scan_history) >= min_scans_for_signal
+            # stays False forever.
+            if result is not None:
+                try:
+                    self._history_store.save_scan(result)
+                    # Refresh the in-memory list from the store so it stays
+                    # bounded (max_size) and matches what's on disk.
+                    self._scan_history = self._history_store.get_history()
+                except Exception as persist_err:
+                    log.warning("Failed to persist pulse scan history: %s", persist_err)
 
             if result and hasattr(result, 'signals') and result.signals:
                 # Populate ctx for downstream consumers (apex_advisor — C3).

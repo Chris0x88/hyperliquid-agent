@@ -194,7 +194,10 @@ def daemon_start(
     clock.register(PortfolioRiskMonitorIterator(adapter=adapter))
     clock.register(GuardIterator())
     clock.register(RebalancerIterator())
-    clock.register(RadarIterator())
+    # P3 #6 (2026-04-17): pass adapter so radar can fetch BTC macro candles
+    # directly when ctx.candles["BTC"] is empty (WATCH tier — connector only
+    # fetches candles for active_strategies, which has no BTC slot in WATCH).
+    clock.register(RadarIterator(adapter=adapter))
     clock.register(NewsIngestIterator())   # sub-system 1: RSS → catalysts
     clock.register(SupplyLedgerIterator())  # sub-system 2: supply disruption ledger
     clock.register(HeatmapIterator())       # sub-system 3: stop/liquidity heatmap

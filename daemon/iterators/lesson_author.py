@@ -120,6 +120,10 @@ class LessonAuthorIterator:
                 skipped += 1
                 continue
 
+            # Map legacy schema (trade_id-based) to canonical shape so the
+            # rest of the loop only deals with one shape. See docstring.
+            entry = _normalize_journal_row(entry)
+
             if not _is_closed_position(entry):
                 continue  # tick snapshot or non-close row, ignore
 
@@ -421,6 +425,54 @@ class LessonAuthorIterator:
 
 
 # ── Module-level helpers ────────────────────────────────────
+
+
+def _normalize_journal_row(entry: dict) -> dict:
+    """Map legacy journal schema (trade_id-based) to canonical entry_id-based.
+
+    The journal evolved schemas mid-2026 — early rows used the smoketest shape
+    (``entry_id``, ``close_ts`` in millis, ``entry_reasoning`` etc.); the
+    real-trade writer that landed later writes ``trade_id``, ISO
+    ``timestamp_close``/``timestamp_open``, and a leaner field set. This
+    function maps the latter to the former so ``_is_closed_position`` and the
+    rest of the lesson_author pipeline see one shape.
+
+    Returns a NEW dict — original is not mutated. Already-canonical rows pass
+    through unchanged.
+
+    Bug context (2026-04-17 deep dive): without this normalization,
+    ``_is_closed_position`` rejected every legacy row because none had
+    ``entry_id`` or ``close_ts``. 10 real closed CL trades silently dropped
+    over a week — the lessons table was stuck at 1 row (the synthetic
+    smoketest). The READ side (BM25 injection, /critique, entry_critic
+    recall) was wired correctly the whole time; only the schema gate was
+    starving the corpus.
+    """
+    if "entry_id" in entry and "close_ts" in entry:
+        return entry  # already canonical — fast path
+    if "trade_id" not in entry:
+        return entry  # truly malformed; let validator handle it
+
+    norm = dict(entry)
+    norm.setdefault("entry_id", str(entry["trade_id"]))
+
+    # ISO 8601 timestamps → epoch millis
+    from datetime import datetime
+    for iso_key, ms_key in (("timestamp_close", "close_ts"), ("timestamp_open", "entry_ts")):
+        if iso_key in entry and ms_key not in norm:
+            try:
+                iso = str(entry[iso_key]).replace("Z", "+00:00")
+                norm[ms_key] = int(datetime.fromisoformat(iso).timestamp() * 1000)
+            except (ValueError, AttributeError, TypeError):
+                pass  # leave the field absent; validator will reject if critical
+
+    if "entry_ts" in norm and "close_ts" in norm and "holding_ms" not in norm:
+        try:
+            norm["holding_ms"] = int(norm["close_ts"]) - int(norm["entry_ts"])
+        except (TypeError, ValueError):
+            pass
+
+    return norm
 
 
 def _is_closed_position(entry: dict) -> bool:

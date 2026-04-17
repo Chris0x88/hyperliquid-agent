@@ -26,6 +26,7 @@ from daemon.iterators.lesson_author import (
     LessonAuthorIterator,
     _is_closed_position,
     _is_valid_close,
+    _normalize_journal_row,
     _safe_filename,
 )
 
@@ -158,6 +159,94 @@ class TestPureHelpers:
 
     def test_safe_filename_replaces_slashes_and_spaces(self):
         assert _safe_filename("a/b c") == "a_b_c.json"
+
+
+class TestNormalizeJournalRow:
+    """Coverage for _normalize_journal_row — maps legacy schema → canonical.
+
+    Bug context (2026-04-17): the real-trade writer used trade_id +
+    timestamp_close (ISO), while lesson_author was hard-coded to entry_id +
+    close_ts (millis). 10 closed CL trades were silently dropped for a week.
+    """
+
+    def test_canonical_row_passes_through_unchanged(self):
+        canonical = {
+            "entry_id": "BTC-1",
+            "close_ts": 1775695463146,
+            "exit_price": 94800.0,
+            "pnl": 800.0,
+        }
+        out = _normalize_journal_row(canonical)
+        assert out is canonical  # fast-path returns the same dict
+
+    def test_legacy_row_maps_trade_id_to_entry_id(self):
+        legacy = {
+            "trade_id": "012",
+            "timestamp_open": "2026-04-09T10:04:19Z",
+            "timestamp_close": "2026-04-09T10:06:44Z",
+            "instrument": "xyz:CL",
+            "entry_price": 95.578,
+            "exit_price": 96.484,
+            "pnl": 35.6112,
+            "roe_pct": 0.95,
+        }
+        out = _normalize_journal_row(legacy)
+        assert out is not legacy  # original not mutated
+        assert out["entry_id"] == "012"
+        assert out["close_ts"] == 1775729204000  # ISO → millis
+        assert out["entry_ts"] == 1775729059000
+        assert out["holding_ms"] == 145000  # 2m25s
+        # Original schema fields preserved
+        assert out["trade_id"] == "012"
+        assert out["instrument"] == "xyz:CL"
+
+    def test_legacy_row_now_passes_is_closed_position(self):
+        """The whole point of the fix — schema gate must accept normalized rows."""
+        legacy = {
+            "trade_id": "013",
+            "timestamp_close": "2026-04-09T17:40:07Z",
+            "exit_price": 93.16,
+            "pnl": -36.2529,
+            "entry_price": 96.509,
+            "roe_pct": -3.47,
+        }
+        out = _normalize_journal_row(legacy)
+        assert _is_closed_position(out) is True
+
+    def test_malformed_row_with_no_id_at_all_passes_through(self):
+        """Rows with neither schema marker pass through unchanged for the validator to reject."""
+        garbage = {"some_field": "value"}
+        out = _normalize_journal_row(garbage)
+        assert out is garbage
+
+    def test_legacy_row_with_invalid_iso_does_not_crash(self):
+        """Bad timestamps just leave the field absent rather than raising."""
+        legacy = {
+            "trade_id": "014",
+            "timestamp_close": "not-an-iso-timestamp",
+            "exit_price": 100.0,
+            "pnl": 5.0,
+            "entry_price": 95.0,
+        }
+        out = _normalize_journal_row(legacy)
+        assert out["entry_id"] == "014"
+        assert "close_ts" not in out  # gracefully omitted
+        # Will fail _is_closed_position check downstream — that's fine, validator's job.
+
+    def test_legacy_row_does_not_clobber_explicit_canonical_fields(self):
+        """If both schemas are present somehow (shouldn't happen, but be safe), prefer the canonical."""
+        mixed = {
+            "trade_id": "015",
+            "entry_id": "explicit-id",
+            "close_ts": 9999,
+            "timestamp_close": "2026-04-09T10:06:44Z",
+            "exit_price": 100.0,
+            "pnl": 5.0,
+        }
+        out = _normalize_journal_row(mixed)
+        # Already canonical → fast-path; no overwrite
+        assert out["entry_id"] == "explicit-id"
+        assert out["close_ts"] == 9999
 
 
 # ---------------------------------------------------------------------------

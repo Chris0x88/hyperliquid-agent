@@ -17,7 +17,12 @@ class ApexConfig:
     margin_per_slot: float = 0.0  # auto-computed
 
     # Entry thresholds
-    radar_score_threshold: int = 170
+    # Aligned to RadarConfig.score_threshold=150 on 2026-04-17 — previously 170
+    # which silently rejected any radar opportunity that did pass the radar
+    # filter, making APEX miss every signal even when the upstream pipeline
+    # was producing them. Bump the radar config if you want fewer entries,
+    # don't desync the two thresholds.
+    radar_score_threshold: int = 150
     pulse_immediate_auto_entry: bool = True
     pulse_confidence_threshold: float = 70.0
 

@@ -15,7 +15,7 @@
 	<array>
 		<string>$AGENT_DIR/.venv/bin/python</string>
 		<string>-m</string>
-		<string>cli.telegram_bot</string>
+		<string>telegram.bot</string>
 	</array>
 
 	<key>WorkingDirectory</key>
