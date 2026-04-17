@@ -1,7 +1,7 @@
-import { AccountSummary } from "@/components/dashboard/AccountSummary";
+import { EquityLedger } from "@/components/dashboard/EquityLedger";
 import { EquityCurve } from "@/components/dashboard/EquityCurve";
 import { HealthPanel } from "@/components/dashboard/HealthPanel";
-import { PositionCards } from "@/components/dashboard/PositionCards";
+import { DetailedPositionCards } from "@/components/dashboard/DetailedPositionCards";
 import { ThesisPanel } from "@/components/dashboard/ThesisPanel";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
 import { DaemonIteratorStatus } from "@/components/dashboard/DaemonIteratorStatus";
@@ -28,10 +28,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 1: Account + Health */}
+      {/* Row 1: Equity Ledger + Health */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="lg:col-span-2">
-          <AccountSummary />
+          <EquityLedger />
         </div>
         <HealthPanel />
       </div>
@@ -46,7 +46,7 @@ export default function DashboardPage() {
             style={{ color: "#7E756F", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Space Grotesk', system-ui" }}>
             Positions
           </h3>
-          <PositionCards />
+          <DetailedPositionCards />
         </div>
         <DaemonIteratorStatus />
       </div>
