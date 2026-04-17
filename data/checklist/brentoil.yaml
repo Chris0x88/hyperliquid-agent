@@ -1,0 +1,26 @@
+# Checklist config for xyz:BRENTOIL
+# Oil is the primary thesis market — Japan/Asia open is the key session
+
+market: BRENTOIL
+enabled: true
+
+items:
+  sl_on_exchange:
+    enabled: true
+    weight: 10
+
+  tp_on_exchange:
+    enabled: true
+    weight: 5
+
+  sweep_risk:
+    enabled: true
+    weight: 7            # Oil sweeps around EIA, geopolitical news
+
+  news_catalyst_12h:
+    enabled: true
+    weight: 6            # EIA, OPEC, geopolitical = high-impact
+
+  funding_cost:
+    enabled: true
+    weight: 4

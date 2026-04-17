@@ -1,0 +1,26 @@
+# Checklist config for xyz:GOLD
+# Gold — main thesis market, lower volatility than silver, lead indicator
+
+market: GOLD
+enabled: true
+
+items:
+  sl_on_exchange:
+    enabled: true
+    weight: 10
+
+  tp_on_exchange:
+    enabled: true
+    weight: 5
+
+  sweep_risk:
+    enabled: true
+    weight: 6
+
+  news_catalyst_12h:
+    enabled: true
+    weight: 5            # Fed speeches, CPI data matter
+
+  leverage_vs_thesis:
+    enabled: true
+    weight: 6

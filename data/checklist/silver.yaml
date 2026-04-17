@@ -1,0 +1,33 @@
+# Checklist config for xyz:SILVER
+# Silver is the highest-beta precious metal — highest sweep risk
+# Big banks exploit physical/futures spread and step-up clusters
+
+market: SILVER
+enabled: true
+
+# Item overrides — all weights and modes from spec.py ITEM_DEFAULTS unless overridden here.
+# Only uncomment to override a default.
+items:
+  sl_on_exchange:
+    enabled: true
+    weight: 10           # P0 — no overnight unprotected position
+
+  tp_on_exchange:
+    enabled: true
+    weight: 6            # Slightly higher weight for silver (volatile)
+
+  leverage_vs_thesis:
+    enabled: true
+    weight: 7            # Silver thesis recommended_leverage = 3x — easy to violate
+
+  sweep_risk:
+    enabled: true
+    weight: 9            # Silver is THE prime sweep target per Chris's experience
+
+  funding_cost:
+    enabled: true
+    weight: 5
+
+  weekend_leverage:
+    enabled: true
+    weight: 8            # Silver moves hard on weekends (thin market)

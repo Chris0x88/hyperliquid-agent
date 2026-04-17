@@ -40,6 +40,7 @@ fi
 # still runs on these files, so secrets would still be caught.
 ALLOWED_PATHS=(
     "^data/config/[^/]+\.(json|yaml|yml)$"
+    "^data/checklist/[^/]+\.(yaml|yml)$"
     "^data/news/\.gitkeep$"
     "^data/supply/\.gitkeep$"
     "^data/research/\.gitkeep$"

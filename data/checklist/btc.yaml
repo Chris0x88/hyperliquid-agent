@@ -1,0 +1,21 @@
+# Checklist config for BTC (native clearinghouse)
+
+market: BTC
+enabled: true
+
+items:
+  sl_on_exchange:
+    enabled: true
+    weight: 10
+
+  tp_on_exchange:
+    enabled: true
+    weight: 5
+
+  sweep_risk:
+    enabled: true
+    weight: 7
+
+  leverage_vs_thesis:
+    enabled: true
+    weight: 6
