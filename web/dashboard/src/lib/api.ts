@@ -26,6 +26,29 @@ async function postJSON<T = unknown>(path: string, data?: unknown): Promise<T> {
   return res.json();
 }
 
+// ── Agent bearer-auth helpers ─────────────────────────────────────────────────
+// The bearer token is stored in web/.auth_token and served via the backend.
+// The dashboard reads it from a cookie/localStorage slot set by the settings
+// page (or falls back to "" which yields 401 and shows an error pill).
+
+function _agentToken(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("hl_auth_token") ?? "";
+}
+
+async function postJSONAuth<T = unknown>(path: string, data?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${_agentToken()}`,
+    },
+    body: data ? JSON.stringify(data) : undefined,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+  return res.json();
+}
+
 // Account
 export const getAccountStatus = () => fetchJSON<AccountStatus>("/account/status");
 export const getAccountLedger = () => fetchJSON<AccountLedger>("/account/ledger");
@@ -787,3 +810,53 @@ export interface BacktestResult {
   params: Record<string, unknown>;
   error?: string;
 }
+
+// ── Agent Control ─────────────────────────────────────────────────────────────
+
+export interface AgentCurrentTool {
+  name: string;
+  args_summary: string;
+  started_at: string;
+}
+
+export interface AgentQueueItem {
+  text: string;
+  queued_at: string;
+}
+
+export interface AgentState {
+  is_running: boolean;
+  session_id: string | null;
+  started_at?: string | null;
+  current_turn?: number | null;
+  current_tool?: AgentCurrentTool | null;
+  abort_flag?: boolean;
+  abort_reason?: string | null;
+  steering_queue?: AgentQueueItem[];
+  follow_up_queue?: AgentQueueItem[];
+  turn_timeout_s?: number | null;
+  tokens_used_session?: number | null;
+  tokens_budget_session?: number | null;
+  last_event?: Record<string, unknown> | null;
+}
+
+export interface AgentActionResponse {
+  ok: boolean;
+  [key: string]: unknown;
+}
+
+// GET — no auth required
+export const getAgentState = () => fetchJSON<AgentState>("/agent/state");
+
+// POST — bearer auth required
+export const abortAgent = (reason = "user_requested") =>
+  postJSONAuth<AgentActionResponse>("/agent/abort", { reason });
+
+export const steerAgent = (message: string) =>
+  postJSONAuth<AgentActionResponse>("/agent/steer", { message });
+
+export const followUpAgent = (message: string) =>
+  postJSONAuth<AgentActionResponse>("/agent/follow-up", { message });
+
+export const clearAgentQueues = () =>
+  postJSONAuth<AgentActionResponse>("/agent/clear-queues");
