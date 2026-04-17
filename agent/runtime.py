@@ -30,6 +30,87 @@ _MEMORY_DIR = _PROJECT_ROOT / "data" / "agent_memory"
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 0. COST GATE — token-budget enforcer (see agent/control/cost_gate.py)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Module-level singleton — one gate per process lifetime (= one session).
+# Callers import and use check_cost_usage() rather than the gate directly.
+try:
+    from agent.control.cost_gate import CostGate as _CostGate, CostBudget as _CostBudget
+    _cost_gate: Optional[Any] = _CostGate()
+    log.debug("CostGate initialised — session_hard_cap=%s", _cost_gate.budget.session_hard_cap)
+except Exception as _cg_err:  # pragma: no cover
+    log.warning("CostGate unavailable — cost enforcement disabled: %s", _cg_err)
+    _cost_gate = None
+
+
+def check_cost_usage(usage: dict) -> Optional[str]:
+    """Extract token counts from an LLM usage dict and enforce the budget.
+
+    Call this immediately after every LLM API response::
+
+        reason = check_cost_usage(result.usage)
+        if reason:
+            # Budget breached — abort the agent
+            _handle_cost_abort(reason)
+
+    Args:
+        usage: Dict with keys ``prompt_tokens`` / ``input_tokens`` and
+               ``completion_tokens`` / ``output_tokens``.  Anthropic and
+               OpenRouter use slightly different key names — both are handled.
+
+    Returns:
+        ``None`` if budget is fine.
+        A non-empty reason string if the budget was breached (caller must abort).
+
+    Side-effect: updates state.json with current token totals.
+    """
+    if _cost_gate is None:
+        return None
+
+    # Normalise key names across providers
+    prompt_tokens = int(
+        usage.get("prompt_tokens")
+        or usage.get("input_tokens")
+        or 0
+    )
+    completion_tokens = int(
+        usage.get("completion_tokens")
+        or usage.get("output_tokens")
+        or 0
+    )
+
+    reason = _cost_gate.record_turn(prompt_tokens, completion_tokens)
+
+    # Always sync token counts to state.json so the dashboard reflects reality
+    gate_state = _cost_gate.get_state()
+    try:
+        from agent.control.state_writer import read_state_json, atomic_write_json, _DEFAULT_STATE_PATH
+        state = read_state_json()
+        state.update(gate_state)
+        atomic_write_json(state, _DEFAULT_STATE_PATH)
+    except Exception as _sw_err:
+        log.debug("state.json sync failed (non-fatal): %s", _sw_err)
+
+    # On breach, also call AgentControl.abort() if available
+    if reason:
+        try:
+            from agent.control import AgentControl
+            AgentControl().abort(reason=reason)
+        except Exception as _ac_err:
+            log.debug("AgentControl.abort() unavailable (non-fatal): %s", _ac_err)
+
+    return reason
+
+
+def get_cost_gate_state() -> dict:
+    """Return current cost gate state (tokens_used_session, budget, etc.)."""
+    if _cost_gate is None:
+        return {}
+    return _cost_gate.get_state()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # 1. SYSTEM PROMPT — ported from Claude Code constants/prompts.ts
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -662,3 +743,228 @@ Use memory_write(topic, content) to save each topic file."""
 def build_dream_prompt() -> str:
     """Build the dream consolidation prompt."""
     return _DREAM_PROMPT
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 6. CONTROLLED AGENT LOOP — wires AgentControl into the runtime
+# ═══════════════════════════════════════════════════════════════════════
+
+import concurrent.futures as _cf
+import threading as _threading
+
+
+class ControlledAgentLoop:
+    """Stateless helper that runs one "prompt → (tool → tool → …) → response"
+    cycle with full AgentControl integration.
+
+    This class does NOT own the conversation history or the HTTP client.
+    The caller (telegram_agent.py) owns those and passes them in each call.
+    This keeps the existing caller interface unchanged.
+
+    Control hooks — checked at every boundary:
+    ─────────────────────────────────────────
+    1. LLM-call boundary  — is_aborted() checked before EVERY LLM call
+    2. Tool-call boundary — is_aborted() checked before EVERY tool execution
+    3. Steering drain     — drain_steering_queue() injected as user messages
+                            BEFORE each LLM call
+    4. Follow-up drain    — pop_follow_up() checked when the loop would end
+    5. Turn timeout       — each LLM call wrapped in a per-turn timeout thread
+    6. State writes       — set_state() called at every transition
+
+    The loop is intentionally NOT recursive to avoid stack depth surprises
+    with long follow-up chains.
+    """
+
+    def __init__(self, control: "AgentControl") -> None:
+        from agent.control import AgentControl  # local import to avoid circular
+        self.control = control
+
+    def run(
+        self,
+        *,
+        prompt: str,
+        call_llm_fn,         # callable(messages) -> StreamResult
+        execute_tool_fn,     # callable(name, args) -> str
+        messages: List[Dict],
+        max_turns: int = 50,
+        turn_timeout_s: Optional[int] = None,
+    ) -> dict:
+        """Run the agent loop for one user prompt.
+
+        Args:
+            prompt: The user's message.
+            call_llm_fn: Callable that takes the messages list and returns a
+                         StreamResult.  Wraps streaming internally.
+            execute_tool_fn: Callable(tool_name, args) → result string.
+            messages: Mutable list — messages are appended in-place.
+            max_turns: Hard ceiling on LLM calls per run (guards runaway loops).
+            turn_timeout_s: Per-turn timeout override.  None → reads from control.
+
+        Returns:
+            dict with keys:
+              text      — final assistant text (empty string if aborted)
+              aborted   — bool
+              turns     — number of LLM calls made
+        """
+        ctrl = self.control
+        timeout = turn_timeout_s if turn_timeout_s is not None else ctrl._turn_timeout_s
+
+        # Mark session as running
+        ctrl.set_state(is_running=True, current_turn=0)
+
+        # Append the initial user message
+        messages.append({"role": "user", "content": prompt})
+
+        final_text = ""
+        turns = 0
+
+        # Outer loop: re-enters for each follow-up message
+        while True:
+            # ── inner loop: tool execution rounds ──────────────────────────
+            while turns < max_turns:
+                # 1. Check abort BEFORE LLM call
+                if ctrl.is_aborted():
+                    ctrl.set_state(
+                        is_running=False,
+                        last_event={"type": "aborted_before_llm", "ts": _iso_now(), "data": {}},
+                    )
+                    return {"text": final_text, "aborted": True, "turns": turns}
+
+                # 2. Drain steering queue — inject as user messages
+                steers = ctrl.drain_steering_queue()
+                for s in steers:
+                    messages.append({"role": "user", "content": s["text"]})
+
+                turns += 1
+                ctrl.set_state(
+                    current_turn=turns,
+                    last_event={"type": "turn_start", "ts": _iso_now(), "data": {"turn": turns}},
+                )
+
+                # 3. LLM call wrapped in per-turn timeout
+                result = _run_with_timeout(call_llm_fn, args=(messages,), timeout_s=timeout)
+
+                if result is None:
+                    # Timeout
+                    ctrl.abort(reason="turn_timeout")
+                    ctrl.set_state(is_running=False)
+                    return {"text": final_text, "aborted": True, "turns": turns}
+
+                # Accumulate text
+                final_text = result.text
+
+                # Add assistant message to history
+                messages.append({"role": "assistant", "content": result.text})
+
+                ctrl.set_state(
+                    last_event={"type": "turn_end", "ts": _iso_now(), "data": {"turn": turns}},
+                )
+
+                # 4. If no tool calls, the model is done for this round
+                if not result.tool_calls:
+                    break
+
+                # 5. Execute tools — check abort before each one
+                tool_results = []
+                for tc in result.tool_calls:
+                    # Abort check at tool boundary
+                    if ctrl.is_aborted():
+                        ctrl.set_state(
+                            is_running=False,
+                            last_event={
+                                "type": "aborted_at_tool_boundary",
+                                "ts": _iso_now(),
+                                "data": {},
+                            },
+                        )
+                        return {"text": final_text, "aborted": True, "turns": turns}
+
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "")
+                    raw_args = fn.get("arguments", "{}")
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    tool_id = tc.get("id", f"call_{turns}")
+
+                    ctrl.set_state(
+                        current_tool={
+                            "name": name,
+                            "args_summary": str(args)[:120],
+                            "started_at": _iso_now(),
+                        },
+                        last_event={
+                            "type": "tool_execution_start",
+                            "ts": _iso_now(),
+                            "data": {"tool": name},
+                        },
+                    )
+
+                    tool_result = execute_tool_fn(name, args)
+
+                    ctrl.set_state(
+                        current_tool=None,
+                        last_event={
+                            "type": "tool_execution_end",
+                            "ts": _iso_now(),
+                            "data": {"tool": name},
+                        },
+                    )
+                    tool_results.append((tool_id, name, tool_result))
+
+                # Append tool results as user/tool messages
+                for tool_id, name, res in tool_results:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": res,
+                    })
+
+            # ── end of inner tool loop ──────────────────────────────────────
+
+            # 6. Check for follow-up BEFORE exiting
+            if ctrl.is_aborted():
+                break
+
+            follow = ctrl.pop_follow_up()
+            if follow is None:
+                break
+
+            # Re-enter outer loop with the follow-up as the new user prompt
+            messages.append({"role": "user", "content": follow["text"]})
+            ctrl.set_state(
+                last_event={
+                    "type": "follow_up_start",
+                    "ts": _iso_now(),
+                    "data": {"text": follow["text"][:100]},
+                }
+            )
+            # Continue outer while-loop; turns counter carries over
+
+        # Done
+        ctrl.set_state(
+            is_running=False,
+            current_tool=None,
+            last_event={"type": "run_complete", "ts": _iso_now(), "data": {"turns": turns}},
+        )
+        return {"text": final_text, "aborted": ctrl.is_aborted(), "turns": turns}
+
+
+def _run_with_timeout(fn, args=(), kwargs=None, timeout_s: int = 60):
+    """Run fn(*args, **kwargs) in a thread.  Return result or None on timeout.
+
+    Used to wrap individual LLM calls so a hung HTTP request doesn't block
+    the abort check indefinitely.
+    """
+    if kwargs is None:
+        kwargs = {}
+    with _cf.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_s)
+        except _cf.TimeoutError:
+            log.error("LLM call timed out after %ds", timeout_s)
+            return None
+
+
+def _iso_now() -> str:
+    """ISO-8601 UTC timestamp string."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
