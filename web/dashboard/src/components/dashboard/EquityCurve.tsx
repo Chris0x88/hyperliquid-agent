@@ -186,10 +186,19 @@ export function EquityCurve() {
 
     type UTCTimestamp = number & { readonly __brand: unique symbol };
 
-    const chartData = snapshots.map((s) => ({
-      time: Math.floor(s.timestamp_ms / 1000) as UTCTimestamp,
-      value: s.equity_total,
-    }));
+    // lightweight-charts v5 requires strictly ascending unique timestamps (in
+    // seconds).  The DB can have many rows per second (e.g. test seeds or rapid
+    // daemon ticks).  Deduplicate by keeping the LAST value per second-bucket so
+    // the chart gets a clean monotonic series.
+    const bySecond = new Map<number, number>();
+    for (const s of snapshots) {
+      const sec = Math.floor(s.timestamp_ms / 1000);
+      bySecond.set(sec, s.equity_total); // later row wins
+    }
+
+    const chartData = Array.from(bySecond.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([sec, value]) => ({ time: sec as UTCTimestamp, value }));
 
     seriesRef.current.setData(chartData);
     chartRef.current?.timeScale().fitContent();
@@ -213,9 +222,21 @@ export function EquityCurve() {
           </div>
           <div className="text-right">
             <p className="text-[11px]" style={{ color: t.colors.textMuted }}>Drawdown</p>
-            <p className="text-[13px] font-mono" style={{ color: stats.dd > 5 ? t.colors.danger : t.colors.textSecondary }}>
-              {stats.dd > 0 ? `${stats.dd.toFixed(1)}%` : "0.0%"}
-            </p>
+            {/* If drawdown > 50 % the HWM is almost certainly stale (set under the old
+                triple-count equity formula).  Show STALE instead of the misleading number. */}
+            {stats.dd > 50 ? (
+              <p
+                className="text-[13px] font-mono"
+                style={{ color: t.colors.warning }}
+                title="HWM not reset since equity formula changed; run scripts/reset_hwm.py to recompute"
+              >
+                STALE
+              </p>
+            ) : (
+              <p className="text-[13px] font-mono" style={{ color: stats.dd > 5 ? t.colors.danger : t.colors.textSecondary }}>
+                {stats.dd > 0 ? `-${stats.dd.toFixed(1)}%` : "0.0%"}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-[11px]" style={{ color: t.colors.textMuted }}>24h</p>
@@ -236,12 +257,30 @@ export function EquityCurve() {
 
       {/* Chart container — always rendered so the ResizeObserver target exists */}
       <div ref={containerRef} className="w-full" style={{ minHeight: 220 }}>
+        {/* Empty/loading overlay — hidden once chart has data to draw */}
         {(loading || snapshots.length === 0) && (
           <div
-            className="flex items-center justify-center"
+            className="flex flex-col items-center justify-center gap-2"
             style={{ height: 220, color: t.colors.textDim, fontSize: 13 }}
           >
-            {loading ? "Loading equity data..." : "No equity history yet — starts accumulating on first daemon tick"}
+            {loading ? (
+              <span>Loading equity data…</span>
+            ) : (
+              <>
+                <span style={{ color: t.colors.textMuted }}>Building history…</span>
+                {stats.current > 0 && (
+                  <span
+                    className="text-[22px] font-semibold font-mono"
+                    style={{ color: t.colors.text }}
+                  >
+                    ${stats.current.toFixed(2)}
+                  </span>
+                )}
+                <span className="text-[11px]" style={{ color: t.colors.textDim }}>
+                  History accumulates on each daemon tick
+                </span>
+              </>
+            )}
           </div>
         )}
       </div>

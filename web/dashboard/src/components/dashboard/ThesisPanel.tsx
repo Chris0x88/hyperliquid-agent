@@ -23,7 +23,17 @@ function ConvictionBar({ conviction, effective }: { conviction: number; effectiv
 }
 
 function ThesisCard({ market, thesis }: { market: string; thesis: ThesisData }) {
-  const ageDisplay = thesis.age_hours < 24 ? `${thesis.age_hours.toFixed(1)}h ago` : `${(thesis.age_hours / 24).toFixed(1)}d ago`;
+  // Cap the display at "STALE (>14d)" when age is implausibly large — the stored
+  // last_evaluation_ts can be a wrong-year value if the thesis was seeded before
+  // the clock was correct, making the raw day count misleading (e.g. "372d ago"
+  // when the file was touched 7 days ago).  Once a thesis is past the stale
+  // threshold the exact count has no operational value.
+  const ageDisplay =
+    thesis.age_hours > 336  // > 14 days — well past stale; cap the number
+      ? "STALE (>14d)"
+      : thesis.age_hours < 24
+        ? `${thesis.age_hours.toFixed(1)}h ago`
+        : `${(thesis.age_hours / 24).toFixed(1)}d ago`;
   const dirColor = thesis.direction === "long" ? t.colors.success : thesis.direction === "short" ? t.colors.danger : t.colors.textMuted;
 
   return (

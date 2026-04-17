@@ -268,9 +268,12 @@ function ThesisEditorCard({
 
       {/* Meta row */}
       <div className="mt-3 text-[11px]" style={{ color: t.colors.textDim }}>
-        Last updated {thesis.age_hours < 24
-          ? `${thesis.age_hours.toFixed(1)}h ago`
-          : `${(thesis.age_hours / 24).toFixed(1)}d ago`}
+        Last updated{" "}
+        {thesis.age_hours > 336
+          ? "STALE (>14d)"
+          : thesis.age_hours < 24
+            ? `${thesis.age_hours.toFixed(1)}h ago`
+            : `${(thesis.age_hours / 24).toFixed(1)}d ago`}
       </div>
     </div>
   );
