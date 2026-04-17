@@ -89,6 +89,13 @@ export const getStrategies = () => fetchJSON<StrategiesResponse>("/strategies/")
 export const getOilBotState = () => fetchJSON<OilBotStateResponse>("/strategies/oil-botpattern/state");
 export const getOilBotJournal = (limit = 20) => fetchJSON<OilBotJournalResponse>(`/strategies/oil-botpattern/journal?limit=${limit}`);
 export const getOilBotConfig = () => fetchJSON<OilBotConfigResponse>("/strategies/oil-botpattern/config");
+export const getStrategyRegistry = () => fetchJSON<StrategyRegistryResponse>("/strategies/registry");
+export const getOilBotDetail = () => fetchJSON<OilBotDetailResponse>("/strategies/oil-botpattern/detail");
+export const getOilBotActivity = (limit = 20) => fetchJSON<OilBotActivityResponse>(`/strategies/oil-botpattern/activity?limit=${limit}`);
+export const getOilBotShadowSummary = () => fetchJSON<ShadowSummaryResponse>("/strategies/oil-botpattern/shadow-summary");
+export const getLabStatus = () => fetchJSON<LabStatusResponse>("/strategies/lab/status");
+export const runLabBacktest = (market: string, archetype: string, params?: Record<string, unknown>) =>
+  postJSON<BacktestResult>("/strategies/lab/backtest", { market, archetype, params });
 
 // Types
 export interface AccountStatus {
@@ -125,7 +132,7 @@ export interface HealthData {
   daemon: {
     tier: string;
     tick_count: number;
-    daily_pnl: number;
+    daily_pnl: number | null;
     total_trades: number;
   };
   telemetry: Record<string, unknown>;
@@ -160,6 +167,16 @@ export interface Iterator {
   tiers: string[];
   enabled: boolean;
   has_config: boolean;
+  // Rich description fields (added 2026-04-17)
+  description: string | null;
+  purpose: string | null;
+  kill_switch_impact: string | null;
+  inputs: string[];
+  outputs: string[];
+  category: string;
+  tier_set: string[];
+  config_path: string;
+  source_file: string | null;
 }
 
 export interface ThesesResponse {
@@ -227,6 +244,18 @@ export interface StrategyInfo {
   brakes_tripped: number;
   brakes: StrategyBrakes;
   instruments: string[];
+  shadow_pnl?: {
+    seed_balance_usd: number;
+    current_balance_usd: number;
+    realised_pnl_usd: number;
+    pnl_pct: number;
+    win_rate: number;
+    closed_trades: number;
+    wins: number;
+    losses: number;
+    last_updated_at: string | null;
+  } | null;
+  last_activity?: string | null;
 }
 
 export interface StrategiesResponse {
@@ -505,6 +534,14 @@ export interface WalletRow {
   xyz_equity: number;
   free_margin: number;
   spot_balances: { coin: string; total: number }[];
+  /** Vault-specific: operator's share of vault equity (null if not vault or API unavailable) */
+  vault_your_equity: number | null;
+  /** Vault-specific: sum of all third-party follower equity (null if not vault or API unavailable) */
+  vault_third_party_equity: number | null;
+  /** Vault-specific: number of external participants deposited in vault */
+  vault_participant_count: number | null;
+  /** Vault-specific: operator's fractional ownership 0.0–1.0 */
+  vault_leader_fraction: number | null;
 }
 
 export interface AccountLedger {
@@ -591,4 +628,162 @@ export interface DetailedPosition {
 
 export interface DetailedPositionsResponse {
   positions: DetailedPosition[];
+}
+
+// ─── Strategy Registry ────────────────────────────────────────────────────────
+
+export interface RegistryEntry {
+  id: string;
+  name: string;
+  status: "LIVE" | "SHADOW" | "PAUSED" | "DORMANT";
+  markets: string[];
+  purpose: string;
+  last_activity?: string | null;
+  last_tick?: number | null;
+  shadow_pnl_usd?: number | null;
+  shadow_trades?: number;
+  shadow_win_rate?: number | null;
+  simulate?: boolean;
+}
+
+export interface StrategyRegistryResponse {
+  live: RegistryEntry[];
+  parked: RegistryEntry[];
+  library: RegistryEntry[];
+  counts: { live: number; parked: number; library: number };
+}
+
+// ─── Oil Bot Pattern detail ───────────────────────────────────────────────────
+
+export interface SubSystemDetail {
+  id: number;
+  name: string;
+  label: string;
+  description: string;
+  data_in: string[];
+  data_out: string[];
+  enabled: boolean;
+  has_config: boolean;
+}
+
+export interface Sub6Layer {
+  id: string;
+  name: string;
+  file: string;
+  description: string;
+  what_it_produces: string;
+  safe_to_enable: string;
+  enabled: boolean;
+  has_config: boolean;
+}
+
+export interface ShadowBalance {
+  seed_balance_usd: number;
+  current_balance_usd: number;
+  realised_pnl_usd: number;
+  pnl_pct: number;
+  win_rate: number;
+  closed_trades: number;
+  wins: number;
+  losses: number;
+  last_updated_at: string | null;
+}
+
+export interface OilBotDetailResponse {
+  config: Record<string, unknown>;
+  state: Record<string, unknown>;
+  shadow_balance: ShadowBalance;
+  shadow_positions: Record<string, unknown>[];
+  sub_systems: SubSystemDetail[];
+  sub6_layers: Sub6Layer[];
+  patternlib_state: Record<string, unknown>;
+  recent_shadow_trades: ShadowTrade[];
+}
+
+export interface ShadowTrade {
+  instrument: string;
+  side: string;
+  entry_price: number;
+  exit_price: number;
+  pnl_usd: number;
+  roe_pct: number;
+  exit_reason: string;
+  edge: number;
+  hold_hours: number;
+  entry_ts: string;
+  exit_ts: string;
+}
+
+// ─── Oil Bot Activity ─────────────────────────────────────────────────────────
+
+export interface ActivityItem {
+  type: "decision" | "shadow_trade";
+  ts: string | null;
+  instrument: string | null;
+  action: string | null;
+  reason?: string | null;
+  price_progress?: number | null;
+  pnl_usd?: number | null;
+  roe_pct?: number | null;
+  edge?: number | null;
+  hold_hours?: number | null;
+}
+
+export interface OilBotActivityResponse {
+  activity: ActivityItem[];
+  count: number;
+}
+
+// ─── Shadow Summary ───────────────────────────────────────────────────────────
+
+export interface ShadowSummaryResponse {
+  balance: ShadowBalance;
+  positions: Record<string, unknown>[];
+  recent_trades: ShadowTrade[];
+}
+
+// ─── Lab Engine ───────────────────────────────────────────────────────────────
+
+export interface LabArchetype {
+  id: string;
+  description: string;
+  params: Record<string, unknown>;
+  signals: string[];
+  suitable_for: string[];
+  wired: boolean;
+}
+
+export interface LabExperiment {
+  id: string;
+  market: string;
+  strategy: string;
+  params: Record<string, unknown>;
+  backtest_metrics: Record<string, number>;
+  backtest_trades: number;
+  paper_pnl: number;
+  paper_trades: number;
+  paper_metrics: Record<string, number>;
+  graduation_passed: boolean;
+  graduation_notes: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface LabStatusResponse {
+  enabled: boolean;
+  graduation_thresholds: Record<string, number>;
+  kanban: Record<string, LabExperiment[]>;
+  archetypes: LabArchetype[];
+  approved_markets: string[];
+}
+
+export interface BacktestResult {
+  experiment_id: string | null;
+  market: string;
+  archetype: string;
+  status: string;
+  metrics: Record<string, number>;
+  trades: number;
+  params: Record<string, unknown>;
+  error?: string;
 }
