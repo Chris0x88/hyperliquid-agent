@@ -7,6 +7,7 @@ import {
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
+  AreaSeries,
   type IChartApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
@@ -15,6 +16,7 @@ import {
   type HistogramData,
   type Time,
   type SeriesMarker,
+  type SeriesType,
 } from "lightweight-charts";
 import { theme as t } from "@/lib/theme";
 import { sma, ema, bollingerBands } from "@/lib/indicators";
@@ -23,13 +25,22 @@ import {
   getAccountStatus,
   getChartMarkers,
   getChartOverlay,
+  computeChartSignal,
   type Position,
   type NewsMarker,
   type TradeMarker,
   type LessonMarker,
   type ChartMarkersResponse,
   type ChartOverlayResponse,
+  type SignalResult,
+  type SignalMarker,
 } from "@/lib/api";
+import SignalTogglePanel, {
+  loadActiveSlugs,
+  saveActiveSlugs,
+  resolveSignalColor,
+  type SignalToggleState,
+} from "@/components/charts/SignalTogglePanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -282,6 +293,13 @@ interface ChartHandle {
   updateTick: (candles: Candle[]) => void;
   setMarkers: (markers: SeriesMarker<Time>[]) => void;
   drawPositionLines: (positions: Position[]) => void;
+  /** Add or update a signal series. Idempotent — calling twice with the
+   *  same slug replaces the existing data. */
+  upsertSignal: (result: SignalResult) => void;
+  /** Remove a signal series + any marker plugin it owns. */
+  removeSignal: (slug: string) => void;
+  /** Remove all signal series (used on coin/interval change before refetch). */
+  clearSignals: () => void;
 }
 
 // ─── Popover ──────────────────────────────────────────────────────────────────
@@ -444,6 +462,41 @@ function CandleChart({
     // handle we keep so we can removePriceLine() on update.
     const positionPriceLines: Array<ReturnType<typeof candleSeries.createPriceLine>> = [];
 
+    // Phase 4 — signal registry: slug → series + optional markers plugin.
+    // Sub-pane signals get their own pane (lightweight-charts v5 addPane).
+    // Sub-pane index is allocated on first use and reused across re-fetches
+    // for the same slug so the pane doesn't flicker.
+    interface SignalEntry {
+      series: ISeriesApi<SeriesType>;
+      markersPlugin: ISeriesMarkersPluginApi<Time> | null;
+      paneIndex: number; // 0 = main, >0 = sub-pane
+    }
+    const signalEntries = new Map<string, SignalEntry>();
+    // Track next free pane index. Pane 0 is always the main price pane.
+    let nextPaneIndex = 1;
+
+    const mapMarkerShape = (shape: string): "circle" | "square" | "arrowUp" | "arrowDown" => {
+      switch (shape) {
+        case "arrowUp":
+        case "arrowDown":
+        case "circle":
+        case "square":
+          return shape;
+        default:
+          return "circle";
+      }
+    };
+    const mapMarkerPosition = (p: string): "aboveBar" | "belowBar" | "inBar" => {
+      switch (p) {
+        case "aboveBar":
+        case "belowBar":
+        case "inBar":
+          return p;
+        default:
+          return "aboveBar";
+      }
+    };
+
     handleRef.current = {
       updateTick: (tickCandles: Candle[]) => {
         for (const c of tickCandles) {
@@ -500,6 +553,163 @@ function CandleChart({
           // Today we render entry + liq only — those are the highest-value
           // levels and don't need a second API call.
         }
+      },
+
+      // ── Signal series management (Phase 4) ────────────────────────────
+      upsertSignal: (result: SignalResult) => {
+        if (!chartRef.current || !result.chart_spec) return;
+        const spec = result.chart_spec;
+        const slug = result.slug;
+        const color = resolveSignalColor(spec.color);
+
+        // Convert [timestamp_ms, value] → {time, value} (seconds).
+        const lineData: LineData[] = [];
+        const histData: HistogramData[] = [];
+        for (const [tsMs, v] of result.values) {
+          if (v === null || v === undefined || Number.isNaN(v)) continue;
+          const time = Math.floor(tsMs / 1000) as Time;
+          if (spec.series_type === "histogram") {
+            histData.push({ time, value: v, color });
+          } else {
+            lineData.push({ time, value: v });
+          }
+        }
+
+        // Resolve an existing entry (refresh-in-place) or allocate a new one.
+        let entry = signalEntries.get(slug);
+
+        if (entry) {
+          // Refresh data on the existing series.
+          if (spec.series_type === "histogram") {
+            (entry.series as ISeriesApi<"Histogram">).setData(histData);
+          } else {
+            (entry.series as ISeriesApi<"Line" | "Area">).setData(lineData);
+          }
+        } else {
+          // Allocate a pane for sub-pane placements. v5 supports addPane().
+          let paneIndex = 0;
+          if (spec.placement === "subpane") {
+            paneIndex = nextPaneIndex++;
+            try {
+              chartRef.current.addPane(true);
+            } catch {
+              // If addPane is unavailable for any reason we fall back to
+              // drawing on pane 0 with a dedicated priceScaleId — still
+              // gives a distinct axis, just not a split frame.
+              paneIndex = 0;
+            }
+          }
+
+          // Build series-type-specific options. priceScaleId isolates the
+          // signal's scale from price so an oscillator doesn't squash candles.
+          const priceScaleId =
+            spec.placement === "subpane"
+              ? `signal-${slug}`
+              : spec.axis === "price"
+                ? "right"
+                : `signal-${slug}`;
+
+          const commonOpts = {
+            color,
+            lineWidth: 2 as const,
+            priceScaleId,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: spec.series_name || slug,
+          };
+
+          let series: ISeriesApi<SeriesType>;
+          try {
+            if (spec.series_type === "histogram") {
+              series = chartRef.current.addSeries(
+                HistogramSeries,
+                { color, priceScaleId, priceFormat: { type: "volume" } },
+                paneIndex,
+              ) as ISeriesApi<SeriesType>;
+              (series as ISeriesApi<"Histogram">).setData(histData);
+            } else if (spec.series_type === "area") {
+              series = chartRef.current.addSeries(
+                AreaSeries,
+                {
+                  lineColor: color,
+                  topColor: color,
+                  bottomColor: `${color}10`,
+                  priceScaleId,
+                  lastValueVisible: true,
+                  priceLineVisible: false,
+                },
+                paneIndex,
+              ) as ISeriesApi<SeriesType>;
+              (series as ISeriesApi<"Area">).setData(lineData);
+            } else {
+              // line, band, markers-only → line series (markers-only series
+              // still needs a line to anchor the marker plugin; we draw it
+              // with lineWidth 0 / transparent by using the color alpha
+              // — but lightweight-charts doesn't render empty lines, so
+              // we keep a faint visible line).
+              series = chartRef.current.addSeries(
+                LineSeries,
+                commonOpts,
+                paneIndex,
+              ) as ISeriesApi<SeriesType>;
+              (series as ISeriesApi<"Line">).setData(lineData);
+            }
+          } catch (e) {
+            console.warn(`Signal ${slug} failed to render:`, e);
+            return;
+          }
+
+          entry = { series, markersPlugin: null, paneIndex };
+          signalEntries.set(slug, entry);
+        }
+
+        // Markers — use the markers plugin on the signal series so they
+        // align with the signal's own scale/pane.
+        if (result.markers && result.markers.length > 0) {
+          const mapped: SeriesMarker<Time>[] = result.markers.map((m: SignalMarker) => ({
+            time: Math.floor(m.time / 1000) as Time,
+            position: mapMarkerPosition(m.position),
+            color: resolveSignalColor(m.color || spec.color),
+            shape: mapMarkerShape(m.shape),
+            text: m.text,
+            size: 1,
+          }));
+          mapped.sort((a, b) => (a.time as number) - (b.time as number));
+          if (!entry.markersPlugin) {
+            entry.markersPlugin = createSeriesMarkers(entry.series, mapped);
+          } else {
+            entry.markersPlugin.setMarkers(mapped);
+          }
+        } else if (entry.markersPlugin) {
+          entry.markersPlugin.setMarkers([]);
+        }
+      },
+
+      removeSignal: (slug: string) => {
+        const entry = signalEntries.get(slug);
+        if (!entry || !chartRef.current) return;
+        try {
+          entry.markersPlugin?.detach();
+        } catch { /* plugin already detached */ }
+        try {
+          chartRef.current.removeSeries(entry.series);
+        } catch { /* already removed */ }
+        // Note: we deliberately don't remove the pane — v5 keeps an empty
+        // pane around and re-toggling the same signal will reuse it via
+        // nextPaneIndex. Panes are cheap; removing them mid-session causes
+        // layout jumps.
+        signalEntries.delete(slug);
+      },
+
+      clearSignals: () => {
+        for (const slug of [...signalEntries.keys()]) {
+          const entry = signalEntries.get(slug);
+          if (!entry || !chartRef.current) continue;
+          try { entry.markersPlugin?.detach(); } catch { /* */ }
+          try { chartRef.current.removeSeries(entry.series); } catch { /* */ }
+          signalEntries.delete(slug);
+        }
+        nextPaneIndex = 1;
       },
     };
 
@@ -1278,6 +1488,106 @@ function buildChartMarkers(
   return out;
 }
 
+// ─── Signal meta strip (Phase 4) ──────────────────────────────────────────────
+// One compact line per active signal, showing the current value / state
+// pulled from SignalResult.meta. Format is intentionally terse — the idea
+// is to fit an OBV, RSI, and CVD reading on one row without wrapping.
+
+function formatMetaValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return "—";
+    const abs = Math.abs(v);
+    if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+    if (abs >= 1_000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+    if (abs >= 1) return v.toFixed(2);
+    return v.toFixed(4);
+  }
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  return String(v);
+}
+
+function summarizeMeta(result: SignalResult): string {
+  const parts: string[] = [];
+  const meta = result.meta ?? {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === "object") continue; // skip nested
+    parts.push(`${k}=${formatMetaValue(v)}`);
+  }
+  if (result.markers && result.markers.length > 0) {
+    parts.push(`${result.markers.length} markers`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "(no meta)";
+}
+
+function SignalMetaStrip({
+  results,
+  activeSlugs,
+}: {
+  results: Record<string, SignalResult>;
+  activeSlugs: Set<string>;
+}) {
+  const rows = [...activeSlugs]
+    .map((slug) => results[slug])
+    .filter((r): r is SignalResult => !!r);
+
+  return (
+    <div
+      className="mt-2 rounded-xl overflow-hidden"
+      style={{ border: `1px solid ${t.colors.border}`, background: t.colors.surface }}
+    >
+      <div
+        className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider"
+        style={{
+          color: t.colors.textMuted,
+          borderBottom: `1px solid ${t.colors.border}`,
+          fontFamily: t.fonts.heading,
+        }}
+      >
+        Signal readouts ({rows.length})
+      </div>
+      <div className="divide-y" style={{ borderColor: t.colors.borderLight }}>
+        {rows.length === 0 && (
+          <div className="px-3 py-2 text-[11px]" style={{ color: t.colors.textDim }}>
+            Awaiting compute…
+          </div>
+        )}
+        {rows.map((r) => {
+          const name = r.card?.name ?? r.slug;
+          const color = resolveSignalColor(r.chart_spec?.color ?? "textMuted");
+          return (
+            <div
+              key={r.slug}
+              className="px-3 py-1.5 flex items-center gap-2 text-[11px]"
+              style={{ borderTop: `1px solid ${t.colors.borderLight}` }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ background: color }}
+              />
+              <span
+                className="flex-shrink-0"
+                style={{ color: t.colors.text, minWidth: 140 }}
+                title={r.slug}
+              >
+                {name}
+              </span>
+              <span
+                className="truncate"
+                style={{ color: t.colors.textMuted, fontFamily: t.fonts.mono }}
+                title={summarizeMeta(r)}
+              >
+                {summarizeMeta(r)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ChartsPage() {
@@ -1300,6 +1610,16 @@ export default function ChartsPage() {
   const [markerToggles, setMarkerToggles] = useState<Record<MarkerKey, boolean>>(MARKER_DEFAULTS);
   useEffect(() => {
     setMarkerToggles(loadMarkerToggles());
+  }, []);
+
+  // Phase 4 — signal toggles (per-market localStorage). `signalRegistry`
+  // is populated by SignalTogglePanel after the initial registry fetch so
+  // the parent can look up card/spec when rehydrating active slugs on mount.
+  const [activeSignalSlugs, setActiveSignalSlugs] = useState<Set<string>>(new Set());
+  const [signalResults, setSignalResults] = useState<Record<string, SignalResult>>({});
+  const signalRegistryRef = useRef<Map<string, SignalToggleState>>(new Map());
+  const handleSignalRegistryLoaded = useCallback((reg: Map<string, SignalToggleState>) => {
+    signalRegistryRef.current = reg;
   }, []);
   const toggleMarker = useCallback((key: MarkerKey) => {
     setMarkerToggles((prev) => {
@@ -1390,6 +1710,81 @@ export default function ChartsPage() {
     }, 3_000);
     return () => window.clearInterval(id);
   }, [market, interval]);
+
+  // ── Phase 4 — signal management ───────────────────────────────────────────
+  // Hydrate active slugs from localStorage whenever the market changes.
+  // The registry load is the other gate — but the panel owns that fetch,
+  // so we tolerate it being empty on first render (re-fetch hook below).
+  useEffect(() => {
+    const loaded = loadActiveSlugs(market);
+    setActiveSignalSlugs(loaded);
+    // Clear old series on market change. The effect below will then
+    // re-fetch compute() for the hydrated active set.
+    chartHandleRef.current?.clearSignals();
+    setSignalResults({});
+  }, [market]);
+
+  // Toggle handler — persist and let the compute effect pick up the change.
+  const handleSignalToggle = useCallback(
+    (slug: string, enabled: boolean) => {
+      setActiveSignalSlugs((prev) => {
+        const next = new Set(prev);
+        if (enabled) next.add(slug);
+        else next.delete(slug);
+        saveActiveSlugs(market, next);
+        return next;
+      });
+      if (!enabled) {
+        chartHandleRef.current?.removeSignal(slug);
+        setSignalResults((prev) => {
+          if (!(slug in prev)) return prev;
+          const { [slug]: _drop, ...rest } = prev;
+          void _drop;
+          return rest;
+        });
+      }
+    },
+    [market],
+  );
+
+  // Fetch + re-fetch compute() for the full active set whenever:
+  //   • the active slug set changes
+  //   • the coin or interval changes (via candle refetch tick below)
+  // We also re-fetch on every 3s tick so sub-pane oscillators move with price.
+  const fetchActiveSignals = useCallback(async () => {
+    if (activeSignalSlugs.size === 0) return;
+    const slugs = [...activeSignalSlugs];
+    const results = await Promise.allSettled(
+      slugs.map((slug) => computeChartSignal(slug, market, interval, 500)),
+    );
+    const patch: Record<string, SignalResult> = {};
+    for (let i = 0; i < slugs.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled") {
+        patch[slugs[i]] = r.value;
+        chartHandleRef.current?.upsertSignal(r.value);
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      setSignalResults((prev) => ({ ...prev, ...patch }));
+    }
+  }, [activeSignalSlugs, market, interval]);
+
+  // Fire on active-set / coin / interval change.
+  useEffect(() => {
+    fetchActiveSignals();
+  }, [fetchActiveSignals]);
+
+  // Fire on 3s tick — piggyback on the existing tick cadence instead of
+  // wiring a second timer. Keeps code footprint small; fetchActiveSignals
+  // is a no-op when the set is empty.
+  useEffect(() => {
+    if (activeSignalSlugs.size === 0) return;
+    const id = window.setInterval(() => {
+      fetchActiveSignals();
+    }, 3_000);
+    return () => window.clearInterval(id);
+  }, [fetchActiveSignals, activeSignalSlugs.size]);
 
   const toggleIndicator = (key: keyof IndicatorState) =>
     setIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1513,8 +1908,16 @@ export default function ChartsPage() {
         </div>
       </div>
 
-      {/* ── Main layout: chart + right sidebar ───────────────────────────── */}
+      {/* ── Main layout: signal panel + chart + right sidebar ────────────── */}
       <div className="flex gap-4 items-start">
+        {/* Left: signal toggle panel (Phase 4) */}
+        <SignalTogglePanel
+          coin={market}
+          activeSlugs={activeSignalSlugs}
+          onToggle={handleSignalToggle}
+          onRegistryLoaded={handleSignalRegistryLoaded}
+        />
+
         {/* Chart column */}
         <div className="flex-1 min-w-0 space-y-0">
           {/* Chart card */}
@@ -1715,6 +2118,11 @@ export default function ChartsPage() {
               </div>
             )}
           </div>
+
+          {/* Phase 4 — Signal meta strip (one line per active signal) */}
+          {activeSignalSlugs.size > 0 && (
+            <SignalMetaStrip results={signalResults} activeSlugs={activeSignalSlugs} />
+          )}
         </div>
 
         {/* Right sidebar */}

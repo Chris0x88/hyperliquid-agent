@@ -97,6 +97,86 @@ export const getLogHistory = (source: string, lines = 200) =>
 // News
 export const getCatalysts = (limit = 50) => fetchJSON(`/news/catalysts?limit=${limit}`);
 
+// Signals (Phase 4 — dashboard chart toggle panel)
+export type SignalCategory =
+  | "volume"
+  | "structure"
+  | "momentum"
+  | "regime"
+  | "trend"
+  | "accumulation";
+export type SignalPlacement = "overlay" | "subpane";
+export type SignalSeriesType = "line" | "histogram" | "area" | "markers" | "band";
+export type SignalAxis = "price" | "percent" | "raw" | "oscillator";
+
+export interface SignalCard {
+  name: string;
+  slug: string;
+  category: SignalCategory;
+  what: string;
+  basis: string;
+  how_to_read: string;
+  failure_modes: string;
+  inputs: string;
+  params: Record<string, unknown>;
+}
+
+export interface ChartSpec {
+  placement: SignalPlacement;
+  series_type: SignalSeriesType;
+  color: string;
+  axis: SignalAxis;
+  series_name: string;
+  priority: number;
+}
+
+export interface SignalMarker {
+  time: number;         // unix ms from backend
+  position: "aboveBar" | "belowBar" | "inBar";
+  color: string;
+  shape: "circle" | "square" | "arrowUp" | "arrowDown";
+  text?: string;
+}
+
+export interface SignalResult {
+  slug: string;
+  values: [number, number][];  // [timestamp_ms, value]
+  markers: SignalMarker[];
+  meta: Record<string, unknown>;
+  card: SignalCard | null;
+  chart_spec: ChartSpec | null;
+  coin?: string;
+  interval?: string;
+  bar_count?: number;
+}
+
+export interface SignalsListResponse {
+  signals: { card: SignalCard; chart_spec: ChartSpec }[];
+}
+
+export interface SignalsByCategoryResponse {
+  categories: Record<string, { card: SignalCard; chart_spec: ChartSpec }[]>;
+}
+
+// Note: `getSignals` is already taken by the alerts feed below (line ~417).
+// The chart-signal (Phase 4) fetchers use `ChartSignals` naming to avoid a
+// name collision while following the existing getX() convention.
+export const getChartSignals = () =>
+  fetchJSON<SignalsListResponse>("/signals/");
+export const getChartSignalsByCategory = () =>
+  fetchJSON<SignalsByCategoryResponse>("/signals/by-category");
+export const getChartSignalCard = (slug: string) =>
+  fetchJSON<{ card: SignalCard; chart_spec: ChartSpec }>(`/signals/${slug}/card`);
+export const computeChartSignal = (
+  slug: string,
+  coin: string,
+  interval = "1h",
+  limit = 500,
+) =>
+  fetchJSON<SignalResult>(
+    `/signals/${slug}/compute?coin=${encodeURIComponent(coin)}&interval=${interval}&limit=${limit}`,
+  );
+
 // Charts
 export const getCandles = (coin: string, interval = "1h", limit = 500) =>
   fetchJSON<CandleResponse>(`/charts/candles/${coin}?interval=${interval}&limit=${limit}`);

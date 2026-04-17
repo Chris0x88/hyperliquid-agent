@@ -44,6 +44,8 @@ from common.signals.registry import (
 # Eagerly import signal sub-packages so their @register decorators fire.
 # Each sub-package imports its individual signals in its __init__.py.
 from common.signals import volume  # noqa: F401
+from common.signals import accumulation  # noqa: F401
+from common.signals import regime  # noqa: F401
 
 __all__ = [
     "Candle",
