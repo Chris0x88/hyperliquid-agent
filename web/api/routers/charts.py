@@ -547,13 +547,54 @@ async def get_chart_markers(
         finally:
             conn2.close()
 
-    # ── Entry critique markers — stub until entry_critic writes to DB ─────────
-    critique_markers: list[dict] = [{
-        "time": 0,
-        "type": "critique",
-        "stub": True,
-        "message": "Entry critiques not yet wired to chart markers. Available when entry_critic writes post-mortem rows to memory.db.",
-    }] if not lesson_markers else []
+    # ── Entry critique markers — read directly from entry_critiques.jsonl ─────
+    # The daemon iterator (and scripts/critique_position.py) write post-mortem
+    # rows here on every new entry. We don't need a memory.db migration —
+    # the jsonl is small enough to read tail-N per request.
+    critique_markers: list[dict] = []
+    try:
+        critiques_path = DATA_DIR / "research" / "entry_critiques.jsonl"
+        if critiques_path.exists():
+            # Bounded read — last 200 critiques is plenty (< 50KB typically)
+            tail_reader = FileEventReader(critiques_path)
+            for c in tail_reader.read_latest(200):
+                inst = c.get("instrument", "")
+                # Coin-name normalisation (xyz: prefix bug — handled by helper)
+                if not _coin_matches(canonical, [inst]):
+                    continue
+                created_at = c.get("created_at", "")
+                try:
+                    import datetime as dt
+                    ts = dt.datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    continue
+                if ts * 1000 < cutoff_ms:
+                    continue
+                grade = c.get("grade", {}) or {}
+                # Compose a compact summary for the marker tooltip
+                pass_count = grade.get("pass_count", 0)
+                warn_count = grade.get("warn_count", 0)
+                fail_count = grade.get("fail_count", 0)
+                overall = grade.get("overall_label", "?")
+                suggestions = grade.get("suggestions") or []
+                critique_markers.append({
+                    "time": int(ts),
+                    "type": "critique",
+                    "instrument": inst,
+                    "direction": c.get("direction", "?"),
+                    "entry_price": c.get("entry_price"),
+                    "entry_qty": c.get("entry_qty"),
+                    "leverage": c.get("leverage"),
+                    "overall_label": overall,
+                    "pass_count": pass_count,
+                    "warn_count": warn_count,
+                    "fail_count": fail_count,
+                    "suggestions": suggestions[:3],
+                    "stub": False,
+                })
+    except Exception as exc:
+        log.debug("entry_critiques read failed: %s", exc)
+    critique_markers.sort(key=lambda x: x["time"])
 
     return {
         "market": canonical,

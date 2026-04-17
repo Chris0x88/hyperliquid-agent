@@ -391,7 +391,18 @@ export interface CritiqueMarker {
   time: number;
   type: "critique";
   stub: boolean;
-  message?: string;
+  message?: string;          // present only on stub rows
+  // Live critique fields (when stub=false)
+  instrument?: string;
+  direction?: string;
+  entry_price?: number;
+  entry_qty?: number;
+  leverage?: number;
+  overall_label?: string;     // "GREAT" | "GOOD" | "MIXED ENTRY" | "RISKY" | etc.
+  pass_count?: number;
+  warn_count?: number;
+  fail_count?: number;
+  suggestions?: string[];
 }
 
 export interface ChartMarkersResponse {

@@ -213,25 +213,30 @@ function IndicatorToggle({
 // Persists to localStorage so toggle state survives reload + nav.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type MarkerKey = "news" | "trades" | "lessons";
+type MarkerKey = "news" | "trades" | "lessons" | "critiques";
 
 const MARKER_DEFAULTS: Record<MarkerKey, boolean> = {
   news: true,
-  trades: false,   // Default OFF — these were the "DEL" stack the operator
-                   // explicitly complained about. Easy to turn on, off by default.
+  trades: false,    // Default OFF — these were the "DEL" stack the operator
+                    // explicitly complained about. Easy to turn on, off by default.
   lessons: false,
+  critiques: true,  // Default ON — entry critiques are highest signal/noise
+                    // ratio (one per new entry, with grade) and surface
+                    // bot's read on the operator's trade decision.
 };
 
 const MARKER_LABELS: Record<MarkerKey, string> = {
   news: "News",
   trades: "Trade actions",
   lessons: "Lessons",
+  critiques: "Critiques",
 };
 
 const MARKER_COLORS: Record<MarkerKey, string> = {
-  news: "#3b82f6",  // blue
-  trades: "#a78bfa",  // violet — distinct from SL red and TP green
-  lessons: "#facc15",  // amber
+  news: "#3b82f6",      // blue
+  trades: "#a78bfa",    // violet — distinct from SL red and TP green
+  lessons: "#facc15",   // amber
+  critiques: "#14b8a6", // teal — distinct from everything else
 };
 
 const MARKER_LS_KEY = "charts.markerToggles.v1";
@@ -939,14 +944,63 @@ function LessonsTab({ markersData }: { markersData: ChartMarkersResponse | null 
 }
 
 function CritiquesTab({ markersData }: { markersData: ChartMarkersResponse | null }) {
-  const stubMsg = markersData?.critiques.find((c) => c.stub)?.message;
+  const critiques = (markersData?.critiques ?? []).filter((c) => !c.stub);
+  if (critiques.length === 0) {
+    return (
+      <EmptyState message="No entry critiques yet for this market in the selected window. Critiques are written automatically by the daemon when a new position appears, OR run scripts/critique_position.py --coin <COIN> to grade an existing position on demand." />
+    );
+  }
+  // Newest-first
+  const sorted = [...critiques].sort((a, b) => b.time - a.time);
   return (
-    <EmptyState
-      message={
-        stubMsg ??
-        "Entry critique markers are not yet wired to chart markers. Available when entry_critic writes post-mortem rows to memory.db."
-      }
-    />
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 py-3">
+      {sorted.map((c) => {
+        const passes = c.pass_count ?? 0;
+        const warns = c.warn_count ?? 0;
+        const fails = c.fail_count ?? 0;
+        const label = c.overall_label || "?";
+        const labelColor =
+          label.toUpperCase().includes("RISK") || label.toUpperCase().includes("BAD") || fails >= 1 ? t.colors.danger
+          : label.toUpperCase().includes("MIXED") || warns >= 2 ? t.colors.warning
+          : label.toUpperCase().includes("GOOD") || label.toUpperCase().includes("GREAT") || passes >= 3 ? t.colors.success
+          : t.colors.textMuted;
+        return (
+          <div
+            key={`${c.instrument}-${c.time}`}
+            className="rounded-lg p-3"
+            style={{ background: t.colors.surfaceHover, border: `1px solid ${t.colors.border}` }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[12px] font-semibold" style={{ color: t.colors.text }}>
+                {c.instrument} {(c.direction || "").toUpperCase()}
+                {c.leverage ? ` · ${c.leverage}x` : ""}
+              </span>
+              <span
+                className="text-[10px] font-semibold px-2 py-0.5 rounded"
+                style={{ background: `${labelColor}22`, color: labelColor, border: `1px solid ${labelColor}66` }}
+              >
+                {label}
+              </span>
+            </div>
+            <p className="text-[11px] mb-1.5" style={{ color: t.colors.textMuted }}>
+              Entry ${c.entry_price?.toFixed(2) ?? "?"} · qty {c.entry_qty?.toFixed(4) ?? "?"} · {fmtTs(c.time)}
+            </p>
+            <p className="text-[11px] font-mono" style={{ color: t.colors.textDim }}>
+              {passes} pass · {warns} warn · {fails} fail
+            </p>
+            {c.suggestions && c.suggestions.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {c.suggestions.slice(0, 3).map((s, i) => (
+                  <li key={i} className="text-[11px]" style={{ color: t.colors.textMuted }}>
+                    • {s}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1079,6 +1133,30 @@ function buildChartMarkers(
         color: l.pnl_usd >= 0 ? t.colors.success : t.colors.danger,
         shape: "square",
         text: "L",
+        size: 1,
+      });
+    }
+  }
+
+  if (toggles.critiques) {
+    for (const c of markersData.critiques) {
+      if (c.stub) continue;
+      // Colour the critique by overall_label severity:
+      //   GREAT/GOOD = green, MIXED = amber, RISKY/BAD = red, else neutral
+      const label = (c.overall_label || "").toUpperCase();
+      const passes = c.pass_count ?? 0;
+      const warns = c.warn_count ?? 0;
+      const fails = c.fail_count ?? 0;
+      let color = MARKER_COLORS.critiques; // teal default
+      if (label.includes("GREAT") || label.includes("GOOD") || passes >= 3) color = t.colors.success;
+      else if (label.includes("RISK") || label.includes("BAD") || fails >= 1) color = t.colors.danger;
+      else if (label.includes("MIXED") || warns >= 2) color = t.colors.warning;
+      out.push({
+        time: c.time as Time,
+        position: "belowBar",
+        color,
+        shape: "square",
+        text: `EC${passes}/${warns}/${fails}`,
         size: 1,
       });
     }
@@ -1412,10 +1490,11 @@ export default function ChartsPage() {
                 Markers
               </span>
               {(Object.keys(MARKER_DEFAULTS) as MarkerKey[]).map((key) => {
-                const counts = {
+                const counts: Record<MarkerKey, number> = {
                   news: markersData?.news.length ?? 0,
                   trades: markersData?.trades.length ?? 0,
                   lessons: markersData?.lessons.length ?? 0,
+                  critiques: (markersData?.critiques ?? []).filter((c) => !c.stub).length,
                 };
                 return (
                   <MarkerToggle
