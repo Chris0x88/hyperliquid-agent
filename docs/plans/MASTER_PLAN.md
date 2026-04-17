@@ -23,6 +23,8 @@ contract, the authority model, and the historical-oracles vision.**
 
 ## Current Reality (always reflects HEAD)
 
+**Last reality-aligned: 2026-04-17 (evening) — major hardening + Phase 2 + Phase 3a session.**
+
 | | |
 |---|---|
 | **Production tier** | WATCH (mainnet, launchd-managed) |
@@ -34,7 +36,11 @@ contract, the authority model, and the historical-oracles vision.**
 | **Daemon iterators** | See `daemon/iterators/` and `daemon/tiers.py` |
 | **Telegram commands** | See `def cmd_*` in `telegram/bot.py` and `telegram/commands/*.py` |
 | **Memory.db backups** | Hourly atomic snapshots in `data/memory/backups/` (24h/7d/4w retention) |
-| **Lesson corpus** | Wired end-to-end; awaiting first real closed trade |
+| **Lesson corpus** | Wired end-to-end; schema mismatch fixed 2026-04-17 (10 closed CL trades had been silently dropped — `_normalize_journal_row` in lesson_author now maps trade_id↔entry_id). Candidate→lesson consumer iterator still pending. |
+| **Phase 2 — Checklist framework** | Shipped 2026-04-17 — `engines/checklist/` + `/evening` + `/morning` + sweep_detector. Deterministic Python, zero AI. Per-market YAML configs in `data/checklist/`. |
+| **Phase 3a — Dashboard charts page** | Shipped 2026-04-17 — full rebuild scaffold with markers (news/trade/lesson), liq heatmap zones, manipulation overlay, contextual help. Sweep_risk score stubbed pending Phase 2 wire-in. |
+| **Portfolio risk monitor** | Shipped 2026-04-17 — alert-only cumulative open-risk cap (8% warn, 10% throttle entries). Kill switch off by default. |
+| **Entry Critic visibility** | Shipped 2026-04-17 — Telegram `/critique` + `GET /api/critiques/` + Dashboard `EntryCritiquePanel` widget. Deterministic, no AI. |
 | **Oil Bot Pattern System** | Sub-systems 1-5 SHIPPED, sub-system 6 L1+L2 SHIPPED — kill switches OFF on the trading paths |
 | **News → Thesis Pipeline** | thesis_challenger (mechanical) + thesis_updater (Haiku-powered) — both shipped 2026-04-10, registered all tiers |
 | **Self-improvement engines** | Context Engine, Lab Engine, Architect Engine — shipped 2026-04-10, kill switches OFF |
