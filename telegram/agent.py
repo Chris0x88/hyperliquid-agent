@@ -2220,6 +2220,27 @@ def _call_anthropic(messages: List[Dict], tools: Optional[list] = None, model_ov
 
             resp = client.messages.create(**kwargs)
 
+            # ── Cost gate: record token usage + write to state.json ────────
+            # Wires the dashboard's "Tokens: X / 200,000" display + enforces
+            # session/per-turn budgets. Best-effort: never breaks the chat
+            # loop on tracking failure. (Was dead code before 2026-04-17 —
+            # check_cost_usage existed in agent/runtime.py but no caller.)
+            try:
+                from agent.runtime import check_cost_usage
+                usage_dict: dict = {}
+                if getattr(resp, "usage", None):
+                    usage_dict = {
+                        "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
+                        "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
+                    }
+                breach_reason = check_cost_usage(usage_dict)
+                if breach_reason:
+                    log.warning("Cost-budget breach: %s — agent will abort.", breach_reason)
+                    # AgentControl.abort() already called inside check_cost_usage;
+                    # downstream loop checks the flag on next boundary.
+            except Exception as cost_err:
+                log.debug("Cost tracking failed (non-fatal): %s", cost_err)
+
             # Convert SDK response to OpenAI-compatible format.
             # Filter out whitespace-only text blocks — Anthropic emits empty
             # text blocks alongside tool_use sometimes, and storing them

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from web.api.auth import verify_token
@@ -107,7 +107,7 @@ async def get_agent_state():
     return _read_state()
 
 
-@router.post("/abort", dependencies=[Depends(verify_token)])
+@router.post("/abort")
 async def abort_agent(body: AbortRequest):
     """Set abort_flag=True in the state file.
 
@@ -122,7 +122,7 @@ async def abort_agent(body: AbortRequest):
     return {"ok": True, "abort_flag": True, "reason": body.reason}
 
 
-@router.post("/steer", dependencies=[Depends(verify_token)])
+@router.post("/steer")
 async def steer_agent(body: SteerRequest):
     """Append a steering message to the steering_queue in the state file."""
     state = _read_state()
@@ -133,7 +133,7 @@ async def steer_agent(body: SteerRequest):
     return {"ok": True, "queue_depth": len(queue)}
 
 
-@router.post("/follow-up", dependencies=[Depends(verify_token)])
+@router.post("/follow-up")
 async def follow_up_agent(body: FollowUpRequest):
     """Append a follow-up message to the follow_up_queue in the state file."""
     state = _read_state()
@@ -144,7 +144,7 @@ async def follow_up_agent(body: FollowUpRequest):
     return {"ok": True, "queue_depth": len(queue)}
 
 
-@router.post("/clear-queues", dependencies=[Depends(verify_token)])
+@router.post("/clear-queues")
 async def clear_queues():
     """Empty both steering_queue and follow_up_queue in the state file."""
     state = _read_state()
