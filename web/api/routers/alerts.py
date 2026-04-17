@@ -78,13 +78,44 @@ def _normalise_disruption(e: dict) -> dict:
     }
 
 
-def _normalise_bot_pattern(e: dict) -> dict:
+def _normalise_bot_pattern(e: dict) -> dict | None:
+    """Normalise a bot_classifier row into an alert.
+
+    Returns None for "unclear" classifications — those are the classifier
+    saying "I don't see a pattern here," NOT an actionable signal. They
+    were the largest noise source on the alerts page (10s per hour). Only
+    emit when the classifier has actual conviction.
+    """
+    classification = (e.get("classification") or "").lower()
+    if classification in ("", "unclear"):
+        return None
+
+    # Severity ladder by classification — bot_driven_overextension is what
+    # sub-system 5 cares about most; informed/mixed are weaker signals.
+    severity_map = {
+        "bot_driven_overextension": "high",
+        "bot_driven": "high",
+        "informed": "medium",
+        "mixed": "low",
+    }
+    severity = severity_map.get(classification, "medium")
+
+    # Confidence floor: skip low-conviction emissions even when the label
+    # would otherwise rate. Mirrors the daemon iterator's _maybe_alert
+    # threshold (0.75) but admits a bit lower for visibility on the page.
+    try:
+        if float(e.get("confidence", 0)) < 0.60:
+            return None
+    except (TypeError, ValueError):
+        pass
+
     return {
         "id": e.get("id", ""),
         "type": "bot_pattern",
-        "severity": "medium",
+        "severity": severity,
         "market": e.get("market") or e.get("instrument", ""),
-        "summary": e.get("classification") or e.get("pattern_type") or "Bot-driven move detected",
+        "summary": classification.replace("_", " ").title()
+                   + (f" — conf {float(e.get('confidence', 0)):.2f}" if e.get("confidence") else ""),
         "detail": e.get("notes") or e.get("description", ""),
         "source": "bot_classifier",
         "timestamp": _ts(e),
@@ -152,7 +183,9 @@ async def get_alerts(limit: int = 50):
     for entry in _disruptions.read_latest(limit):
         combined.append(_normalise_disruption(entry))
     for entry in _bot_patterns.read_latest(limit):
-        combined.append(_normalise_bot_pattern(entry))
+        normalised = _normalise_bot_pattern(entry)
+        if normalised is not None:
+            combined.append(normalised)
     for entry in _errors.read_latest(limit):
         combined.append(_normalise_error(entry))
     for entry in _catalysts.read_latest(limit):
@@ -171,7 +204,9 @@ async def get_signals(limit: int = 30):
     """Bot-pattern signals and heatmap zone updates."""
     signals: list[dict] = []
     for entry in _bot_patterns.read_latest(limit):
-        signals.append(_normalise_bot_pattern(entry))
+        normalised = _normalise_bot_pattern(entry)
+        if normalised is not None:
+            signals.append(normalised)
     for entry in _zones.read_latest(limit):
         signals.append(_normalise_zone(entry))
     signals.sort(key=lambda x: x["timestamp"], reverse=True)
