@@ -104,29 +104,22 @@ async def get_account_status():
     Positions use HL API field names (szi, entryPx, unrealizedPnl, etc.) so the
     dashboard PositionCards component can render them without NaN.
 
-    EQUITY CALCULATION — unified account:
-    On a HyperLiquid unified account the xyz clearinghouse margin is pooled with
-    spot. Summing native_equity + xyz_equity + spot_usdc triple-counts: the xyz
-    collateral shows in both xyz_equity AND spot_usdc.
-
-    Correct formula: spot_usdc (unified USDC balance) + sum(uPnL for every open
-    position across all clearinghouses).  spot_usdc already embeds all collateral;
-    uPnL layers in open-position gains/losses that haven't settled yet.
+    EQUITY CALCULATION (REVERTED 2026-04-17):
+    Earlier in the session we tried to "fix" a perceived triple-count by using
+    `spot_usdc + Σ uPnL`. That formula collapsed the operator's true
+    multi-wallet equity (~$580 across main + vault) to ~$21 by ignoring the
+    vault wallet entirely. Per the operator: the original per-wallet sum
+    (`native + xyz + spot_usdc` summed across ALL configured wallets) was
+    very close to right, just had a few cleanup edges. Reverted. The bundle
+    `total_equity` returned by fetch_registered_account_state already sums
+    each wallet's row including main + vault + subs.
     """
     bundle = fetch_registered_account_state()
     if not bundle.get("accounts"):
         return {"error": "No wallet configured", "equity": 0, "positions": [], "spot": []}
 
     acct = bundle.get("account", {})
-
-    # spot_usdc = unified USDC balance (includes xyz locked collateral — same
-    # pool in unified mode).  Add all open-position uPnL on top.
-    spot_usdc = _as_float(acct.get("spot_usdc"))
-    total_upnl = sum(
-        _as_float((p.get("raw") or {}).get("unrealizedPnl", p.get("upnl", 0)))
-        for p in bundle.get("positions", [])
-    )
-    equity = round(spot_usdc + total_upnl, 2)
+    equity = round(_as_float(acct.get("total_equity")), 2)
 
     positions = [_build_position(p) for p in bundle.get("positions", [])]
 

@@ -88,18 +88,29 @@ def fetch_wallet_state(address: str, role: str, label: Optional[str] = None) -> 
                 }
             )
 
-    # EQUITY FORMULA — unified account
-    # On a HyperLiquid unified account the perp clearinghouses (native + xyz)
-    # share collateral with spot USDC. Naively summing native_equity +
-    # xyz_equity + spot_usdc TRIPLE-COUNTS: the same USDC backs all three
-    # surfaces.  The correct formula is `spot_usdc + Σ(uPnL across all open
-    # positions)` — spot_usdc already embeds the cross-collateral, uPnL adds
-    # the unsettled position gains/losses.  See web/api/routers/account.py for
-    # the canonical reference.  Pre-2026-04-17 the buggy sum was used here
-    # and rippled into every command + daemon iterator that consumed
-    # total_equity. Fix: compute it once, here, the right way.
-    total_upnl = sum(p["upnl"] for p in positions)
-    total_equity = spot_usdc + total_upnl
+    # EQUITY FORMULA (REVERTED 2026-04-17 — see below)
+    # The pre-existing formula `native_equity + xyz_equity + spot_usdc`
+    # was very close to right per the operator. Today's earlier "triple-
+    # count fix" replaced it with `spot_usdc + Σ uPnL`, which:
+    #   - Ignored vault wallets entirely (this account has a vault with
+    #     ~$550 of operator funds + ~$27 from other participants).
+    #   - Reduced reported equity from ~$580 effective → ~$21 phantom.
+    #   - Cascaded into portfolio_risk_monitor calibration, dashboard
+    #     widgets (drawdown showed -85% because HWM was set under the
+    #     prior formula), and every iterator that uses ctx.total_equity.
+    # Rolled back. Per-wallet sum is the right per-wallet value;
+    # fetch_registered_account_state() then sums across wallets, which
+    # gives the correct total INCLUDING vault, since each wallet row is
+    # computed independently by fetch_wallet_state.
+    # Future cleanup (low priority, separate change):
+    #   - Vault per-participant share: subtract other-participant equity
+    #     from the vault wallet total to get HIS portion only. Today it
+    #     reports the FULL vault including other participants — small
+    #     overstatement, no functional risk.
+    #   - True unified-account double-count detection: for accounts where
+    #     spot USDC is genuinely the same pool as perp margin (rare in
+    #     practice for this user), document the edge case rather than
+    #     silently changing the formula.
     return {
         "role": role,
         "label": label or role.title(),
@@ -108,11 +119,7 @@ def fetch_wallet_state(address: str, role: str, label: Optional[str] = None) -> 
         "xyz_equity": xyz_equity,
         "spot_usdc": spot_usdc,
         "spot_balances": spot_balances,
-        "total_equity": total_equity,
-        # Legacy raw sum kept under a separate key for any caller that
-        # genuinely needs the per-clearinghouse totals (e.g. attribution
-        # display). Prefer total_equity for risk math.
-        "total_equity_raw_sum": native_equity + xyz_equity + spot_usdc,
+        "total_equity": native_equity + xyz_equity + spot_usdc,
         "positions": positions,
     }
 
