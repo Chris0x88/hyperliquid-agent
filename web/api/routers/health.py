@@ -58,7 +58,11 @@ async def get_health():
         "daemon": {
             "tier": daemon_state.get("tier", "unknown"),
             "tick_count": daemon_state.get("tick_count", 0),
-            "daily_pnl": daemon_state.get("daily_pnl", 0),
+            # Return None when the daemon state file has no daily_pnl entry or
+            # the value is exactly 0.0 (which is the file initialisation default,
+            # not a real realized-PnL reading).  The UI renders None as "—" so
+            # the operator isn't misled into thinking a round-trip has been made.
+            "daily_pnl": daemon_state.get("daily_pnl") if daemon_state.get("daily_pnl") else None,
             "total_trades": daemon_state.get("total_trades", 0),
         },
         "telemetry": telemetry,

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -18,6 +19,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from common.account_state import fetch_registered_account_state
+from common.account_resolver import resolve_vault_address
 from agent.tool_functions import live_price, get_orders, check_funding
 from web.api.auth import verify_token
 from web.api.dependencies import DATA_DIR
@@ -30,6 +32,57 @@ _memory_db = SqliteReader(DATA_DIR / "memory" / "memory.db")
 _HWM_PATH = DATA_DIR / "snapshots" / "hwm.json"
 # Working state — written by heartbeat/account_collector with atr_cache + positions
 _WORKING_STATE_PATH = DATA_DIR / "memory" / "working_state.json"
+
+_HL_INFO_URL = "https://api.hyperliquid.xyz/info"
+
+
+def _fetch_vault_breakdown(vault_address: str) -> Optional[dict]:
+    """Fetch vault participant breakdown from the HL public info API.
+
+    Returns a dict with:
+        your_equity          — leader (operator) share of vault equity
+        third_party_equity   — sum of all follower shares
+        participant_count    — total follower count (includes leader as 1 participant)
+        leader_fraction      — operator's fractional ownership (0.0-1.0)
+
+    Returns None on any network or parse error — callers must handle gracefully.
+    """
+    try:
+        resp = _requests.post(
+            _HL_INFO_URL,
+            json={"type": "vaultDetails", "vaultAddress": vault_address},
+            timeout=8,
+        )
+        if not resp.ok:
+            return None
+        d = resp.json()
+        # followers list includes both leader and external depositors.
+        # The HL API lists leader equity first with user == leader_address
+        # or we can use leaderFraction to compute the split.
+        leader_fraction = float(d.get("leaderFraction", 0))
+        # Sum all follower equity to get total vault equity from the API
+        followers = d.get("followers") or []
+        total_from_followers = sum(float(f.get("vaultEquity", 0)) for f in followers)
+
+        leader_entry = d.get("leader") or {}
+        your_equity = float(leader_entry.get("vaultEquity") or (leader_fraction * total_from_followers))
+
+        third_party = total_from_followers - your_equity
+        # participant count = followers who are NOT the leader
+        leader_addr = (d.get("leader") or {}).get("user", "").lower()
+        external_participants = [
+            f for f in followers
+            if (f.get("user") or "").lower() != leader_addr
+        ]
+
+        return {
+            "your_equity": round(your_equity, 2),
+            "third_party_equity": round(max(third_party, 0.0), 2),
+            "participant_count": len(external_participants),
+            "leader_fraction": round(leader_fraction, 6),
+        }
+    except Exception:
+        return None
 
 
 def _as_float(v) -> float:
@@ -172,6 +225,13 @@ async def get_account_ledger():
     acct = bundle.get("account", {})
     total_equity = round(_as_float(acct.get("total_equity")), 2)
 
+    # Vault breakdown — fetched once from HL public API so the UI can show
+    # your_equity vs third_party_equity vs participant_count without hardcoding.
+    vault_addr = resolve_vault_address()
+    vault_breakdown: Optional[dict] = None
+    if vault_addr:
+        vault_breakdown = _fetch_vault_breakdown(vault_addr)
+
     # Per-wallet breakdown: each row already has native_equity, xyz_equity,
     # spot_usdc, spot_balances, positions from fetch_wallet_state().
     wallet_rows = []
@@ -207,24 +267,29 @@ async def get_account_ledger():
         perps_equity = native_eq + xyz_eq
         free_margin = round(max(perps_equity - total_margin_wallet, 0.0), 2)
 
-        wallet_rows.append(
-            {
-                "role": row.get("role"),
-                "label": row.get("label"),
-                "address": row.get("address", ""),
-                "native_equity": native_eq,
-                "xyz_equity": xyz_eq,
-                "spot_usdc": spot_usdc_val,
-                "spot_assets": spot_assets_val,
-                "total_equity": wallet_total,
-                "free_margin": free_margin,
-                "margin_used": total_margin_wallet,
-                "spot_balances": row.get("spot_balances", []),
-                "position_count": len(wallet_positions),
-                # Flag vault so UI shows "(includes ~$27 other-participant funds)" note
-                "is_vault": row.get("role") == "vault",
-            }
-        )
+        is_vault = row.get("role") == "vault"
+
+        entry: dict = {
+            "role": row.get("role"),
+            "label": row.get("label"),
+            "address": row.get("address", ""),
+            "native_equity": native_eq,
+            "xyz_equity": xyz_eq,
+            "spot_usdc": spot_usdc_val,
+            "spot_assets": spot_assets_val,
+            "total_equity": wallet_total,
+            "free_margin": free_margin,
+            "margin_used": total_margin_wallet,
+            "spot_balances": row.get("spot_balances", []),
+            "position_count": len(wallet_positions),
+            "is_vault": is_vault,
+            # Vault-specific breakdown (None when not a vault or API unavailable)
+            "vault_your_equity": vault_breakdown.get("your_equity") if (is_vault and vault_breakdown) else None,
+            "vault_third_party_equity": vault_breakdown.get("third_party_equity") if (is_vault and vault_breakdown) else None,
+            "vault_participant_count": vault_breakdown.get("participant_count") if (is_vault and vault_breakdown) else None,
+            "vault_leader_fraction": vault_breakdown.get("leader_fraction") if (is_vault and vault_breakdown) else None,
+        }
+        wallet_rows.append(entry)
 
     # Unrealized PnL per open position — sourced directly from HL
     unrealized_by_coin: dict[str, float] = {}

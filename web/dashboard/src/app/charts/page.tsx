@@ -845,6 +845,119 @@ function BottomPanel({
   );
 }
 
+// ── TradesTab helpers ────────────────────────────────────────────────────────
+
+/** Known action type categories for colour-coded badges. */
+const _ACTION_BADGE: Record<string, { bg: string; text: string; border: string }> = {
+  // Entries / adds
+  place_order:         { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  market_order:        { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  limit_order:         { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  position_opened:     { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  manual_entry:        { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  buy:                 { bg: "#0e2e1a", text: "#4ade80", border: "#166534" },
+  scale_in:            { bg: "#0e2e1a", text: "#86efac", border: "#166534" },
+  conviction_dip_add:  { bg: "#0e2e1a", text: "#86efac", border: "#166534" },
+  // Exits / trims
+  position_closed:     { bg: "#2e0e0e", text: "#f87171", border: "#7f1d1d" },
+  manual_exit:         { bg: "#2e0e0e", text: "#f87171", border: "#7f1d1d" },
+  sell:                { bg: "#2e0e0e", text: "#f87171", border: "#7f1d1d" },
+  scale_out:           { bg: "#2e0e0e", text: "#fca5a5", border: "#7f1d1d" },
+  conviction_profit_take: { bg: "#2e0e0e", text: "#fca5a5", border: "#7f1d1d" },
+  spike_profit:        { bg: "#2e0e0e", text: "#fca5a5", border: "#7f1d1d" },
+};
+
+function ActionBadge({ action }: { action: string }) {
+  const key = action.toLowerCase();
+  const style = _ACTION_BADGE[key] ?? { bg: t.colors.surface, text: t.colors.textSecondary, border: t.colors.border };
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap"
+      style={{ background: style.bg, color: style.text, border: `1px solid ${style.border}` }}
+    >
+      {action.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+/** Extract the most interesting fields from a detail object into brief human text. */
+function fmtDetailCells(detail: Record<string, unknown>): { summary: string; hasExtra: boolean } {
+  const parts: string[] = [];
+  const d = detail as Record<string, number | string | undefined>;
+
+  // Price fields
+  if (d.price !== undefined) parts.push(`@ $${Number(d.price).toFixed(2)}`);
+  if (d.stop_price !== undefined) parts.push(`SL $${Number(d.stop_price).toFixed(2)}`);
+  if (d.tp_price !== undefined) parts.push(`TP $${Number(d.tp_price).toFixed(2)}`);
+
+  // Size fields
+  if (d.size_added !== undefined) parts.push(`+${d.size_added}`);
+  if (d.size_closed !== undefined) parts.push(`−${d.size_closed}`);
+
+  // Leverage change
+  if (d.prev_leverage !== undefined && d.new_leverage !== undefined) {
+    parts.push(`${d.prev_leverage}x→${d.new_leverage}x`);
+  }
+
+  // Conviction / spike
+  if (d.conviction !== undefined) parts.push(`conv ${Number(d.conviction).toFixed(2)}`);
+  if (d.spike_pct !== undefined) parts.push(`spike +${Number(d.spike_pct).toFixed(1)}%`);
+
+  const knownKeys = new Set(["price","stop_price","tp_price","size_added","size_closed","prev_leverage","new_leverage","conviction","spike_pct","market","action","reason","oid"]);
+  const extraKeys = Object.keys(detail).filter(k => !knownKeys.has(k));
+
+  return {
+    summary: parts.length > 0 ? parts.join("  ") : "—",
+    hasExtra: extraKeys.length > 0,
+  };
+}
+
+function TradeDetailCell({ tr }: { tr: TradeMarker }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const { summary, hasExtra } = fmtDetailCells(tr.detail);
+
+  return (
+    <td className="py-1.5 pr-4" style={{ maxWidth: 260 }}>
+      <div className="flex flex-col gap-0.5">
+        {/* Primary: reasoning if present, otherwise parsed summary */}
+        {tr.reasoning ? (
+          <span className="truncate text-[11px]" style={{ color: t.colors.textMuted }} title={tr.reasoning}>
+            {tr.reasoning}
+          </span>
+        ) : (
+          <span className="text-[11px]" style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>
+            {summary}
+          </span>
+        )}
+        {/* Secondary: parsed summary when reasoning present */}
+        {tr.reasoning && summary !== "—" && (
+          <span className="text-[10px]" style={{ color: t.colors.textDim, fontFamily: t.fonts.mono }}>
+            {summary}
+          </span>
+        )}
+        {/* Show raw toggle when extra fields exist */}
+        {(hasExtra || Object.keys(tr.detail).length > 0) && (
+          <button
+            onClick={() => setShowRaw(v => !v)}
+            className="text-[10px] text-left w-fit"
+            style={{ color: t.colors.primary, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          >
+            {showRaw ? "hide raw ▲" : "show raw ▾"}
+          </button>
+        )}
+        {showRaw && (
+          <pre
+            className="text-[9px] mt-0.5 p-1.5 rounded overflow-x-auto"
+            style={{ background: t.colors.bg, color: t.colors.textDim, border: `1px solid ${t.colors.borderLight}`, maxWidth: 300, whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+          >
+            {JSON.stringify(tr.detail, null, 2)}
+          </pre>
+        )}
+      </div>
+    </td>
+  );
+}
+
 function TradesTab({ markersData }: { markersData: ChartMarkersResponse | null }) {
   if (!markersData || markersData.trades.length === 0) {
     return (
@@ -856,24 +969,22 @@ function TradesTab({ markersData }: { markersData: ChartMarkersResponse | null }
     <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
       <thead>
         <tr style={{ color: t.colors.textDim }}>
-          <th className="text-left pb-2 pr-4 font-medium">Time (AEST)</th>
+          <th className="text-left pb-2 pr-4 font-medium whitespace-nowrap">Time (AEST)</th>
           <th className="text-left pb-2 pr-4 font-medium">Action</th>
-          <th className="text-left pb-2 pr-4 font-medium">Detail</th>
+          <th className="text-left pb-2 pr-4 font-medium">Detail / Reason</th>
           <th className="text-left pb-2 font-medium">Outcome</th>
         </tr>
       </thead>
       <tbody>
         {trades.map((tr: TradeMarker, i) => (
           <tr key={i} style={{ borderTop: `1px solid ${t.colors.borderLight}` }}>
-            <td className="py-1.5 pr-4" style={{ color: t.colors.textMuted, fontFamily: t.fonts.mono }}>
+            <td className="py-1.5 pr-4 whitespace-nowrap" style={{ color: t.colors.textMuted, fontFamily: t.fonts.mono }}>
               {fmtTs(tr.time)}
             </td>
-            <td className="py-1.5 pr-4" style={{ color: t.colors.text }}>
-              {tr.action}
+            <td className="py-1.5 pr-4">
+              <ActionBadge action={tr.action} />
             </td>
-            <td className="py-1.5 pr-4 max-w-xs truncate" style={{ color: t.colors.textMuted }}>
-              {tr.reasoning || JSON.stringify(tr.detail).slice(0, 80)}
-            </td>
+            <TradeDetailCell tr={tr} />
             <td className="py-1.5" style={{ color: t.colors.textDim }}>
               {tr.outcome || "—"}
             </td>

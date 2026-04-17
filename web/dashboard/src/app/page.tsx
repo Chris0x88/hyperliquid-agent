@@ -1,6 +1,6 @@
 import { EquityLedger } from "@/components/dashboard/EquityLedger";
 import { EquityCurve } from "@/components/dashboard/EquityCurve";
-import { HealthPanel } from "@/components/dashboard/HealthPanel";
+import { HealthBanner } from "@/components/dashboard/HealthPanel";
 import { DetailedPositionCards } from "@/components/dashboard/DetailedPositionCards";
 import { ThesisPanel } from "@/components/dashboard/ThesisPanel";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
@@ -10,8 +10,8 @@ import { EntryCritiquePanel } from "@/components/dashboard/EntryCritiquePanel";
 export default function DashboardPage() {
   return (
     <div className="p-8 space-y-6 max-w-[1400px]">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header — includes the System Health status strip inline */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-semibold"
             style={{ color: "#f3f4f6", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
@@ -21,20 +21,12 @@ export default function DashboardPage() {
             Real-time trading system overview
           </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px]"
-          style={{ background: "#1e1f26", color: "#7E756F", border: "1px solid #353849" }}>
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#22c55e", boxShadow: "0 0 4px #22c55e" }} />
-          Auto-refreshing
-        </div>
+        {/* System Health — collapsed to a thin status strip next to the title */}
+        <HealthBanner />
       </div>
 
-      {/* Row 1: Equity Ledger + Health */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        <div className="lg:col-span-2">
-          <EquityLedger />
-        </div>
-        <HealthPanel />
-      </div>
+      {/* Row 1: Equity Ledger — now spans full width since Health moved to banner */}
+      <EquityLedger />
 
       {/* Row 2: Equity curve */}
       <EquityCurve />

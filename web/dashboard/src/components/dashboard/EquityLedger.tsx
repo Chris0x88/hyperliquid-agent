@@ -280,9 +280,29 @@ function WalletSection({ row }: { row: WalletRow }) {
           <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>{fmt(row.free_margin)}</span>
         </div>
         {row.is_vault && (
-          <p className="col-span-2 text-[10px] mt-0.5" style={{ color: t.colors.textDim }}>
-            * includes ~$27 of other-participant funds
-          </p>
+          <>
+            {/* Vault participant breakdown — sourced from HL vaultDetails API */}
+            {row.vault_your_equity !== null ? (
+              <>
+                <div className="flex justify-between col-span-2 mt-0.5 pt-0.5" style={{ borderTop: `1px solid ${t.colors.borderLight}` }}>
+                  <span style={{ color: t.colors.textMuted }}>Your share</span>
+                  <span style={{ color: t.colors.success, fontFamily: t.fonts.mono }}>{fmt(row.vault_your_equity)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: t.colors.textMuted }}>3rd-party equity</span>
+                  <span style={{ color: t.colors.textSecondary, fontFamily: t.fonts.mono }}>{fmt(row.vault_third_party_equity)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: t.colors.textMuted }}>Participants</span>
+                  <span style={{ color: t.colors.textSecondary, fontFamily: t.fonts.mono }}>{row.vault_participant_count ?? "—"}</span>
+                </div>
+              </>
+            ) : (
+              <p className="col-span-2 text-[10px] mt-0.5" style={{ color: t.colors.textDim }}>
+                Vault detail unavailable — HL API participant breakdown not reachable
+              </p>
+            )}
+          </>
         )}
       </div>
 
@@ -453,17 +473,32 @@ export function EquityLedger() {
           <div className="flex items-center gap-4 py-1 text-[12px]" style={{ borderBottom: `1px solid ${t.colors.border}` }}>
             <span className="font-medium" style={{ color: t.colors.textMuted, minWidth: 100 }}>HWM</span>
             <span style={{ color: t.colors.textSecondary }}>
-              <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>{fmt(hwm.value)}</span>
-              {hwmDate && (
-                <span style={{ color: t.colors.textDim }}> (set {hwmDate})</span>
-              )}
-              {hwm.drawdown_pct !== null && (
-                <span style={{ color: t.colors.textSecondary }}>
-                  &nbsp;·&nbsp;Drawdown&nbsp;
-                  <span style={{ color: drawdownColor, fontFamily: t.fonts.mono }}>
-                    {fmtPct(hwm.drawdown_pct, 2)}
-                  </span>
+              {/* Flag stale HWM: if HWM is much lower than current equity it was
+                  set before the equity formula was corrected (pre-2026-04-17).
+                  Threshold: HWM < 20% of total equity → clearly stale. */}
+              {hwm.value !== null && total_equity > 0 && hwm.value < total_equity * 0.2 ? (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-semibold mr-1"
+                  style={{ background: t.colors.warningLight, color: t.colors.warning, border: `1px solid ${t.colors.warningBorder}` }}
+                  title="HWM was set before the equity formula was corrected. Reset it to today's equity."
+                >
+                  STALE — reset recommended
                 </span>
+              ) : (
+                <>
+                  <span style={{ color: t.colors.text, fontFamily: t.fonts.mono }}>{fmt(hwm.value)}</span>
+                  {hwmDate && (
+                    <span style={{ color: t.colors.textDim }}> (set {hwmDate})</span>
+                  )}
+                  {hwm.drawdown_pct !== null && (
+                    <span style={{ color: t.colors.textSecondary }}>
+                      &nbsp;·&nbsp;Drawdown&nbsp;
+                      <span style={{ color: drawdownColor, fontFamily: t.fonts.mono }}>
+                        {fmtPct(hwm.drawdown_pct, 2)}
+                      </span>
+                    </span>
+                  )}
+                </>
               )}
             </span>
             <button

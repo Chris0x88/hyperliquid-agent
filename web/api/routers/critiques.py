@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 
 # Ensure agent-cli root is on the import path so common.* works in the same
 # process as the rest of the API.
@@ -26,7 +26,6 @@ _project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from web.api.auth import verify_token
 from web.api.dependencies import DATA_DIR
 
 router = APIRouter()
@@ -39,7 +38,7 @@ def _bare(name: str) -> str:
     return name.upper().replace("XYZ:", "")
 
 
-@router.get("/", dependencies=[Depends(verify_token)])
+@router.get("/")
 async def get_critiques(
     request: Request,
     limit: int = 5,
